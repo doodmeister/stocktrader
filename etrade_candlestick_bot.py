@@ -1,10 +1,10 @@
-""""
+""" 
 ETrade Candlestick Bot
 
 Main bot engine that connects to E*Trade's API, monitors selected stock symbols for bullish candlestick patterns,
 and automatically places trades based on defined risk management rules.
 
-Pattern detection is separated into a 'patterns.py' module.
+Pattern detection is separated into a 'patterns_nn.py' module.
 """
 
 import time
@@ -20,8 +20,8 @@ from dotenv import load_dotenv
 import signal
 import sys
 
-# Import patterns module
-from patterns import CandlestickPatterns
+# Import neural network patterns module
+from patterns_nn import PatternNN
 
 # Configure logging to both file and console for traceability
 logging.basicConfig(
@@ -160,6 +160,7 @@ class StrategyEngine:
         self.positions: Dict[str, Dict] = {}
         self.daily_pl = 0.0
         self.running = True
+        self.pattern_model = PatternNN()  # <-- Initialize the neural network model
         self._setup_signal_handlers()
 
     def _setup_signal_handlers(self):
@@ -209,7 +210,8 @@ class StrategyEngine:
         if symbol in self.positions:
             return
 
-        detected_patterns = CandlestickPatterns.detect_patterns(df)
+        detected_patterns = self.pattern_model.predict(df)  # <-- Updated call to NN model
+
         if detected_patterns:
             if self._check_risk_limits(symbol, df['close'].iloc[-1]):
                 self._enter_position(symbol, df, detected_patterns)

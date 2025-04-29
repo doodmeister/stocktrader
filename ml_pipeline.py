@@ -1,14 +1,6 @@
 # ml_pipeline.py
 """
 Machine Learning Pipeline for Candlestick Pattern Recognition
-
-Steps:
- 1. Fetch and preprocess data
- 2. Generate sequences and labels
- 3. Split into training/validation sets
- 4. Train the PatternNN model
- 5. Evaluate on validation set (accuracy, confusion matrix)
- 6. Save trained model and metrics
 """
 import logging
 import torch
@@ -19,8 +11,9 @@ from typing import Tuple, Dict, Optional
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
 import json
+from etrade_candlestick_bot import ETradeClient
+from patterns_nn import PatternNN
 
-from etrade_candlestick_bot import ETradeClient, PatternNN
 from performance_utils import get_candles_cached
 from model_manager import save_model
 from config import MLConfig
