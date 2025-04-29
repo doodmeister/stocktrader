@@ -1,0 +1,3 @@
+- name: Run tests
+  run: |
+    pytest tests/ -v --cov=backtester

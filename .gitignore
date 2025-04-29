@@ -68,6 +68,7 @@ Thumbs.db
 coverage.xml
 *.cover
 htmlcov/
+model_training.log
 
 # Models
 models/*.pth
