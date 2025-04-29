@@ -63,6 +63,23 @@ class Dashboard:
     def render_sidebar(self) -> Optional[Credentials]:
         st.sidebar.title("⚙️ Configuration")
 
+        # Add prominent environment selector with warning
+        st.sidebar.markdown("### 🔐 Trading Environment")
+        use_sandbox = st.sidebar.radio(
+            "Select Environment",
+            ["Sandbox", "Live"],
+            index=0,
+            help="WARNING: Live trading will use real money!",
+        )
+
+        # Add visual indicator and warning for live environment
+        if use_sandbox == "Live":
+            st.sidebar.error("⚠️ LIVE TRADING ENABLED - Using real money!")
+            confirm_live = st.sidebar.checkbox("I confirm I want to use live trading")
+        else:
+            st.sidebar.success("🔒 Safe Mode - Using Sandbox environment")
+            confirm_live = False
+
         credentials = {
             'consumer_key': st.sidebar.text_input("Consumer Key", type="password"),
             'consumer_secret': st.sidebar.text_input("Consumer Secret", type="password"),
@@ -71,14 +88,15 @@ class Dashboard:
             'account_id': st.sidebar.text_input("Account ID")
         }
 
-        use_sandbox = st.sidebar.radio("Environment", ["Sandbox", "Live"], index=0) == "Sandbox"
+        # Only allow live trading if explicitly confirmed
+        is_sandbox = True if use_sandbox == "Sandbox" or not confirm_live else False
 
         self._render_training_controls()
         self._render_risk_controls()
         self._render_symbol_manager()
 
         if all(credentials.values()):
-            return {**credentials, 'sandbox': use_sandbox}
+            return {**credentials, 'sandbox': is_sandbox}
         return None
 
     def _render_training_controls(self):
