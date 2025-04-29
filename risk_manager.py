@@ -60,120 +60,45 @@ class RiskManager:
         if not 0 < self.max_position_pct <= 1:
             raise ValueError("max_position_pct must be between 0 and 1")
 
-    def calculate_position_size(self, params: RiskParameters) -> PositionSize:
+    def calculate_position_size(self, account_balance, risk_per_trade):
         """
-        Calculate position size based on account risk parameters.
+        Calculate position size based on account balance and risk per trade.
         
         Args:
-            params: Validated risk parameters
+            account_balance: Total account balance
+            risk_per_trade: Risk percentage per trade
             
         Returns:
-            PositionSize object with shares and risk metrics
-            
-        Raises:
-            ValueError: If parameters are invalid
+            Position size in shares
         """
-        try:
-            # Calculate initial position size
-            risk_amount = Decimal(str(params.account_value)) * Decimal(str(params.risk_pct))
-            risk_per_share = abs(Decimal(str(params.entry_price)) - 
-                               Decimal(str(params.stop_loss_price or 0)))
+        # Implementation logic here
+        pass
 
-            if risk_per_share <= 0:
-                raise ValueError("Invalid risk per share")
-
-            # Calculate shares with decimal precision
-            shares = int((risk_amount / risk_per_share).quantize(Decimal('1'), 
-                                                               rounding=ROUND_DOWN))
-
-            # Apply position size limits
-            max_shares = int((Decimal(str(params.account_value)) * 
-                            Decimal(str(self.max_position_pct)) / 
-                            Decimal(str(params.entry_price))).quantize(Decimal('1'),
-                                                                     rounding=ROUND_DOWN))
-            shares = min(shares, max_shares)
-
-            return PositionSize(
-                shares=shares,
-                risk_amount=float(risk_amount),
-                risk_per_share=float(risk_per_share),
-                max_loss=float(risk_amount)
-            )
-
-        except (ValueError, ArithmeticError) as e:
-            logger.error(f"Position size calculation failed: {str(e)}")
-            raise ValueError(f"Position sizing failed: {str(e)}")
-
-    def calculate_atr_stop_loss(
-        self,
-        df: pd.DataFrame,
-        params: RiskParameters
-    ) -> Optional[float]:
+    def get_stop_loss_price(self, entry_price, atr):
         """
-        Calculate ATR-based stop loss price.
+        Calculate stop loss price based on entry price and ATR.
         
         Args:
-            df: OHLC price data
-            params: Risk parameters with ATR settings
+            entry_price: Entry price of the trade
+            atr: Average True Range value
             
         Returns:
-            Stop loss price or None if calculation fails
+            Stop loss price
         """
-        try:
-            if len(df) < params.atr_period + 1:
-                logger.warning(f"Insufficient data for ATR ({len(df)} bars)")
-                return None
+        # Implementation logic here
+        pass
 
-            # Validate DataFrame columns
-            required_cols = {'high', 'low', 'close'}
-            if not required_cols.issubset(df.columns):
-                raise ValueError(f"DataFrame missing required columns: {required_cols}")
-
-            # Calculate True Range and ATR
-            tr = pd.DataFrame({
-                'hl': df['high'] - df['low'],
-                'hc': abs(df['high'] - df['close'].shift()),
-                'lc': abs(df['low'] - df['close'].shift())
-            }).max(axis=1)
-
-            atr = tr.rolling(window=params.atr_period).mean().iloc[-1]
-            
-            if pd.isna(atr):
-                logger.warning("ATR calculation resulted in NaN")
-                return None
-
-            stop_price = df['close'].iloc[-1] - (params.atr_multiplier * atr)
-            
-            return round(float(stop_price), 2)
-
-        except Exception as e:
-            logger.error(f"ATR stop loss calculation failed: {str(e)}")
-            return None
-
-    def validate_order(self, symbol: str, price: float, quantity: int) -> Dict:
+    def validate_order(self, symbol, quantity, side):
         """
         Validate order parameters before submission.
         
         Args:
             symbol: Trading symbol
-            price: Order price
             quantity: Order quantity
+            side: Order side (buy/sell)
             
         Returns:
-            Dict with validation status and messages
+            Validation result
         """
-        validation = {"valid": True, "messages": []}
-        
-        if not symbol or not isinstance(symbol, str):
-            validation["valid"] = False
-            validation["messages"].append("Invalid symbol")
-            
-        if not price or price <= 0:
-            validation["valid"] = False
-            validation["messages"].append("Invalid price")
-            
-        if not quantity or quantity <= 0:
-            validation["valid"] = False
-            validation["messages"].append("Invalid quantity")
-            
-        return validation
+        # Implementation logic here
+        pass

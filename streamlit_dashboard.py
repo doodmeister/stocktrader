@@ -26,6 +26,26 @@ logger = logging.getLogger(__name__)
 PatternList = List[str]
 Credentials = Dict[str, str]
 
+class ETradeClient:
+    def place_order(self, symbol, side, quantity, order_type, limit_price=None, stop_loss=None):
+        pass
+
+    def get_positions(self):
+        pass
+
+    def get_account_balance(self):
+        pass
+
+class TechnicalIndicators:
+    def get_entry_price(self, symbol):
+        pass
+
+    def get_stop_loss(self, symbol):
+        pass
+
+    def get_risk_reward_ratio(self, entry, stop_loss, target):
+        pass
+
 class DashboardState:
     def __init__(self):
         if 'initialized' not in st.session_state:
@@ -152,9 +172,30 @@ class Dashboard:
     def render_main_content(self, client: ETradeClient):
         st.title("📊 E*Trade Candlestick Strategy Dashboard")
         self._render_metrics_row(client)
+        self._render_positions_section(client)
 
         for symbol in st.session_state.symbols:
             self._render_symbol_section(client, symbol)
+
+    def _render_positions_section(self, client: ETradeClient):
+        st.subheader("Current Positions")
+        try:
+            positions = client.get_positions()
+            if positions:
+                position_df = pd.DataFrame(positions)
+                st.dataframe(position_df)
+                
+                # Add position metrics
+                total_value = position_df['market_value'].sum()
+                daily_pl = position_df['day_pl'].sum()
+                st.metric("Total Position Value", f"${total_value:,.2f}", 
+                         f"{daily_pl:+,.2f}")
+            else:
+                st.info("No open positions")
+                
+        except Exception as e:
+            logger.error(f"Failed to fetch positions: {str(e)}")
+            st.error(f"Failed to fetch positions: {str(e)}")
 
     def _render_symbol_section(self, client: ETradeClient, symbol: str):
         st.markdown(f"---\n### {symbol}")
@@ -208,6 +249,64 @@ class Dashboard:
     def _analyze_patterns(self, df: pd.DataFrame, symbol: str):
         patterns = CandlestickPatterns.detect_patterns(df)
         st.write(f"Detected Patterns for {symbol}: {', '.join(patterns) if patterns else 'None'}")
+
+    def _render_trading_controls(self, symbol: str, client: ETradeClient):
+        st.markdown("### Trading Controls")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            order_type = st.selectbox(
+                "Order Type", 
+                ["MARKET", "LIMIT"],
+                key=f"{symbol}_order_type"
+            )
+            quantity = st.number_input(
+                "Quantity",
+                min_value=1,
+                key=f"{symbol}_quantity"
+            )
+        
+        with col2:
+            if order_type == "LIMIT":
+                limit_price = st.number_input(
+                    "Limit Price",
+                    min_value=0.01,
+                    key=f"{symbol}_limit_price"
+                )
+            
+            if st.button("Place Buy Order", key=f"{symbol}_buy"):
+                self._place_order(client, symbol, "BUY", quantity, order_type, limit_price)
+            if st.button("Place Sell Order", key=f"{symbol}_sell"):
+                self._place_order(client, symbol, "SELL", quantity, order_type, limit_price)
+
+    def _place_order(self, client: ETradeClient, symbol: str, side: str, 
+                     quantity: int, order_type: str, limit_price: float = None):
+        try:
+            # Validate with risk manager first
+            if not self.risk_manager.validate_order(symbol, quantity, side):
+                st.error("Order rejected by risk management rules")
+                return
+                
+            # Get order parameters based on indicators
+            entry_price = self.indicators.get_entry_price(symbol)
+            stop_loss = self.indicators.get_stop_loss(symbol)
+            
+            # Place the order through E*Trade client
+            order_result = client.place_order(
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                order_type=order_type,
+                limit_price=limit_price if order_type == "LIMIT" else None,
+                stop_loss=stop_loss
+            )
+            
+            st.success(f"Order placed successfully: {order_result}")
+            self.notifier.send_order_notification(order_result)
+            
+        except Exception as e:
+            logger.error(f"Failed to place order: {str(e)}")
+            st.error(f"Failed to place order: {str(e)}")
 
     def run(self):
         credentials = self.render_sidebar()
