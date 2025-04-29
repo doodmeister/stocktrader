@@ -24,6 +24,7 @@ from stocktrader.data.data_loader import save_to_csv
 from stocktrader.core.notifier import Notifier
 from stocktrader.utils.validation import sanitize_input
 from stocktrader.utils.io import create_zip_archive
+from stocktrader.train.training_pipeline import run_training
 
 # Configure logging
 logging.basicConfig(
@@ -184,6 +185,24 @@ class DataDashboard:
         # Create ZIP download for multiple files
         if len(self.saved_paths) > 1:
             self.create_zip_download()
+        
+        # Add training trigger
+        train_models = st.checkbox("📚 Train models after fetching?", value=False)
+
+        if train_models:
+            st.subheader("📚 Training Models")
+            for path in self.saved_paths:
+                 # Extract symbol and interval from filename
+                filename = path.stem  # Example: AAPL_1d
+                symbol, interval = filename.split("_")
+                    
+                with st.spinner(f"Training model for {symbol} [{interval}]..."):
+                     try:
+                        run_training(symbol=symbol, interval=interval)
+                        st.success(f"Model trained and saved for {symbol} [{interval}]!")
+                    except Exception as e:
+                        logger.error(f"Training failed for {symbol}: {e}")
+                        st.error(f"Failed to train model for {symbol}")
 
     def process_symbol(
         self,
