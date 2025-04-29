@@ -1,4 +1,4 @@
-"""
+""""
 ETrade Candlestick Bot
 
 Main bot engine that connects to E*Trade's API, monitors selected stock symbols for bullish candlestick patterns,
@@ -54,7 +54,6 @@ class ETradeClient:
         self._validate_credentials()
 
     def _initialize_session(self, consumer_key, consumer_secret, oauth_token, oauth_token_secret):
-        """Establish OAuth1 authenticated session"""
         try:
             self.session = OAuth1Session(
                 client_key=consumer_key,
@@ -67,7 +66,6 @@ class ETradeClient:
             raise
 
     def _validate_credentials(self):
-        """Verify API credentials at startup"""
         try:
             r = self.session.get(f"{self.base_url}/accounts/list")
             r.raise_for_status()
@@ -76,7 +74,6 @@ class ETradeClient:
             raise ValueError("Invalid API credentials") from e
 
     def get_candles(self, symbol, interval="5min", days=1) -> pd.DataFrame:
-        """Fetch candlestick data for a given stock symbol"""
         url = f"{self.base_url}/market/quote/{symbol}/candles"
         params = {"interval": interval, "days": days}
 
@@ -114,7 +111,6 @@ class ETradeClient:
         raise RuntimeError("Failed to fetch candles after retries")
 
     def place_market_order(self, symbol, quantity, instruction="BUY") -> Dict:
-        """Place a market order for a stock"""
         url = f"{self.base_url}/accounts/{self.account_id}/orders/place"
         order = {
             "orderType": "MARKET",
@@ -157,7 +153,6 @@ class ETradeClient:
         raise RuntimeError("Failed to place order after retries")
 
 class StrategyEngine:
-    """Main trading engine to manage strategy execution and risk"""
     def __init__(self, client: ETradeClient, symbols: List[str], config: TradeConfig):
         self.client = client
         self.symbols = symbols
@@ -168,19 +163,16 @@ class StrategyEngine:
         self._setup_signal_handlers()
 
     def _setup_signal_handlers(self):
-        """Attach shutdown handlers"""
         signal.signal(signal.SIGINT, self._shutdown)
         signal.signal(signal.SIGTERM, self._shutdown)
 
     def _shutdown(self, signum, frame):
-        """Handle shutdown gracefully by closing positions"""
         logger.info("Shutdown signal received, closing positions...")
         self.running = False
         self._close_all_positions()
         sys.exit(0)
 
     def _close_all_positions(self):
-        """Close all open positions at shutdown"""
         for symbol in list(self.positions.keys()):
             try:
                 self.client.place_market_order(symbol, self.positions[symbol]['quantity'], instruction="SELL")
@@ -189,7 +181,6 @@ class StrategyEngine:
                 logger.error(f"Failed to close position in {symbol}: {str(e)}")
 
     def _check_risk_limits(self, symbol, price) -> bool:
-        """Evaluate whether new trade meets risk limits"""
         if len(self.positions) >= self.config.max_positions:
             return False
         if self.daily_pl <= -self.config.max_daily_loss:
@@ -197,7 +188,6 @@ class StrategyEngine:
         return True
 
     def run(self):
-        """Main trading loop"""
         while self.running:
             try:
                 self._process_symbols()
@@ -208,7 +198,6 @@ class StrategyEngine:
                 time.sleep(10)
 
     def _process_symbols(self):
-        """Fetch market data and evaluate trading signals"""
         for symbol in self.symbols:
             try:
                 df = self.client.get_candles(symbol)
@@ -217,32 +206,28 @@ class StrategyEngine:
                 logger.error(f"Error processing {symbol}: {str(e)}")
 
     def _evaluate_symbol(self, symbol, df: pd.DataFrame):
-        """Evaluate and enter trades based on candlestick patterns"""
         if symbol in self.positions:
             return
 
-        if (CandlestickPatterns.is_hammer(df) or
-            CandlestickPatterns.is_bullish_engulfing(df) or
-            CandlestickPatterns.is_morning_star(df) or
-            CandlestickPatterns.is_piercing_pattern(df)):
+        detected_patterns = CandlestickPatterns.detect_patterns(df)
+        if detected_patterns:
             if self._check_risk_limits(symbol, df['close'].iloc[-1]):
-                self._enter_position(symbol, df)
+                self._enter_position(symbol, df, detected_patterns)
 
-    def _enter_position(self, symbol, df: pd.DataFrame):
-        """Place buy order for a detected signal"""
+    def _enter_position(self, symbol, df: pd.DataFrame, patterns: list):
         try:
             quantity = 1
             self.client.place_market_order(symbol, quantity, instruction="BUY")
             self.positions[symbol] = {
                 'quantity': quantity,
-                'entry_price': df['close'].iloc[-1]
+                'entry_price': df['close'].iloc[-1],
+                'pattern': patterns
             }
-            logger.info(f"Entered position in {symbol}")
+            logger.info(f"Entered position in {symbol} due to pattern(s): {', '.join(patterns)}")
         except Exception as e:
             logger.error(f"Failed to enter position in {symbol}: {str(e)}")
 
     def _monitor_positions(self):
-        """Monitor active positions and exit on profit/loss criteria"""
         for symbol, position in list(self.positions.items()):
             try:
                 df = self.client.get_candles(symbol)
@@ -254,13 +239,12 @@ class StrategyEngine:
                 if pnl_percent >= self.config.profit_target_percent or pnl_percent <= -self.config.max_loss_percent:
                     self.client.place_market_order(symbol, position['quantity'], instruction="SELL")
                     self.daily_pl += pnl_absolute
-                    logger.info(f"Exited position in {symbol} with PnL: {pnl_percent:.2%}")
+                    logger.info(f"Exited position in {symbol} with PnL: {pnl_percent:.2%}. Entry pattern(s): {', '.join(position.get('pattern', []))}")
                     del self.positions[symbol]
             except Exception as e:
                 logger.error(f"Error monitoring position in {symbol}: {str(e)}")
 
 def main():
-    """Application entry point: load config, initialize client, run strategy"""
     try:
         load_dotenv()
         config = TradeConfig(
