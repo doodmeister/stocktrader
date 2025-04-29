@@ -1,30 +1,28 @@
 """Stock Data Dashboard Module
 
-A Streamlit dashboard for fetching, displaying, and managing historical OHLCV data.
-Integrates with the E*Trade bot's data pipeline for historical price analysis.
-
-Features:
-- Fetch and validate stock data from Yahoo Finance
-- Interactive data visualization 
-- CSV/ZIP export functionality
-- Auto-refresh capability for live monitoring
-- Data cleanup management
+A Streamlit dashboard for fetching, displaying, managing, and training on historical OHLCV data.
 """
 
 import logging
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import pandas as pd
 import streamlit as st
 import yfinance as yf
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import joblib
+
 from stocktrader.data.data_loader import save_to_csv
 from stocktrader.core.notifier import Notifier
 from stocktrader.utils.validation import sanitize_input
 from stocktrader.utils.io import create_zip_archive
-from stocktrader.train.training_pipeline import run_training
+from stocktrader.train.training_pipeline import feature_engineering
 
 # Configure logging
 logging.basicConfig(
@@ -36,53 +34,47 @@ logger = logging.getLogger(__name__)
 # Constants
 DEFAULT_SYMBOLS = "AAPL,MSFT"
 DATA_DIR = Path("data")
+MODEL_DIR = Path("models")
 VALID_INTERVALS = ["1d", "1h", "30m", "15m", "5m", "1m"]
 MAX_INTRADAY_DAYS = 60
 REFRESH_INTERVAL = 300  # 5 minutes in seconds
 
 class DataDashboard:
     """Manages the stock data dashboard functionality."""
-    
+
     def __init__(self):
         """Initialize dashboard with default settings and ensure data directory exists."""
         self.data_dir = DATA_DIR
         self.data_dir.mkdir(exist_ok=True)
+        MODEL_DIR.mkdir(exist_ok=True)
         self.saved_paths = []
         self.notifier = Notifier()
-        
+
     @staticmethod
     def validate_dates(start_date: date, end_date: date, interval: str) -> Tuple[bool, str]:
         """Validate date range and interval compatibility."""
         if start_date > end_date:
             return False, "Start date must be before end date"
-        
+
         if interval != "1d":
             delta = end_date - start_date
             if delta.days > MAX_INTRADAY_DAYS:
                 return False, f"Intraday data limited to {MAX_INTRADAY_DAYS} days"
-        
+
         if end_date > date.today():
             return False, "End date cannot be in the future"
-            
+
         return True, ""
 
-    @st.cache_data(show_spinner=False, ttl=3600)  # Cache for 1 hour
+    @st.cache_data(show_spinner=False, ttl=3600)
     def fetch_ohlcv(self, symbol: str, start: str, end: str, interval: str) -> Optional[pd.DataFrame]:
         """Fetch OHLCV data with caching and error handling."""
         try:
-            data = yf.download(
-                symbol,
-                start=start,
-                end=end,
-                interval=interval,
-                progress=False
-            )
+            data = yf.download(symbol, start=start, end=end, interval=interval, progress=False)
             if data.empty:
                 logger.warning(f"No data returned for {symbol}")
                 return None
-                
             return data[['Open', 'High', 'Low', 'Close', 'Volume']]
-            
         except Exception as e:
             logger.error(f"Error fetching data for {symbol}: {e}")
             return None
@@ -95,7 +87,6 @@ class DataDashboard:
             logger.info("Cleaned old CSV files")
         except Exception as e:
             logger.error(f"Error cleaning data directory: {e}")
-            raise
 
     def save_data(self, df: pd.DataFrame, symbol: str, interval: str) -> Optional[Path]:
         """Save DataFrame to CSV and track the path."""
@@ -112,105 +103,56 @@ class DataDashboard:
     def render_dashboard(self):
         """Render the Streamlit dashboard interface."""
         st.set_page_config(page_title="Stock Data Dashboard", layout="centered")
-        st.title("📈 Stock OHLCV Data Downloader")
+        st.title("📈 Stock OHLCV Data Downloader and Trainer")
 
         # User inputs
-        st.info("Note: Intraday intervals are limited to 60 days.")
-        symbols_input = st.text_input(
-            "Ticker Symbols (comma-separated)",
-            value=DEFAULT_SYMBOLS
-        )
+        st.info("Note: Intraday intervals are limited to 60 days by Yahoo Finance.")
+        symbols_input = st.text_input("Ticker Symbols (comma-separated)", value=DEFAULT_SYMBOLS)
         interval = st.selectbox("Data Interval", options=VALID_INTERVALS, index=0)
 
         col1, col2 = st.columns(2)
         with col1:
-            start_date = st.date_input(
-                "Start Date",
-                value=date.today() - timedelta(days=365)
-            )
+            start_date = st.date_input("Start Date", value=date.today() - timedelta(days=365))
         with col2:
             end_date = st.date_input("End Date", value=date.today())
 
-        # Options
         clean_old = st.checkbox("🧹 Clean old CSVs before fetching?", value=True)
         auto_refresh = st.checkbox("🔄 Auto-refresh every 5 minutes?", value=False)
 
-        # Process data on button click
         if st.button("Fetch Data"):
-            self.process_data_request(
-                symbols_input, start_date, end_date, interval, clean_old
-            )
+            self.process_data_request(symbols_input, start_date, end_date, interval, clean_old)
 
-        # Handle auto-refresh
         if auto_refresh:
             st.caption("🔄 Auto-refresh enabled. Refreshing every 5 minutes...")
             time.sleep(REFRESH_INTERVAL)
             st.experimental_rerun()
 
-    def process_data_request(
-        self,
-        symbols_input: str,
-        start_date: date,
-        end_date: date,
-        interval: str,
-        clean_old: bool
-    ) -> None:
+    def process_data_request(self, symbols_input: str, start_date: date, end_date: date, interval: str, clean_old: bool) -> None:
         """Process the data fetching request with validation and error handling."""
-        # Input validation
-        symbols = [
-            sanitize_input(s.strip().upper())
-            for s in symbols_input.split(",")
-            if s.strip()
-        ]
-        
+        symbols = [sanitize_input(s.strip().upper()) for s in symbols_input.split(",") if s.strip()]
         if not symbols:
             st.error("Please enter at least one valid symbol")
             return
 
-        # Validate dates
         valid, message = self.validate_dates(start_date, end_date, interval)
         if not valid:
             st.error(message)
             return
 
-        # Clean old files if requested
         if clean_old:
             self.clean_data_directory()
-            st.success("Old CSVs cleaned from data directory.")
+            st.success("Old CSVs cleaned.")
 
-        # Process each symbol
         for symbol in symbols:
             self.process_symbol(symbol, start_date, end_date, interval)
 
-        # Create ZIP download for multiple files
         if len(self.saved_paths) > 1:
             self.create_zip_download()
-        
-        # Add training trigger
-        train_models = st.checkbox("📚 Train models after fetching?", value=False)
 
-        if train_models:
-            st.subheader("📚 Training Models")
-            for path in self.saved_paths:
-                 # Extract symbol and interval from filename
-                filename = path.stem  # Example: AAPL_1d
-                symbol, interval = filename.split("_")
-                    
-                with st.spinner(f"Training model for {symbol} [{interval}]..."):
-                     try:
-                        run_training(symbol=symbol, interval=interval)
-                        st.success(f"Model trained and saved for {symbol} [{interval}]!")
-                    except Exception as e:
-                        logger.error(f"Training failed for {symbol}: {e}")
-                        st.error(f"Failed to train model for {symbol}")
+        # Model training section
+        self.train_models_section()
 
-    def process_symbol(
-        self,
-        symbol: str,
-        start_date: date,
-        end_date: date,
-        interval: str
-    ) -> None:
+    def process_symbol(self, symbol: str, start_date: date, end_date: date, interval: str) -> None:
         """Process individual symbol data fetching and display."""
         if not self.is_valid_symbol(symbol):
             st.warning(f"{symbol} is not a valid stock symbol.")
@@ -218,17 +160,10 @@ class DataDashboard:
 
         st.subheader(f"📊 Data for {symbol}")
         with st.spinner(f"Fetching {symbol}..."):
-            df = self.fetch_ohlcv(
-                symbol,
-                str(start_date),
-                str(end_date),
-                interval
-            )
-            
+            df = self.fetch_ohlcv(symbol, str(start_date), str(end_date), interval)
             if df is None:
                 st.error(f"No data available for {symbol}")
                 return
-
             self.display_data(df, symbol, interval)
 
     def create_zip_download(self) -> None:
@@ -245,20 +180,65 @@ class DataDashboard:
             logger.error(f"Error creating ZIP archive: {e}")
             st.error("Failed to create ZIP archive")
 
+    def train_models_section(self):
+        """Allow user to train ML models on fetched data."""
+        train_models = st.checkbox("📚 Train models after fetching?", value=False)
+
+        if train_models:
+            st.subheader("📚 Training Models")
+
+            for path in self.saved_paths:
+                filename = path.stem
+                symbol, interval = filename.split("_")
+
+                with st.spinner(f"Training model for {symbol} [{interval}]..."):
+                    try:
+                        df = pd.read_csv(path, parse_dates=["date"], index_col="date")
+                        df = feature_engineering(df)
+
+                        features = ['Open', 'High', 'Low', 'Close', 'Volume', 'returns', 'volatility', 'sma_5', 'sma_10']
+                        X = df[features]
+                        y = df['target']
+
+                        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+
+                        model = RandomForestClassifier(n_estimators=100, random_state=42)
+                        model.fit(X_train, y_train)
+
+                        train_acc = model.score(X_train, y_train)
+                        test_acc = model.score(X_test, y_test)
+
+                        st.success(f"✅ Model trained for {symbol} | Train Acc: {train_acc:.2f} | Test Acc: {test_acc:.2f}")
+
+                        y_pred = model.predict(X_test)
+                        cm = confusion_matrix(y_test, y_pred)
+
+                        fig, ax = plt.subplots()
+                        ConfusionMatrixDisplay(cm).plot(ax=ax)
+                        st.pyplot(fig)
+
+                        model_path = MODEL_DIR / f"{symbol}_{interval}_model.pkl"
+                        joblib.dump(model, model_path)
+
+                        with open(model_path, "rb") as f:
+                            st.download_button(
+                                label=f"📥 Download {symbol} Model (.pkl)",
+                                data=f,
+                                file_name=model_path.name,
+                                mime="application/octet-stream"
+                            )
+
+                    except Exception as e:
+                        logger.error(f"Training failed for {symbol}: {e}")
+                        st.error(f"Failed to train model for {symbol}")
+
     @staticmethod
     def display_data(df: pd.DataFrame, symbol: str, interval: str) -> None:
         """Display fetched data with visualizations and metadata."""
         st.success(f"Fetched {len(df)} rows for {symbol}")
-        
-        # Display recent data and chart
         st.dataframe(df.tail(10))
         st.line_chart(df['Close'])
-        
-        # Show metadata
-        st.caption(
-            f"✅ Rows: {len(df)} | "
-            f"Date Range: {df.index.min().date()} → {df.index.max().date()}"
-        )
+        st.caption(f"✅ Rows: {len(df)} | Date Range: {df.index.min().date()} → {df.index.max().date()}")
         st.caption(f"✅ Latest Close: {df['Close'].iloc[-1]:.2f}")
 
     @staticmethod
