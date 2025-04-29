@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from ml_pipeline import train_model
 from model_manager import ModelManager, ModelMetadata
-from models.pattern_nn import PatternNN
+from patterns_nn import PatternNN
 from performance_utils import st_error_boundary
 from config import get_settings
 
