@@ -1,4 +1,4 @@
-import logging
+import logging 
 from typing import List, Optional, Dict
 import streamlit as st
 import pandas as pd
@@ -7,7 +7,8 @@ import threading
 import plotly.graph_objs as go
 from datetime import datetime
 
-from etrade_candlestick_bot import ETradeClient, CandlestickPatterns
+from etrade_candlestick_bot import ETradeClient
+from patterns import CandlestickPatterns
 from models.pattern_nn import PatternNN
 from training.trainer import train_pattern_model
 from risk_manager import RiskManager
@@ -40,12 +41,14 @@ class DashboardState:
             'training': False,
             'symbols': ["AAPL", "MSFT"],
             'class_names': [
-                "Hammer", "Bullish Engulfing", "Bearish Engulfing",
-                "Doji", "Morning Star", "Evening Star"
+                "Hammer", "Bullish Engulfing", "Doji", "Morning Star",
+                "Morning Doji Star", "Piercing Pattern", "Bullish Harami",
+                "Three White Soldiers", "Inverted Hammer", "Bullish Belt Hold",
+                "Bullish Abandoned Baby", "Three Inside Up", "Rising Window"
             ],
             'risk_params': {
-                'max_position_size': 0.02,  # 2% of portfolio
-                'stop_loss_atr': 2.0,       # 2x ATR for stops
+                'max_position_size': 0.02,
+                'stop_loss_atr': 2.0,
             }
         })
 
@@ -63,7 +66,6 @@ class Dashboard:
         self.notifier = Notifier()
 
     def render_sidebar(self) -> Optional[Credentials]:
-        """Render sidebar components and return credentials if valid."""
         st.sidebar.title("⚙️ Configuration")
         
         credentials = {
@@ -74,7 +76,6 @@ class Dashboard:
             'account_id': st.sidebar.text_input("Account ID")
         }
 
-        # Environment settings
         use_sandbox = st.sidebar.radio("Environment", ["Sandbox", "Live"], index=0) == "Sandbox"
         
         self._render_training_controls()
@@ -86,7 +87,6 @@ class Dashboard:
         return None
 
     def _render_training_controls(self):
-        """Render model training controls."""
         st.sidebar.markdown("### 🔧 Training Hyperparameters")
         epochs = st.sidebar.number_input("Epochs", 1, 100, 10)
         seq_len = st.sidebar.number_input("Sequence Length", 2, 50, 10)
@@ -96,7 +96,6 @@ class Dashboard:
             self._handle_model_training(epochs, seq_len, lr)
 
     def _handle_model_training(self, epochs: int, seq_len: int, lr: float):
-        """Handle model training initiation."""
         if st.session_state.training:
             st.sidebar.warning("Training already in progress.")
             return
@@ -104,7 +103,7 @@ class Dashboard:
         try:
             st.session_state.training = True
             st.sidebar.info("Training started... this may take a while.")
-            
+
             def train_async():
                 try:
                     model = PatternNN()
@@ -131,44 +130,36 @@ class Dashboard:
             st.sidebar.error(f"Failed to start training: {str(e)}")
 
     def render_main_content(self, client: ETradeClient):
-        """Render main dashboard content."""
         st.title("📊 E*Trade Candlestick Strategy Dashboard")
-        
-        # Render metrics row
         self._render_metrics_row(client)
-        
-        # Render charts and controls for each symbol
+
         for symbol in st.session_state.symbols:
             self._render_symbol_section(client, symbol)
 
     def _render_symbol_section(self, client: ETradeClient, symbol: str):
-        """Render trading section for a single symbol."""
         st.markdown(f"---\n### {symbol}")
-        
+
         try:
-            # Fetch and validate data
             df = client.get_candles(symbol, interval="5min", days=1)
             if df.empty:
                 st.warning(f"No data available for {symbol}")
                 return
 
-            # Render candlestick chart
             self._render_chart(df, symbol)
-            
-            # Pattern detection
-            self._analyze_patterns(df, symbol, client)
-            
-            # Trading controls
+            self._analyze_patterns(df, symbol)
             self._render_trading_controls(symbol, client)
-            
+
         except Exception as e:
             logger.error(f"Error processing {symbol}: {str(e)}")
             st.error(f"Error processing {symbol}: {str(e)}")
 
+    def _analyze_patterns(self, df: pd.DataFrame, symbol: str):
+        patterns = CandlestickPatterns.detect_patterns(df)
+        st.write(f"Detected Patterns for {symbol}: {', '.join(patterns) if patterns else 'None'}")
+
     def run(self):
-        """Main entry point for the dashboard application."""
         credentials = self.render_sidebar()
-        
+
         if credentials:
             try:
                 client = ETradeClient(**credentials)
