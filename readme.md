@@ -96,8 +96,13 @@ A Streamlit-based trading dashboard and backtesting framework for E*Trade, with 
 
 ## 📝 Configuration
 
+
+1. Copy the sample file:
+   ```bash
+   cp .env.example .env
 Populate `.env` with:
 ```dotenv
+
 ETRADE_CONSUMER_KEY=
 ETRADE_CONSUMER_SECRET=
 ETRADE_OAUTH_TOKEN=
