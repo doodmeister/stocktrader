@@ -1,0 +1,350 @@
+User Manual
+Welcome to the E*Trade Candlestick Trading Bot & Dashboard! This manual will guide you through setup, configuration, and usage of every component in the project, including the Streamlit dashboard, backtesting tools, ML pipeline, risk manager, and notification system.
+
+Table of Contents
+Overview
+
+Prerequisites
+
+Installation
+
+Configuration
+
+Directory Structure
+
+Running the Application
+
+6.1 Streamlit Dashboard
+
+6.2 Command-Line Tools
+
+Features & Modules
+
+7.1 Pattern Detection
+
+7.2 Technical Indicators
+
+7.3 Risk Management
+
+7.4 ML Pipeline
+
+7.5 Notifications
+
+Advanced Usage
+
+8.1 Caching & Concurrency
+
+8.2 Backtesting & Metrics
+
+8.3 CI/CD & Docker
+
+Troubleshooting
+
+Contributing
+
+Support & License
+
+1. Overview
+This project provides:
+
+A Streamlit dashboard to track live E*Trade market data, detect candlestick patterns, train/infer an LSTM model, and place orders.
+
+An offline backtester (backtester.py) for simulating strategies on historical data with metrics (Sharpe, drawdown, win rate).
+
+A risk management module (risk_manager.py) for position sizing and stop-loss/take-profit calculation.
+
+An indicators module (indicators.py) wrapping RSI, MACD, Bollinger Bands.
+
+An ML pipeline (ml_pipeline.py) to prepare data, train/evaluate a PyTorch LSTM model, and persist it.
+
+A notification system (notifier.py) supporting email (SMTP), SMS (Twilio), and Slack alerts.
+
+Performance utilities (performance_utils.py) for Streamlit caching and async data fetching.
+
+Full pytest coverage for pattern detection, backtester logic, and ML pipeline.
+
+GitHub Actions workflows for automated testing and deployment.
+
+2. Prerequisites
+Python 3.8+
+
+Git & GitHub account
+
+E*Trade developer credentials (sandbox & production)
+
+Optional accounts/credentials for:
+
+SMTP email server
+
+Twilio (SMS)
+
+Slack webhook URL
+
+Docker (for containerized deployment)
+
+3. Installation
+Clone the repository
+
+bash
+Copy
+Edit
+git clone https://github.com/<your-org>/etrade-bot.git
+cd etrade-bot
+Set up a virtual environment
+
+bash
+Copy
+Edit
+python3 -m venv .venv
+source .venv/bin/activate
+Install Python dependencies
+
+bash
+Copy
+Edit
+pip install -r requirements.txt
+Create your .env file
+
+bash
+Copy
+Edit
+cp .env.example .env
+Edit .env to add your E*Trade keys, notification credentials, etc.
+
+4. Configuration
+Populate the following environment variables in your .env:
+
+dotenv
+Copy
+Edit
+# E*TRADE API
+ETRADE_CONSUMER_KEY=
+ETRADE_CONSUMER_SECRET=
+ETRADE_OAUTH_TOKEN=
+ETRADE_OAUTH_TOKEN_SECRET=
+ETRADE_ACCOUNT_ID=
+
+# SMTP / Email notifications
+SMTP_SERVER=
+SMTP_PORT=
+SMTP_USER=
+SMTP_PASS=
+
+# Twilio SMS
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
+
+# Slack
+SLACK_WEBHOOK_URL=
+Ensure all required fields are set before running.
+
+5. Directory Structure
+bash
+Copy
+Edit
+etrade-bot/
+├── README.md
+├── .env.example
+├── .gitignore
+├── requirements.txt
+├── Dockerfile
+├── project_plan.md
+│
+├── etrade_candlestick_bot.py       # Core client, patterns, NN
+├── performance_utils.py            # Caching & async fetch
+├── streamlit_dashboard.py          # Multi-page Streamlit app
+├── backtester.py                   # Offline backtesting framework
+├── risk_manager.py                 # Position sizing & stops
+├── indicators.py                   # RSI, MACD, BBands wrappers
+├── model_manager.py                # Save/load PyTorch models
+├── notifier.py                     # Email/SMS/Slack notifications
+├── ml_pipeline.py                  # Data prep, train/evaluate, save
+│
+├── models/                         # Persisted `*.pth` model files
+│   └── pattern_nn_v1.pth
+│
+├── tests/                          # pytest suites
+│   ├── test_patterns.py
+│   ├── test_backtester.py
+│   └── test_ml_pipeline.py
+│
+├── pages/                          # Streamlit multipage entrypoints
+│   ├── live_dashboard.py
+│   ├── backtest.py
+│   ├── model_training.py
+│   └── settings.py
+│
+└── .github/
+    └── workflows/
+        ├── ci.yml
+        └── deploy.yml
+6. Running the Application
+6.1 Streamlit Dashboard
+bash
+Copy
+Edit
+streamlit run streamlit_dashboard.py
+The app is organized into tabs:
+
+Live Dashboard
+
+Symbol Manager: Add/remove tickers on the fly
+
+Data View: Plotly candlestick chart with pattern annotations & model predictions
+
+Order Panel: Manual Buy/Sell buttons, current session orders
+
+Backtest
+
+Select symbol, date range, strategy (rule-based or model)
+
+Run simulation and view equity curve & metrics
+
+Model Training
+
+Set hyperparameters: epochs, learning rate, sequence length
+
+Click Retrain Model to boot up the LSTM on live data
+
+Settings
+
+API Credentials management
+
+Notification toggles (enable/disable email, SMS, Slack)
+
+6.2 Command-Line Tools
+Backtesting
+
+bash
+Copy
+Edit
+python backtester.py \
+  --symbol AAPL \
+  --start 2021-01-01 \
+  --end 2025-04-28 \
+  --strategy rule
+Outputs a summary of trades, Sharpe ratio, max drawdown, and equity CSV.
+
+ML Pipeline
+
+bash
+Copy
+Edit
+python ml_pipeline.py \
+  --data-dir data/ohlcv/ \
+  --epochs 30 \
+  --seq-len 10 \
+  --lr 1e-3
+Prepares sequences, trains the LSTM, evaluates on validation set, and saves models/pattern_nn_v1.pth.
+
+Notifier Test
+
+bash
+Copy
+Edit
+python notifier.py --mode test
+Sends a test email, SMS, and/or Slack message (based on enabled channels).
+
+Risk Manager Demo
+
+python
+Copy
+Edit
+from risk_manager import RiskManager
+rm = RiskManager()
+qty = rm.position_size(account_value=50000, risk_per_trade=0.01, atr=1.2)
+print(f"Calculated position size: {qty} shares")
+7. Features & Modules
+7.1 Pattern Detection
+Hammer, Bullish Engulfing, Bearish Engulfing, Doji,
+Morning Star, Evening Star
+
+Defined in et­rade_candlestick_bot.py → CandlestickPatterns
+
+7.2 Technical Indicators
+RSI, MACD, Bollinger Bands
+
+Implemented in indicators.py, using pandas-ta with fallbacks
+
+7.3 Risk Management
+Position sizing (fixed-fractional risk)
+
+ATR-based stop-loss & take-profit levels
+
+Module: risk_manager.py → RiskManager
+
+7.4 ML Pipeline
+Sequence dataset creation from OHLCV
+
+Train/validation split
+
+LSTM (PatternNN) training & evaluation
+
+Model persistence via model_manager.py
+
+7.5 Notifications
+Email via SMTP
+
+SMS via Twilio
+
+Slack via webhook
+
+Configurable in Settings tab or via .env
+
+8. Advanced Usage
+8.1 Caching & Concurrency
+Streams: performance_utils.py
+
+@st.cache_data get_candles_cached()
+
+Async batch fetch (fetch_all_candles)
+
+8.2 Backtesting & Metrics
+Backtest class in backtester.py
+
+Generates equity curves, trade logs, performance metrics
+
+Extend with your own strategies by subclassing Backtest
+
+8.3 CI/CD & Docker
+GitHub Actions:
+
+ci.yml runs linting & pytest
+
+deploy.yml builds Docker image & deploys to registry/cloud
+
+Dockerfile included for container build
+
+Configure secrets in GitHub repo settings (e.g., E*Trade keys, Twilio)
+
+9. Troubleshooting
+Streamlit reruns too often → Ensure heavy calls are wrapped in @st.cache_data.
+
+OAuth errors → Double-check sandbox vs. production endpoints and your tokens.
+
+Model training hangs → Verify your data directory path and OHLCV files format.
+
+CI failures → Inspect ci.yml logs on GitHub Actions; run tox/pytest locally.
+
+10. Contributing
+Fork the repo
+
+Create a feature branch
+
+Write code & add tests
+
+Submit a Pull Request
+
+Ensure all checks pass in CI
+
+Please adhere to existing code style (PEP8), include docstrings, and update documentation.
+
+11. Support & License
+Issues: open on GitHub for bugs or feature requests
+
+Discussions: use the repo’s Discussions tab for questions
+
+License: MIT © Your Name / Your Organization
+
+Thank you for using the E*Trade Candlestick Trading Bot & Dashboard! Happy trading and analytics!
