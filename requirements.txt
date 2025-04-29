@@ -1,3 +1,4 @@
+# Core dependencies
 streamlit
 pandas
 numpy
@@ -5,3 +6,13 @@ requests
 requests-oauthlib
 plotly
 torch
+scikit-learn
+
+# Backtesting
+backtrader
+
+# Email notifications
+smtplib  # (Actually built-in to Python, so no need to pip install)
+
+# Other utilities
+python-dotenv  # For loading .env files
