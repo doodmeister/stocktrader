@@ -27,14 +27,11 @@ PatternList = List[str]
 Credentials = Dict[str, str]
 
 class DashboardState:
-    """Manages Streamlit session state and configuration."""
-    
     def __init__(self):
         if 'initialized' not in st.session_state:
             self._initialize_state()
-            
+
     def _initialize_state(self):
-        """Initialize default session state values."""
         st.session_state.update({
             'initialized': True,
             'model': None,
@@ -53,8 +50,6 @@ class DashboardState:
         })
 
 class Dashboard:
-    """Main dashboard application class."""
-    
     def __init__(self):
         st.set_page_config(
             page_title="E*Trade Candlestick Bot Dashboard",
@@ -67,7 +62,7 @@ class Dashboard:
 
     def render_sidebar(self) -> Optional[Credentials]:
         st.sidebar.title("⚙️ Configuration")
-        
+
         credentials = {
             'consumer_key': st.sidebar.text_input("Consumer Key", type="password"),
             'consumer_secret': st.sidebar.text_input("Consumer Secret", type="password"),
@@ -77,11 +72,11 @@ class Dashboard:
         }
 
         use_sandbox = st.sidebar.radio("Environment", ["Sandbox", "Live"], index=0) == "Sandbox"
-        
+
         self._render_training_controls()
         self._render_risk_controls()
         self._render_symbol_manager()
-        
+
         if all(credentials.values()):
             return {**credentials, 'sandbox': use_sandbox}
         return None
@@ -129,6 +124,13 @@ class Dashboard:
             st.session_state.training = False
             st.sidebar.error(f"Failed to start training: {str(e)}")
 
+    def _render_metrics_row(self, client: ETradeClient):
+        st.subheader("📈 Strategy Summary")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Watched Symbols", len(st.session_state.symbols))
+        col2.metric("Patterns Tracked", len(st.session_state.class_names))
+        col3.metric("Last Sync", datetime.now().strftime("%H:%M:%S"))
+
     def render_main_content(self, client: ETradeClient):
         st.title("📊 E*Trade Candlestick Strategy Dashboard")
         self._render_metrics_row(client)
@@ -152,6 +154,38 @@ class Dashboard:
         except Exception as e:
             logger.error(f"Error processing {symbol}: {str(e)}")
             st.error(f"Error processing {symbol}: {str(e)}")
+
+    def _render_chart(self, df: pd.DataFrame, symbol: str):
+        fig = go.Figure(data=[
+            go.Candlestick(
+                x=df.index,
+                open=df['open'],
+                high=df['high'],
+                low=df['low'],
+                close=df['close'],
+                name="Candles"
+            )
+        ])
+
+        for i in range(2, len(df)):
+            window = df.iloc[i-2:i+1]
+            patterns = CandlestickPatterns.detect_patterns(window)
+            if patterns:
+                fig.add_trace(go.Scatter(
+                    x=[window.index[-1]],
+                    y=[window['close'].iloc[-1]],
+                    mode='markers+text',
+                    marker=dict(size=10, color='red'),
+                    text=[" ".join(patterns)],
+                    textposition="top center",
+                    name=f"{symbol} Pattern"
+                ))
+
+        fig.update_layout(
+            title=f"{symbol} 5-min Candlestick Chart",
+            xaxis_rangeslider_visible=False
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
     def _analyze_patterns(self, df: pd.DataFrame, symbol: str):
         patterns = CandlestickPatterns.detect_patterns(df)
