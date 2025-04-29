@@ -3,17 +3,14 @@ import pandas as pd
 import torch
 import threading
 import plotly.graph_objs as go
-from etrade_candlestick_bot import (
-    ETradeClient,
-    CandlestickPatterns,
-    PatternNN,
-    train_pattern_model
-)
+from etrade_candlestick_bot import ETradeClient, CandlestickPatterns
+from models.pattern_nn import PatternNN
+from training.trainer import train_pattern_model
 
-# ─────── UI CONFIG ───────────────────────────────────────────────────────────
+# ──── UI CONFIG ────
 st.set_page_config(page_title="E*Trade Candlestick Bot Dashboard", layout="wide")
 
-# ─────── Sidebar: Credentials & Model Settings ─────────────────────────────────
+# ──── Sidebar: Credentials & Settings ────
 st.sidebar.title("⚙️ Configuration")
 consumer_key = st.sidebar.text_input("Consumer Key", type="password")
 consumer_secret = st.sidebar.text_input("Consumer Secret", type="password")
@@ -21,11 +18,18 @@ oauth_token = st.sidebar.text_input("OAuth Token", type="password")
 oauth_token_secret = st.sidebar.text_input("OAuth Token Secret", type="password")
 account_id = st.sidebar.text_input("Account ID")
 
-# Training hyperparameters
+# Sandbox/Live Toggle
+sandbox_mode = st.sidebar.radio("Environment", options=["Sandbox", "Live"], index=0)
+use_sandbox = sandbox_mode == "Sandbox"
+
+# Training Hyperparameters
 st.sidebar.markdown("### 🔧 Training Hyperparameters")
 epochs = st.sidebar.number_input("Epochs", min_value=1, max_value=100, value=10)
 seq_len = st.sidebar.number_input("Sequence Length", min_value=2, max_value=50, value=10)
 lr = st.sidebar.number_input("Learning Rate", min_value=1e-5, max_value=1e-1, value=1e-3, format="%.5f")
+
+# Auto-Trade Toggle
+auto_trade = st.sidebar.checkbox("Enable Auto-Trading", value=False)
 
 if 'model' not in st.session_state:
     st.session_state.model = None
@@ -34,16 +38,17 @@ if 'model' not in st.session_state:
     ]
     st.session_state.training = False
 
-# Train model button
+# Train Model Button
 if st.sidebar.button("Train Neural Model"):
     if not st.session_state.training:
         if all([consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id]):
             st.sidebar.info("Training started... this may take a while.")
             client = ETradeClient(
-                consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id, sandbox=True
+                consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id, sandbox=use_sandbox
             )
             model = PatternNN()
             st.session_state.training = True
+
             def train():
                 trained = train_pattern_model(
                     client, st.session_state.symbols, model,
@@ -52,13 +57,14 @@ if st.sidebar.button("Train Neural Model"):
                 st.session_state.model = trained
                 st.session_state.training = False
                 st.sidebar.success("Training complete!")
+
             threading.Thread(target=train, daemon=True).start()
         else:
             st.sidebar.error("Please fill in all credentials before training.")
     else:
         st.sidebar.warning("Training already in progress.")
 
-# ─────── Symbol Management ────────────────────────────────────────────────────
+# Symbol Management
 st.sidebar.title("📈 Symbol Tracker")
 if 'symbols' not in st.session_state:
     st.session_state.symbols = ["AAPL", "MSFT"]
@@ -72,12 +78,12 @@ if st.sidebar.button("Add Symbol"):
     else:
         st.sidebar.warning("Empty or duplicate symbol.")
 
-# ─────── MAIN LAYOUT ─────────────────────────────────────────────────────────
+# ──── MAIN LAYOUT ────
 st.title("📊 E*Trade Candlestick Strategy Dashboard")
 
 if all([consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id]):
     client = ETradeClient(
-        consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id, sandbox=True
+        consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id, sandbox=use_sandbox
     )
     cols = st.columns(len(st.session_state.symbols))
     for col, sym in zip(cols, st.session_state.symbols):
@@ -87,7 +93,7 @@ if all([consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_
         st.markdown(f"---\n### {sym}")
         try:
             df = client.get_candles(sym, interval="5min", days=1)
-            # Plot candlestick
+
             fig = go.Figure(data=[
                 go.Candlestick(
                     x=df.index,
@@ -99,24 +105,16 @@ if all([consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_
             fig.update_layout(xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Rule-based detections
+            # Rule-based Detections
             detections = []
             last = df.iloc[-1]
             prev = df.iloc[-2] if len(df) > 1 else last
             third = df.iloc[-3] if len(df) > 2 else prev
 
-            if CandlestickPatterns.is_hammer(last):
+            if CandlestickPatterns.is_hammer(df):
                 detections.append("Hammer")
-            if CandlestickPatterns.is_bullish_engulfing(prev, last):
+            if CandlestickPatterns.is_bullish_engulfing(df):
                 detections.append("Bullish Engulfing")
-            if CandlestickPatterns.is_bearish_engulfing(prev, last):
-                detections.append("Bearish Engulfing")
-            if CandlestickPatterns.is_doji(last):
-                detections.append("Doji")
-            if CandlestickPatterns.is_morning_star(third, prev, last):
-                detections.append("Morning Star")
-            if CandlestickPatterns.is_evening_star(third, prev, last):
-                detections.append("Evening Star")
 
             if detections:
                 st.success("Rule patterns: " + ", ".join(detections))
@@ -130,10 +128,20 @@ if all([consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_
                 pred = int(torch.argmax(logits, dim=1).item())
                 name = st.session_state.class_names[pred]
                 st.info(f"Model prediction: {name}")
+
+                # Auto trading logic
+                if auto_trade:
+                    if name in ["Hammer", "Bullish Engulfing", "Morning Star"]:
+                        resp = client.place_market_order(sym, 1, instruction="BUY")
+                        st.success(f"Auto-BUY order placed based on model ({name}): {resp}")
+                    elif name in ["Bearish Engulfing", "Evening Star"]:
+                        resp = client.place_market_order(sym, 1, instruction="SELL")
+                        st.success(f"Auto-SELL order placed based on model ({name}): {resp}")
+
             else:
                 st.warning("Neural model not trained yet.")
 
-            # Order execution buttons
+            # Manual Order Buttons
             if st.button(f"Buy {sym}", key=f"buy_{sym}"):
                 resp = client.place_market_order(sym, 1, instruction="BUY")
                 st.success(f"BUY order placed: {resp}")
