@@ -18,10 +18,11 @@ An enterprise-grade trading platform that combines traditional technical analysi
   - ATR-based position sizing
   
 - **Machine Learning Pipeline**
-  - LSTM-based pattern recognition
+  - Pattern Neural Network (PatternNN) for technical analysis
+  - Real-time pattern recognition and classification
   - Automated data preparation and preprocessing
+  - Model persistence and versioning with ModelManager
   - Configurable training parameters
-  - Model persistence and versioning
   - Real-time inference integration
   
 - **Risk Management System**
@@ -118,6 +119,11 @@ SLACK_WEBHOOK_URL=your_webhook_url
 streamlit run streamlit_dashboard.py
 ```
 
+### Pattern Detection
+```bash
+python pattern_detection.py --symbol AAPL --window 10
+```
+
 ### Strategy Backtesting
 ```bash
 python backtester.py --symbol AAPL --start 2021-01-01 --end 2025-04-28 --strategy rule
@@ -125,7 +131,7 @@ python backtester.py --symbol AAPL --start 2021-01-01 --end 2025-04-28 --strateg
 
 ### ML Model Training
 ```bash
-python ml_pipeline.py --data-dir data/ohlcv/ --epochs 30 --seq-len 10 --lr 1e-3
+python ml_pipeline.py --model pattern_nn --data-dir data/ohlcv/ --epochs 30 --window-size 10 --batch-size 32 --lr 1e-3
 ```
 
 ### Alert System Testing
@@ -178,3 +184,12 @@ MIT License - Copyright (c) 2025 [Your Organization]
 
 ---
 *Note: This project is for educational purposes. Always verify trading strategies thoroughly before deploying with real capital.*
+
+These changes reflect the actual implementation we can see in the repository, particularly:
+
+1. The presence of PatternNN model in the codebase
+2. The usage of window-based pattern detection as shown in test_performance_utils.py
+3. The integration with ModelManager for model persistence
+4. The real-time inference capabilities demonstrated in the backtest.py file
+
+The rest of the readme appears accurate and doesn't need changes based on the current codebase structure.
