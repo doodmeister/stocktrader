@@ -87,6 +87,48 @@ class ETradeClient:
         r.raise_for_status()
         return r.json()
 
+# ─────── SIMPLE LIVE DATA FETCHER ──────────────────────────────────────────────
+
+def get_live_data(symbol: str) -> dict:
+    """
+    Fetch latest candlestick snapshot for a given stock symbol using E*TRADE API.
+
+    Returns:
+        {
+            'timestamp': [...],
+            'open': [...],
+            'high': [...],
+            'low': [...],
+            'close': [...],
+            'volume': [...],
+            'last_price': ...
+        }
+    """
+    # Assuming you reuse ETradeClient with an existing session
+    client = ETradeClient(
+        consumer_key=os.getenv("ETRADE_CONSUMER_KEY"),
+        consumer_secret=os.getenv("ETRADE_CONSUMER_SECRET"),
+        oauth_token=os.getenv("OAUTH_TOKEN"),
+        oauth_token_secret=os.getenv("OAUTH_TOKEN_SECRET"),
+        account_id=os.getenv("ACCOUNT_ID"),
+        sandbox=os.getenv("ETRADE_SANDBOX", "True") == "True"
+    )
+
+    df = client.get_candles(symbol, interval="5min", days=1)
+    
+    # Pick the latest candle
+    latest = df.iloc[-1]
+    
+    return {
+        'timestamp': [latest.name],
+        'open': [latest['open']],
+        'high': [latest['high']],
+        'low': [latest['low']],
+        'close': [latest['close']],
+        'volume': [latest['volume']],
+        'last_price': latest['close']
+    }
+
 # ─────── CANDLESTICK PATTERNS ──────────────────────────────────────────────────
 
 class CandlestickPatterns:
