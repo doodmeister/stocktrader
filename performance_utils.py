@@ -1,10 +1,15 @@
+"""
+E*Trade Candlestick Trading Dashboard utility module.
+Handles data visualization, pattern detection, and order execution.
+"""
+import logging
+from typing import Dict, List, Optional, Tuple
+import asyncio
+from datetime import datetime
 import streamlit as st
 import pandas as pd
 import torch
-import threading
 import plotly.graph_objs as go
-import asyncio
-from performance_utils import get_candles_cached, fetch_all_candles
 from etrade_candlestick_bot import (
     ETradeClient,
     CandlestickPatterns,
@@ -12,161 +17,152 @@ from etrade_candlestick_bot import (
     train_pattern_model
 )
 
-# ─────── UI CONFIG ───────────────────────────────────────────────────────────
-st.set_page_config(page_title="E*Trade Candlestick Bot Dashboard", layout="wide")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# ─────── Sidebar: Credentials & Model Settings ─────────────────────────────────
-st.sidebar.title("⚙️ Configuration")
-consumer_key = st.sidebar.text_input("Consumer Key", type="password")
-consumer_secret = st.sidebar.text_input("Consumer Secret", type="password")
-oauth_token = st.sidebar.text_input("OAuth Token", type="password")
-oauth_token_secret = st.sidebar.text_input("OAuth Token Secret", type="password")
-account_id = st.sidebar.text_input("Account ID")
+class DashboardState:
+    """Manages dashboard session state and configuration."""
+    
+    def __init__(self):
+        self.initialize_session_state()
+        
+    @staticmethod
+    def initialize_session_state():
+        """Initialize or reset Streamlit session state variables."""
+        if 'data' not in st.session_state:
+            st.session_state.data = {}
+        if 'model' not in st.session_state:
+            st.session_state.model = None
+            st.session_state.training = False
+            st.session_state.class_names = [
+                "Hammer", "Bullish Engulfing", "Bearish Engulfing", 
+                "Doji", "Morning Star", "Evening Star"
+            ]
+        if 'symbols' not in st.session_state:
+            st.session_state.symbols = ["AAPL", "MSFT"]
 
-# Training hyperparameters
-st.sidebar.markdown("### 🔧 Training Hyperparameters")
-epochs = st.sidebar.number_input("Epochs", min_value=1, max_value=100, value=10)
-seq_len = st.sidebar.number_input("Sequence Length", min_value=2, max_value=50, value=10)
-lr = st.sidebar.number_input("Learning Rate", min_value=1e-5, max_value=1e-1, value=1e-3, format="%.5f")
+class DataManager:
+    """Handles data fetching and caching operations."""
 
-# Data refresh control
-st.sidebar.markdown("### 🔄 Data Refresh")
-if 'data' not in st.session_state:
-    st.session_state.data = {}
-if st.sidebar.button("Refresh All Data"):
-    if all([consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id]):
-        st.sidebar.info("Fetching data asynchronously...")
-        client = ETradeClient(
-            consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id, sandbox=True
-        )
+    def __init__(self, client: Optional[ETradeClient] = None):
+        self.client = client
+
+    async def refresh_data(self, symbols: List[str], interval: str = '5min', 
+                          days: int = 1) -> Dict[str, pd.DataFrame]:
+        """Asynchronously fetch latest market data for all symbols."""
+        if not self.client:
+            raise ValueError("E*Trade client not initialized")
+        
         try:
-            st.session_state.data = asyncio.run(
-                fetch_all_candles(client, st.session_state.symbols, interval='5min', days=1)
+            data = await fetch_all_candles(
+                self.client, symbols, interval=interval, days=days
             )
-            st.sidebar.success("Data refreshed.")
+            return data
         except Exception as e:
-            st.sidebar.error(f"Error fetching data: {e}")
-    else:
-        st.sidebar.error("Fill in credentials to refresh data.")
+            logger.error(f"Error fetching market data: {e}")
+            raise
 
-# Initialize session state defaults
-if 'model' not in st.session_state:
-    st.session_state.model = None
-    st.session_state.training = False
-    st.session_state.class_names = [
-        "Hammer", "Bullish Engulfing", "Bearish Engulfing", "Doji", "Morning Star", "Evening Star"
-    ]
-if 'symbols' not in st.session_state:
-    st.session_state.symbols = ["AAPL", "MSFT"]
+class PatternDetector:
+    """Handles both rule-based and ML-based pattern detection."""
 
-# ─────── Train Model ──────────────────────────────────────────────────────────
-if st.sidebar.button("Train Neural Model"):
-    if not st.session_state.training:
-        if all([consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id]):
-            st.sidebar.info("Training started... please wait.")
-            client = ETradeClient(
-                consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id, sandbox=True
+    @staticmethod
+    def detect_patterns(df: pd.DataFrame) -> List[str]:
+        """Detect candlestick patterns in the given DataFrame."""
+        if len(df) < 3:
+            return []
+
+        detections = []
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
+        third = df.iloc[-3]
+
+        pattern_checks = [
+            (CandlestickPatterns.is_hammer, [last], "Hammer"),
+            (CandlestickPatterns.is_bullish_engulfing, [prev, last], "Bullish Engulfing"),
+            (CandlestickPatterns.is_bearish_engulfing, [prev, last], "Bearish Engulfing"),
+            (CandlestickPatterns.is_doji, [last], "Doji"),
+            (CandlestickPatterns.is_morning_star, [third, prev, last], "Morning Star"),
+            (CandlestickPatterns.is_evening_star, [third, prev, last], "Evening Star")
+        ]
+
+        for check_fn, args, pattern_name in pattern_checks:
+            try:
+                if check_fn(*args):
+                    detections.append(pattern_name)
+            except Exception as e:
+                logger.warning(f"Error checking {pattern_name} pattern: {e}")
+
+        return detections
+
+    @staticmethod
+    def get_model_prediction(
+        model: PatternNN, 
+        df: pd.DataFrame, 
+        seq_len: int,
+        class_names: List[str]
+    ) -> Optional[str]:
+        """Get prediction from the neural model."""
+        try:
+            if len(df) < seq_len:
+                return None
+                
+            seq = torch.tensor(
+                df.tail(seq_len).values[None], 
+                dtype=torch.float32
             )
-            model = PatternNN()
-            st.session_state.training = True
-            def train():
-                trained = train_pattern_model(
-                    client, st.session_state.symbols, model,
-                    epochs=int(epochs), seq_len=int(seq_len)
-                )
-                st.session_state.model = trained
-                st.session_state.training = False
-                st.sidebar.success("Training complete!")
-            threading.Thread(target=train, daemon=True).start()
-        else:
-            st.sidebar.error("Please fill in credentials before training.")
-    else:
-        st.sidebar.warning("Training already in progress.")
+            with torch.no_grad():
+                logits = model(seq)
+            pred = int(torch.argmax(logits, dim=1).item())
+            return class_names[pred]
+        except Exception as e:
+            logger.error(f"Error getting model prediction: {e}")
+            return None
 
-# ─────── Symbol Management ────────────────────────────────────────────────────
-st.sidebar.title("📈 Symbol Tracker")
-new_symbol = st.sidebar.text_input("Add ticker (e.g. GOOGL)", key="new_symbol")
-if st.sidebar.button("Add Symbol"):
-    sym = new_symbol.strip().upper()
-    if sym and sym not in st.session_state.symbols:
-        st.session_state.symbols.append(sym)
-        st.sidebar.success(f"Added {sym}")
-    else:
-        st.sidebar.warning("Empty or duplicate symbol.")
+class DashboardUI:
+    """Handles UI rendering and user interactions."""
 
-# ─────── MAIN LAYOUT ─────────────────────────────────────────────────────────
-st.title("📊 E*Trade Candlestick Strategy Dashboard")
-
-# Prepare data if not already fetched
-if not st.session_state.data:
-    if all([consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id]):
-        for sym in st.session_state.symbols:
-            st.session_state.data[sym] = get_candles_cached(
-                consumer_key, consumer_secret, oauth_token, oauth_token_secret,
-                account_id, sym, interval='5min', days=1, sandbox=True
-            )
-
-# Display each symbol
-for sym, df in st.session_state.data.items():
-    st.markdown(f"---\n### {sym}")
-    try:
-        # Plot candlestick
+    @staticmethod
+    def render_symbol_chart(df: pd.DataFrame, symbol: str) -> None:
+        """Render candlestick chart for a symbol."""
         fig = go.Figure(data=[
             go.Candlestick(
                 x=df.index,
-                open=df['open'], high=df['high'],
-                low=df['low'], close=df['close'],
-                name=sym
+                open=df['open'], 
+                high=df['high'],
+                low=df['low'], 
+                close=df['close'],
+                name=symbol
             )
         ])
-        fig.update_layout(xaxis_rangeslider_visible=False)
+        fig.update_layout(
+            xaxis_rangeslider_visible=False,
+            title=f"{symbol} Price Chart",
+            height=600
+        )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Rule-based detections
-        detections = []
-        last = df.iloc[-1]
-        prev = df.iloc[-2] if len(df) > 1 else last
-        third = df.iloc[-3] if len(df) > 2 else prev
-
-        if CandlestickPatterns.is_hammer(last):
-            detections.append("Hammer")
-        if CandlestickPatterns.is_bullish_engulfing(prev, last):
-            detections.append("Bullish Engulfing")
-        if CandlestickPatterns.is_bearish_engulfing(prev, last):
-            detections.append("Bearish Engulfing")
-        if CandlestickPatterns.is_doji(last):
-            detections.append("Doji")
-        if CandlestickPatterns.is_morning_star(third, prev, last):
-            detections.append("Morning Star")
-        if CandlestickPatterns.is_evening_star(third, prev, last):
-            detections.append("Evening Star")
-
-        if detections:
-            st.success("Rule patterns: " + ", ".join(detections))
-        else:
-            st.info("No rule-based patterns detected.")
-
-        # Neural model prediction
-        if st.session_state.model is not None:
-            seq = torch.tensor(df.tail(seq_len).values[None], dtype=torch.float32)
-            logits = st.session_state.model(seq)
-            pred = int(torch.argmax(logits, dim=1).item())
-            name = st.session_state.class_names[pred]
-            st.info(f"Model prediction: {name}")
-        else:
-            st.warning("Neural model not trained yet.")
-
-        # Order execution buttons
+    @staticmethod
+    def render_trading_controls(
+        client: ETradeClient,
+        symbol: str
+    ) -> None:
+        """Render buy/sell buttons with order execution."""
         buy_col, sell_col = st.columns(2)
-        if buy_col.button(f"Buy {sym}", key=f"buy_{sym}"):
-            resp = client.place_market_order(sym, 1, instruction="BUY")
-            buy_col.success(f"BUY order placed: {resp}")
-        if sell_col.button(f"Sell {sym}", key=f"sell_{sym}"):
-            resp = client.place_market_order(sym, 1, instruction="SELL")
-            sell_col.success(f"SELL order placed: {resp}")
-
-    except Exception as e:
-        st.error(f"Error for {sym}: {e}")
-
-else:
-    st.info("Enter your E*Trade credentials above to begin.")
+        
+        try:
+            if buy_col.button(f"Buy {symbol}", key=f"buy_{symbol}"):
+                with st.spinner("Placing buy order..."):
+                    resp = client.place_market_order(symbol, 1, instruction="BUY")
+                    buy_col.success(f"BUY order placed: {resp}")
+                    
+            if sell_col.button(f"Sell {symbol}", key=f"sell_{symbol}"):
+                with st.spinner("Placing sell order..."):
+                    resp = client.place_market_order(symbol, 1, instruction="SELL")
+                    sell_col.success(f"SELL order placed: {resp}")
+        except Exception as e:
+            st.error(f"Order execution failed: {e}")
+            logger.error(f"Order execution error for {symbol}: {e}")
