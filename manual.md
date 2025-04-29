@@ -14,13 +14,13 @@
 
 ## Overview
 
-The E*Trade Candlestick Trading Bot combines algorithmic trading strategies with machine learning to automate stock trading via the E*Trade API. Key components include:
+The E*Trade Candlestick Trading Bot is an enterprise-grade algorithmic trading platform that combines technical analysis with machine learning for automated stock trading via the E*Trade API. The system features:
 
-- **Real-time Dashboard**: Live market data monitoring and trade execution
-- **Pattern Recognition**: Both rule-based and ML-powered candlestick pattern detection
-- **Risk Management**: Automated position sizing and stop-loss calculation
-- **Backtesting**: Historical strategy simulation with performance metrics
-- **Notifications**: Multi-channel trade alerts and system status updates
+- **Real-time Dashboard**: Interactive Plotly-based candlestick charts with live data monitoring
+- **Pattern Recognition**: Dual-mode pattern detection (rule-based + ML)
+- **Risk Management**: Dynamic position sizing and automated stop-loss
+- **Backtesting Engine**: Historical strategy validation with comprehensive metrics
+- **Enterprise Integration**: Multi-channel alerting system
 
 ## Prerequisites
 
@@ -28,15 +28,18 @@ The E*Trade Candlestick Trading Bot combines algorithmic trading strategies with
 - Python 3.8 or higher
 - Git
 - E*Trade Developer Account
-  - Sandbox environment credentials
-  - Production API keys
+  - Sandbox environment for testing
+  - Production API credentials
+  - Account with trading permissions
 - 64-bit Windows/Linux/macOS
+- Minimum 8GB RAM recommended
 
 ### Optional
-- Docker Desktop (for containerized deployment)
-- SMTP Server Access (for email notifications)
-- Twilio Account (for SMS notifications)
-- Slack Workspace (for chat notifications)
+- Docker Desktop (containerization)
+- SMTP Server (email alerts)
+- Twilio Account (SMS notifications)
+- Slack Workspace (webhook integration)
+- GPU support for ML training
 
 ## Installation
 
@@ -67,6 +70,7 @@ cp .env.example .env
 
 ## Configuration
 
+### API Credentials
 Edit `.env` with your credentials:
 
 ```plaintext
@@ -76,6 +80,14 @@ ETRADE_CONSUMER_SECRET=your_secret
 ETRADE_OAUTH_TOKEN=your_token
 ETRADE_OAUTH_TOKEN_SECRET=your_token_secret
 ETRADE_ACCOUNT_ID=your_account_id
+ETRADE_SANDBOX=True  # Set to False for production
+
+# Trading Configuration
+MAX_POSITIONS=5
+MAX_LOSS_PERCENT=0.02
+PROFIT_TARGET_PERCENT=0.03
+MAX_DAILY_LOSS=0.05
+SYMBOLS=AAPL,MSFT,GOOG
 
 # Notification Settings (Optional)
 SMTP_SERVER=smtp.gmail.com
@@ -95,107 +107,152 @@ SLACK_WEBHOOK_URL=your_webhook_url
 ```
 etrade-bot/
 ├── Core Components
-│   ├── etrade_candlestick_bot.py    # Trading engine
-│   ├── streamlit_dashboard.py        # Web interface
-│   ├── backtester.py                # Strategy testing
-│   └── ml_pipeline.py               # Model training
+│   ├── etrade_candlestick_bot.py    # Main trading engine
+│   ├── streamlit_dashboard.py        # Web interface & monitoring
+│   ├── backtester.py                # Strategy validation
+│   └── ml_pipeline.py               # ML model lifecycle
 │
 ├── Supporting Modules
-│   ├── risk_manager.py              # Position sizing
-│   ├── indicators.py                # Technical analysis
-│   ├── model_manager.py             # ML model handling
-│   ├── notifier.py                  # Alerts system
-│   └── performance_utils.py         # Optimization
+│   ├── risk_manager.py              # Position & risk control
+│   ├── indicators.py                # Technical analysis suite
+│   ├── model_manager.py             # Model versioning & inference
+│   ├── notifier.py                  # Alert system
+│   └── performance_utils.py         # System optimization
 │
 ├── Web Interface
 │   └── pages/
-│       ├── live_dashboard.py
-│       ├── backtest.py
-│       ├── model_training.py
-│       └── settings.py
+│       ├── live_dashboard.py        # Real-time monitoring
+│       ├── backtest.py              # Strategy testing
+│       ├── model_training.py        # ML pipeline control
+│       └── settings.py              # System configuration
 │
 └── Tests & CI
-    ├── tests/
-    └── .github/workflows/
+    ├── tests/                       # Unit & integration tests
+    └── .github/workflows/           # CI/CD pipelines
 ```
 
 ## Core Features
 
 ### Pattern Detection
-- Classic candlestick patterns (Hammer, Doji, etc.)
-- LSTM-based pattern recognition
-- Confidence scoring system
+- **Classic Patterns**
+  - Hammer, Doji, Engulfing patterns
+  - Real-time pattern scanning
+  - Confidence scoring (0-100%)
+  - Custom pattern definitions
 
-### Technical Indicators
-- RSI (Relative Strength Index)
-- MACD (Moving Average Convergence Divergence)
-- Bollinger Bands
-- Custom indicator support
+- **ML-Based Recognition**
+  - LSTM neural networks
+  - Pattern classification
+  - Probability scoring
+  - Model versioning
+
+### Technical Analysis
+- **Core Indicators**
+  - RSI (configurable periods)
+  - MACD (customizable parameters)
+  - Bollinger Bands (dynamic bands)
+  - Volume analysis
+
+- **Custom Indicators**
+  - Indicator composition
+  - Custom calculation engine
+  - Real-time updates
+  - Backtesting support
 
 ### Risk Management
-- Position sizing based on account value
-- ATR-based stop-loss calculation
-- Take-profit automation
-- Maximum drawdown controls
+- **Position Sizing**
+  - Account-based scaling
+  - Risk-adjusted positions
+  - Maximum exposure limits
+  - Position correlation checks
 
-### Machine Learning Pipeline
-- Data preprocessing
-- LSTM model training
-- Pattern recognition
-- Model persistence
+- **Stop Loss & Take Profit**
+  - ATR-based stops
+  - Trailing stop logic
+  - Multiple TP targets
+  - Break-even automation
+
+### ML Pipeline
+- **Data Processing**
+  - OHLCV normalization
+  - Feature engineering
+  - Training set generation
+  - Validation splitting
+
+- **Model Management**
+  - Training automation
+  - Version control
+  - Performance metrics
+  - Model persistence
 
 ## Running the Application
 
-### Streamlit Dashboard
+### Dashboard Launch
 ```bash
 streamlit run streamlit_dashboard.py
 ```
 
-### Backtesting Tool
+### Strategy Testing
 ```bash
 python backtester.py --symbol AAPL --start 2024-01-01 --end 2024-04-29 --strategy lstm
 ```
 
-### Model Training
+### ML Training
 ```bash
 python ml_pipeline.py --epochs 50 --batch-size 32 --learning-rate 0.001
 ```
 
 ## Advanced Usage
 
-### Custom Strategy Development
+### Custom Strategies
 ```python
 from backtester import Backtest
 
 class MyStrategy(Backtest):
     def generate_signals(self):
-        # Your strategy logic here
+        """
+        Custom trading logic implementation
+        Returns: DataFrame with signals
+        """
         pass
 ```
 
 ### Performance Optimization
-- Use `@st.cache_data` for expensive operations
-- Implement batch processing for data fetching
-- Enable async operations where possible
+- **Caching**
+  - `@st.cache_data` for data operations
+  - Database result caching
+  - Model inference caching
+
+- **Async Operations**
+  - Data fetching
+  - Order execution
+  - Alert dispatching
 
 ## Development
 
 ### Testing
 ```bash
+# Run all tests
 pytest tests/
+
+# Run with coverage
+pytest --cov=. --cov-report=html
 ```
 
 ### Docker Deployment
 ```bash
+# Build image
 docker build -t etrade-bot .
-docker run -p 8501:8501 etrade-bot
+
+# Run container
+docker run -p 8501:8501 -v $(pwd)/data:/app/data etrade-bot
 ```
 
 ## Support
 
-- GitHub Issues: Bug reports and feature requests
-- Discussions: Technical questions and community support
-- Documentation: Additional guides in `/docs`
+- **Issue Tracking**: GitHub Issues for bugs & features
+- **Community**: Technical discussions & support
+- **Documentation**: Additional guides in `/docs`
 
 ---
 Licensed under MIT © 2025

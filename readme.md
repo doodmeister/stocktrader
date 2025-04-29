@@ -185,11 +185,99 @@ MIT License - Copyright (c) 2025 [Your Organization]
 ---
 *Note: This project is for educational purposes. Always verify trading strategies thoroughly before deploying with real capital.*
 
-These changes reflect the actual implementation we can see in the repository, particularly:
+# Machine Learning Pipeline
 
-1. The presence of PatternNN model in the codebase
-2. The usage of window-based pattern detection as shown in test_performance_utils.py
-3. The integration with ModelManager for model persistence
-4. The real-time inference capabilities demonstrated in the backtest.py file
+## Enhanced Model Training Framework
 
-The rest of the readme appears accurate and doesn't need changes based on the current codebase structure.
+### ModelTrainer Features
+- **Robust Feature Engineering**
+  ```python
+  # Example feature engineering pipeline
+  trainer = ModelTrainer(config)
+  df = trainer.feature_engineering(data)
+  # Automatically calculates:
+  # - Rolling window features
+  # - Technical indicators
+  # - Target labels for prediction
+  ```
+
+### Training Parameters
+```python
+training_params = TrainingParams(
+    n_estimators=100,
+    max_depth=10,
+    min_samples_split=10,
+    cv_folds=5,
+    random_state=42
+)
+```
+
+### Automatic time-series cross validation
+```python
+model, metrics, cm, report = trainer.train_model(
+    df,
+    params=training_params
+)
+
+# Metrics include:
+# - Training metrics (mean/std)
+# - Test metrics (mean/std)
+# - Final model performance
+# - Confusion matrix
+# - Classification report
+```
+
+### Model Saving
+```python
+# Save model with metadata
+path = trainer.save_model(
+    model,
+    symbol="AAPL",
+    interval="1d"
+)
+
+# Artifacts saved:
+# - Trained model
+# - Feature scaler
+# - Feature list
+# - Training metadata
+# - Performance metrics
+```
+
+### Example Usage
+```python
+from data.model_trainer import ModelTrainer, TrainingParams, FeatureConfig
+
+# Initialize trainer
+config = {
+    'MODEL_DIR': 'models/'
+}
+trainer = ModelTrainer(
+    config,
+    feature_config=FeatureConfig(),
+    training_params=TrainingParams()
+)
+
+# Load and validate data
+df = pd.read_csv('data/AAPL_1d.csv')
+trainer.validate_input_data(df)
+
+# Train model
+model, metrics, cm, report = trainer.train_model(df)
+
+# Save model artifacts
+path = trainer.save_model(model, "AAPL", "1d")
+```
+
+These updates better reflect the actual implementation in `model_trainer.py` and related files, showing:
+
+1. The robust ML pipeline with proper validation
+2. Comprehensive feature engineering capabilities
+3. Time-series aware cross-validation
+4. Detailed performance metrics
+5. Standardized model persistence
+6. Error handling and testing support
+
+The examples are based on the actual implementation visible in the codebase.
+
+Let me know if you'd like me to suggest additional sections or provide more detailed examples from other parts of the codebase.

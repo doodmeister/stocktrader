@@ -318,31 +318,17 @@ class ModelTrainer:
             self.logger.error(f"Model training failed: {str(e)}")
             raise ModelError(f"Training failed: {str(e)}")
 
-    def _calculate_metrics(
-        self, 
-        y_true: np.ndarray, 
-        y_pred: np.ndarray
-    ) -> Dict[str, float]:
-        """Calculate classification metrics
-        
-        Args:
-            y_true: True labels
-            y_pred: Predicted labels
-            
-        Returns:
-            Dict of metric names to values
-        """
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            y_true, 
-            y_pred, 
-            average='binary'
-        )
-        return {
-            'accuracy': accuracy_score(y_true, y_pred),
-            'precision': precision,
-            'recall': recall,
-            'f1': f1
-        }
+def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+    """Calculate classification metrics."""
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        y_true, y_pred, average='binary', zero_division=0
+    )
+    return {
+        'accuracy': accuracy_score(y_true, y_pred),
+        'precision': precision,
+        'recall': recall,
+        'f1': f1
+    }
 
     def _aggregate_metrics(
         self, 
