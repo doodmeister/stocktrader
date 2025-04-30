@@ -3,6 +3,7 @@
 Machine Learning Pipeline for Candlestick Pattern Recognition
 """
 import logging
+import os
 import torch
 import numpy as np
 from pathlib import Path
