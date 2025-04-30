@@ -1,98 +1,104 @@
 # E*Trade Candlestick Trading Bot & Dashboard
 
-An enterprise-grade trading platform that combines traditional technical analysis with machine learning for automated E*Trade trading. Features a Streamlit dashboard for real-time monitoring and a comprehensive backtesting framework.
+An enterprise-grade trading platform that combines classic technical analysis with machine learning for automated E*Trade trading. Features a Streamlit dashboard for real-time monitoring, robust risk management, and a comprehensive backtesting and ML pipeline.
+
+---
 
 ## 🎯 Key Features
 
 - **Real-Time Trading Dashboard**
-  - Dynamic symbol watchlist management
-  - Interactive candlestick charts with Plotly
-  - Real-time pattern detection and annotations
-  - Integrated LSTM model predictions
-  - Risk-managed order execution interface
-  
+  - Dynamic symbol watchlist
+  - Interactive candlestick charts (Plotly)
+  - Real-time pattern detection (rule-based & ML)
+  - Integrated PatternNN model predictions
+  - Risk-managed order execution
+
 - **Advanced Technical Analysis**
-  - Candlestick pattern recognition engine
-  - Technical indicators suite (RSI, MACD, Bollinger Bands)
-  - Custom indicator development framework
+  - Candlestick pattern recognition (Hammer, Doji, Engulfing, etc.)
+  - Technical indicators (RSI, MACD, Bollinger Bands)
+  - Custom indicator framework
   - ATR-based position sizing
-  
+
 - **Machine Learning Pipeline**
-  - Pattern Neural Network (PatternNN) for technical analysis
-  - Real-time pattern recognition and classification
-  - Automated data preparation and preprocessing
-  - Model persistence and versioning with ModelManager
+  - Pattern Neural Network (PatternNN) for pattern classification
+  - Automated data preparation and feature engineering
+  - Model persistence/versioning (ModelManager)
   - Configurable training parameters
   - Real-time inference integration
-  
+
 - **Risk Management System**
   - Position size calculator
-  - Dynamic stop-loss placement
-  - Take-profit optimization
+  - Dynamic stop-loss and take-profit
   - Portfolio exposure controls
-  
+
 - **Comprehensive Backtesting**
-  - Multiple strategy support (Rule-based/ML)
+  - Rule-based and ML strategies
   - Historical OHLCV data simulation
-  - Performance metrics:
-    - Sharpe Ratio
-    - Maximum Drawdown
-    - Win Rate
-    - Risk-adjusted Returns
-  
+  - Performance metrics: Sharpe Ratio, Max Drawdown, Win Rate
+
 - **Enterprise Integration**
-  - Multi-channel notifications:
-    - Email (SMTP)
-    - SMS (Twilio)
-    - Slack alerts
-  - Performance optimization:
-    - Streamlit caching
-    - Async data fetching
-  - Containerized deployment support
+  - Multi-channel notifications: Email (SMTP), SMS (Twilio), Slack
+  - Streamlit caching and async data fetching
+  - Containerized deployment (Docker)
+
+---
 
 ## 🔧 System Requirements
 
 - Python 3.8+
-- E*Trade Developer Account:
-  - Sandbox environment credentials
-  - Production API keys
-- (Optional) Integration Services:
-  - SMTP server access
-  - Twilio account
-  - Slack workspace with webhook permissions
-- Docker (for containerized deployment)
 - Git
+- E*Trade Developer Account (sandbox and/or production API keys)
+- (Optional) SMTP server, Twilio account, Slack webhook
+- Docker (for containerized deployment)
+
+---
 
 ## 📦 Installation
 
-1. **Clone Repository**
+1. **Clone the Repository**
    ```bash
-   git clone https://github.com/<organization>/etrade-bot.git
+   git clone https://github.com/<your-org>/etrade-bot.git
    cd etrade-bot
    ```
 
-2. **Environment Setup**
+2. **Set Up Python Environment**
+
+   **Windows:**
    ```bash
    python -m venv .venv
-   source .venv/bin/activate  # Unix
-   # or
-   .venv\Scripts\activate     # Windows
+   .venv\Scripts\activate
+   where python
    ```
 
-3. **Dependencies**
+   **Linux/macOS:**
    ```bash
-   pip install -r requirements.txt
+   python3 -m venv .venv
+   source .venv/bin/activate
+   which python
    ```
 
-4. **Configuration**
+3. **Install Dependencies**
+   ```bash
+   python -m pip install --upgrade pip
+   pip install -r requirements.txt
+   python -c "import streamlit; import pandas; import torch"
+   ```
+
+4. **Configure Environment**
    ```bash
    cp .env.example .env
-   # Edit .env with your credentials
+   python utils/validate_config.py
+   # Edit .env with your credentials and settings
    ```
 
-Required environment variables:
+---
+
+## ⚙️ Configuration
+
+Edit the `.env` file with your credentials and settings:
+
 ```dotenv
-# E*Trade Authentication
+# E*TRADE API (Required)
 ETRADE_CONSUMER_KEY=your_sandbox_consumer_key
 ETRADE_CONSUMER_SECRET=your_sandbox_consumer_secret
 ETRADE_OAUTH_TOKEN=your_sandbox_access_token
@@ -100,50 +106,116 @@ ETRADE_OAUTH_TOKEN_SECRET=your_sandbox_access_token_secret
 ETRADE_ACCOUNT_ID=your_sandbox_account_id
 ETRADE_USE_SANDBOX=true
 
-# Notification Services
-SMTP_SERVER=smtp.example.com
+# Trading Parameters
+MAX_POSITIONS=5
+MAX_LOSS_PERCENT=0.02
+PROFIT_TARGET_PERCENT=0.03
+MAX_DAILY_LOSS=0.05
+SYMBOLS=AAPL,MSFT,GOOG
+
+# Optional: Email Notifications
+SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your_email
 SMTP_PASS=your_password
 
+# Optional: SMS Alerts
 TWILIO_ACCOUNT_SID=your_sid
 TWILIO_AUTH_TOKEN=your_token
-TWILIO_FROM_NUMBER=your_number
+TWILIO_FROM_NUMBER=+1234567890
 
+# Optional: Slack Integration
 SLACK_WEBHOOK_URL=your_webhook_url
 ```
 
+---
+
+## 🏗️ Project Structure
+
+```
+stocktrader/
+├── streamlit_dashboard.py       # Web dashboard (Streamlit)
+├── backtester.py                # Strategy backtesting
+├── ml_pipeline.py               # ML model training & inference
+│
+├── utils/
+│   ├── etrade_candlestick_bot.py   # Main trading logic, E*TRADE API, strategy engine
+│   ├── indicators.py               # Technical indicators (RSI, MACD, BBands, etc.)
+│   ├── model_manager.py            # Model persistence/versioning
+│   ├── ml_pipeline.py              # ML pipeline (PatternNN, training, evaluation)
+│   ├── performance_utils.py        # Dashboard state, async data, pattern detection, UI
+│   ├── validate_config.py          # Config validation
+│   ├── validation.py               # Input/config validation helpers
+│   └── getuservar.py               # E*TRADE OAuth helper
+│
+├── core/
+│   └── notifier.py                 # Notification utility (email, Slack, etc.)
+│
+├── data/
+│   ├── data_loader.py              # Download OHLCV data (Yahoo Finance)
+│   ├── io.py                       # IO utilities (e.g., zip archive)
+│   └── data_dashboard.py           # Streamlit dashboard for data/model ops
+│
+├── train/
+│   └── training_pipeline.py        # ML training pipeline (RandomForest, etc.)
+│   └── trainer.py                  # PatternNN model training
+│
+├── models/
+│   └── patterns_nn.py              # PatternNN model definition
+│
+├── patterns.py                     # Candlestick pattern detection (rule-based)
+│
+├── pages/
+│   ├── live_dashboard.py           # Real-time monitoring
+│   ├── backtest.py                 # Backtesting UI
+│   ├── model_training.py           # ML pipeline UI
+│   └── settings.py                 # System configuration UI
+│
+├── tests/                          # Unit & integration tests
+└── .github/workflows/              # CI/CD pipelines
+```
+
+---
+
 ## 🚀 Usage
 
-### Trading Dashboard
+### Launch Dashboard
+
 ```bash
 streamlit run streamlit_dashboard.py
 ```
 
-### Pattern Detection
+### Pattern Detection (CLI)
+
 ```bash
 python pattern_detection.py --symbol AAPL --window 10
 ```
 
 ### Strategy Backtesting
+
 ```bash
-python backtester.py --symbol AAPL --start 2021-01-01 --end 2025-04-28 --strategy rule
+python backtester.py --symbol AAPL --start 2024-01-01 --end 2024-04-29 --strategy lstm
 ```
 
 ### ML Model Training
+
 ```bash
-python ml_pipeline.py --model pattern_nn --data-dir data/ohlcv/ --epochs 30 --window-size 10 --batch-size 32 --lr 1e-3
+python ml_pipeline.py --epochs 50 --batch-size 32 --learning-rate 0.001
 ```
 
 ### Alert System Testing
+
 ```bash
 python notifier.py --mode test
 ```
 
 ### Test Suite Execution
+
 ```bash
 pytest --cov=. --cov-report=html
 ```
+
+---
 
 ## 🧪 Testing
 
@@ -155,14 +227,19 @@ pytest --cov=. --cov-report=html
 - Automated CI/CD via GitHub Actions
 - Code coverage reporting
 
+---
+
 ## 📚 Documentation
 
-Detailed documentation available in `/docs`:
+See `/docs` for:
+
 - API Reference
 - Configuration Guide
 - Strategy Development
 - ML Model Training
 - Deployment Guide
+
+---
 
 ## 🤝 Contributing
 
@@ -173,9 +250,13 @@ Detailed documentation available in `/docs`:
 
 Please review our contribution guidelines and code of conduct.
 
+---
+
 ## 📄 License
 
 MIT License - Copyright (c) 2025 [Your Organization]
+
+---
 
 ## 🔗 Support
 
@@ -184,127 +265,104 @@ MIT License - Copyright (c) 2025 [Your Organization]
 - Contact: support@your-org.com
 
 ---
+
 *Note: This project is for educational purposes. Always verify trading strategies thoroughly before deploying with real capital.*
+
+---
 
 # Machine Learning Pipeline
 
 ## Enhanced Model Training Framework
 
 ### ModelTrainer Features
+
 - **Robust Feature Engineering**
   ```python
-  # Example feature engineering pipeline
   trainer = ModelTrainer(config)
   df = trainer.feature_engineering(data)
-  # Automatically calculates:
-  # - Rolling window features
-  # - Technical indicators
-  # - Target labels for prediction
+  # Calculates rolling window features, technical indicators, and target labels
   ```
 
-### Training Parameters
-```python
-training_params = TrainingParams(
-    n_estimators=100,
-    max_depth=10,
-    min_samples_split=10,
-    cv_folds=5,
-    random_state=42
-)
-```
+- **Training Parameters**
+  ```python
+  training_params = TrainingParams(
+      n_estimators=100,
+      max_depth=10,
+      min_samples_split=10,
+      cv_folds=5,
+      random_state=42
+  )
+  ```
 
-### Automatic time-series cross validation
-```python
-model, metrics, cm, report = trainer.train_model(
-    df,
-    params=training_params
-)
+- **Automatic Time-Series Cross Validation**
+  ```python
+  model, metrics, cm, report = trainer.train_model(
+      df,
+      params=training_params
+  )
+  # Metrics: training/test/final, confusion matrix, classification report
+  ```
 
-# Metrics include:
-# - Training metrics (mean/std)
-# - Test metrics (mean/std)
-# - Final model performance
-# - Confusion matrix
-# - Classification report
-```
+- **Model Saving**
+  ```python
+  path = trainer.save_model(
+      model,
+      symbol="AAPL",
+      interval="1d"
+  )
+  # Artifacts: trained model, scaler, feature list, metadata, metrics
+  ```
 
-### Model Saving
-```python
-# Save model with metadata
-path = trainer.save_model(
-    model,
-    symbol="AAPL",
-    interval="1d"
-)
+- **Example Usage**
+  ```python
+  from data.model_trainer import ModelTrainer, TrainingParams, FeatureConfig
 
-# Artifacts saved:
-# - Trained model
-# - Feature scaler
-# - Feature list
-# - Training metadata
-# - Performance metrics
-```
+  config = {'MODEL_DIR': 'models/'}
+  trainer = ModelTrainer(
+      config,
+      feature_config=FeatureConfig(),
+      training_params=TrainingParams(
+          n_estimators=100,
+          max_depth=10,
+          min_samples_split=10
+      )
+  )
+  df = pd.read_csv('data/AAPL_1d.csv')
+  model, metrics, cm, report = trainer.train_model(df)
+  ```
 
-### Example Usage
-```python
-from data.model_trainer import ModelTrainer, TrainingParams, FeatureConfig
+- **PatternModelTrainer Example**
+  ```python
+  from train.trainer import PatternModelTrainer, TrainingConfig
+  from stocktrader.utils.model_manager import ModelManager
+  from stocktrader.etrade_candlestick_bot import ETradeClient
 
-# Initialize trainer
-config = {
-    'MODEL_DIR': 'models/'
-}
-trainer = ModelTrainer(
-    config,
-    feature_config=FeatureConfig(),
-    training_params=TrainingParams(
-        n_estimators=100,
-        max_depth=10,
-        min_samples_split=10
-    )
-)
+  config = TrainingConfig(
+      epochs=10,
+      seq_len=10, 
+      batch_size=32,
+      learning_rate=0.001
+  )
+  trainer = PatternModelTrainer(
+      client=ETradeClient(...),
+      model_manager=ModelManager(...),
+      config=config
+  )
+  model = trainer.train_model(
+      symbols=["AAPL", "MSFT", "GOOG"],
+      metadata={"version": "1.0"}
+  )
+  ```
 
-# Train on OHLCV data
-df = pd.read_csv('data/AAPL_1d.csv')
-model, metrics, cm, report = trainer.train_model(df)
-```
+These examples reflect the actual implementation in `model_trainer.py` and related files, showing:
 
-### PatternModelTrainer Example
-```python
-from train.trainer import PatternModelTrainer, TrainingConfig
-from stocktrader.utils.model_manager import ModelManager
-from stocktrader.etrade_candlestick_bot import ETradeClient
-
-# Configure training
-config = TrainingConfig(
-    epochs=10,
-    seq_len=10, 
-    batch_size=32,
-    learning_rate=0.001
-)
-
-# Initialize trainer
-trainer = PatternModelTrainer(
-    client=ETradeClient(...),
-    model_manager=ModelManager(...),
-    config=config
-)
-
-# Train on multiple symbols
-model = trainer.train_model(
-    symbols=["AAPL", "MSFT", "GOOG"],
-    metadata={"version": "1.0"}
-)
-```
-
-These updates better reflect the actual implementation in `model_trainer.py` and related files, showing:
-
-1. The robust ML pipeline with proper validation
-2. Comprehensive feature engineering capabilities
-3. Time-series aware cross-validation
-4. Detailed performance metrics
+1. Robust ML pipeline with validation
+2. Comprehensive feature engineering
+3. Time-series cross-validation
+4. Detailed metrics and reporting
 5. Standardized model persistence
 6. Error handling and testing support
 
-The examples are based on the actual implementation visible in the codebase.
+---
 
-Let me know if you'd like me to suggest additional sections or provide more detailed examples from other parts of the codebase.
+Let us know if you need more detailed examples or have questions about specific modules!

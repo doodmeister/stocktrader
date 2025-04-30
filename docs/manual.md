@@ -124,30 +124,45 @@ SLACK_WEBHOOK_URL=your_webhook_url
 ## 5. Architecture
 
 ```
-etrade-bot/
-├── etrade_candlestick_bot.py    # Main trading engine
+stocktrader/
 ├── streamlit_dashboard.py       # Web dashboard (Streamlit)
 ├── backtester.py                # Strategy backtesting
 ├── ml_pipeline.py               # ML model training & inference
 │
 ├── utils/
-│   ├── validate_config.py       # Config validation
-│   └── performance_utils.py     # System optimization
+│   ├── etrade_candlestick_bot.py   # Main trading logic, E*TRADE API, strategy engine
+│   ├── indicators.py               # Technical indicators (RSI, MACD, BBands, etc.)
+│   ├── model_manager.py            # Model persistence/versioning
+│   ├── ml_pipeline.py              # ML pipeline (PatternNN, training, evaluation)
+│   ├── performance_utils.py        # Dashboard state, async data, pattern detection, UI
+│   ├── validate_config.py          # Config validation
+│   ├── validation.py               # Input/config validation helpers
+│   └── getuservar.py               # E*TRADE OAuth helper
 │
-├── modules/
-│   ├── risk_manager.py          # Risk & position management
-│   ├── indicators.py            # Technical indicators
-│   ├── model_manager.py         # ML model management
-│   ├── notifier.py              # Alerts & notifications
+├── core/
+│   └── notifier.py                 # Notification utility (email, Slack, etc.)
+│
+├── data/
+│   ├── data_loader.py              # Download OHLCV data (Yahoo Finance)
+│   ├── io.py                       # IO utilities (e.g., zip archive)
+│   └── data_dashboard.py           # Streamlit dashboard for data/model ops
+│
+├── train/
+│   └── training_pipeline.py        # ML training pipeline (RandomForest, etc.)
+│
+├── models/
+│   └── patterns_nn.py              # PatternNN model definition
+│
+├── patterns.py                     # Candlestick pattern detection (rule-based)
 │
 ├── pages/
-│   ├── live_dashboard.py        # Real-time monitoring
-│   ├── backtest.py              # Backtesting UI
-│   ├── model_training.py        # ML pipeline UI
-│   └── settings.py              # System configuration UI
+│   ├── live_dashboard.py           # Real-time monitoring
+│   ├── backtest.py                 # Backtesting UI
+│   ├── model_training.py           # ML pipeline UI
+│   └── settings.py                 # System configuration UI
 │
-├── tests/                       # Unit & integration tests
-└── .github/workflows/           # CI/CD pipelines
+├── tests/                          # Unit & integration tests
+└── .github/workflows/              # CI/CD pipelines
 ```
 
 ---
@@ -200,6 +215,25 @@ python backtester.py --symbol AAPL --start 2024-01-01 --end 2024-04-29 --strateg
 
 ```bash
 python ml_pipeline.py --epochs 50 --batch-size 32 --learning-rate 0.001
+```
+
+### 7.4 Pattern Detection (CLI)
+
+```bash
+python pattern_detection.py --symbol AAPL --window 10
+```
+
+### 7.5 Alert System Test
+
+```bash
+python notifier.py --mode test
+```
+
+### 7.6 Run Test Suite
+
+```bash
+pytest tests/
+pytest --cov=. --cov-report=html
 ```
 
 ---
