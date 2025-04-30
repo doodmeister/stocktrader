@@ -4,7 +4,7 @@ pandas>=2.0.0,<3.0.0  # Keeping higher version for newer features
 numpy>=1.24.0,<2.0.0
 requests>=2.31.0
 requests-oauthlib>=1.3.0
-plotly>=5.15.0
+plotly<6.0.0,>=4.12.0
 torch>=2.0.0
 scikit-learn>=1.3.0
 python-dateutil>=2.8.2  # Added as requested
@@ -15,7 +15,7 @@ yfinance>=0.2.30  # Updated to newer version
 
 # Alternative trading libraries
 backtesting>=0.3.3  # More modern backtesting framework
-vectorbt>=0.25.0  # High performance backtesting
+vectorbt>=0.27.2  # High performance backtesting
 
 # Data Visualization
 matplotlib>=3.7.0  # Required by backtrader for plotting
