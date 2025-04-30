@@ -9,7 +9,7 @@ import plotly.graph_objs as go
 from stocktrader.etrade_candlestick_bot import ETradeClient
 from stocktrader.patterns import CandlestickPatterns
 from stocktrader.models.pattern_nn import PatternNN
-from stocktrader.training.trainer import train_pattern_model
+from train.trainer import train_pattern_model
 from stocktrader.utils.risk_manager import RiskManager
 from stocktrader.utils.notifier import Notifier
 from stocktrader.utils.indicators import TechnicalIndicators
