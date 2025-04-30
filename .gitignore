@@ -72,3 +72,5 @@ model_training.log
 
 # Models
 models/*.pth
+
+source/
