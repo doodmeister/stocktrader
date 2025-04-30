@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 from backtester import run_backtest_wrapper
-from model_manager import load_latest_model
+from utils.model_manager import load_latest_model
 from models.pattern_nn import PatternNN  # <-- Import your model class (adjust if needed)
 
 @st.cache_resource

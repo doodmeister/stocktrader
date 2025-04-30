@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 from datetime import datetime
-from model_manager import ModelManager, ModelMetadata, ModelError, ModelNotFoundError
+from utils.model_manager import ModelManager, ModelMetadata, ModelError, ModelNotFoundError
 
 class SimpleModel(nn.Module):
     def __init__(self):

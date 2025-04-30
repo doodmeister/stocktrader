@@ -7,10 +7,10 @@ from typing import Optional, Tuple, Dict, Any, NamedTuple
 from datetime import datetime
 from dataclasses import dataclass
 
-from ml_pipeline import train_model
-from model_manager import ModelManager, ModelMetadata
-from patterns_nn import PatternNN
-from performance_utils import st_error_boundary
+from stocktrader.ml_pipeline import train_model
+from utils.model_manager import ModelManager, ModelMetadata
+from models.patterns_nn import PatternNN
+from utils.performance_utils import st_error_boundary
 from config import get_settings
 
 # Configure structured logging

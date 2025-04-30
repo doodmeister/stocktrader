@@ -11,13 +11,13 @@ from typing import Tuple, Dict, Optional
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
 import json
-from etrade_candlestick_bot import ETradeClient
-from patterns_nn import PatternNN
+from stocktrader.etrade_candlestick_bot import ETradeClient
+from stocktrader.model.patterns_nn import PatternNN
 
-from performance_utils import get_candles_cached
-from model_manager import save_model
+from stocktrder.utils.performance_utils import get_candles_cached
+from stocktrader.utils.model_manager import save_model
 from config import MLConfig
-from notifier import Notifier
+from stocktrader.utils.notifier import Notifier
 
 # Configure logging
 logging.basicConfig(

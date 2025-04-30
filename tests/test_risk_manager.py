@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-from risk_manager import RiskManager, RiskParameters
+from utils.risk_manager import RiskManager, RiskParameters
 
 @pytest.fixture
 def risk_manager():

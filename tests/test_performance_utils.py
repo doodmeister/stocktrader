@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from performance_utils import PatternDetector, DataManager, DashboardState
+from utils.performance_utils import PatternDetector, DataManager, DashboardState
 
 @pytest.fixture
 def sample_dataframe():

@@ -2,7 +2,7 @@
 import pytest
 import pandas as pd
 import numpy as np
-from indicators import (
+from utils.indicators import (
     add_rsi,
     add_macd,
     add_bollinger_bands,

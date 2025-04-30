@@ -6,13 +6,13 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objs as go
 
-from etrade_candlestick_bot import ETradeClient
-from patterns import CandlestickPatterns
-from models.pattern_nn import PatternNN
-from training.trainer import train_pattern_model
-from risk_manager import RiskManager
-from notifier import Notifier
-from indicators import TechnicalIndicators
+from stocktrader.etrade_candlestick_bot import ETradeClient
+from stocktrader.patterns import CandlestickPatterns
+from stocktrader.models.pattern_nn import PatternNN
+from stocktrader.training.trainer import train_pattern_model
+from stocktrader.utils.risk_manager import RiskManager
+from stocktrader.utils.notifier import Notifier
+from stocktrader.utils.indicators import TechnicalIndicators
 
 # --- Constants for Session State Keys ---
 SESSION_KEYS = {
