@@ -1,13 +1,12 @@
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
+from datetime import datetime
 
 import numpy as np
-import pandas as pd
-from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 
 from stocktrader.models.pattern_nn import PatternNN
 from stocktrader.etrade_candlestick_bot import ETradeClient
@@ -15,6 +14,7 @@ from stocktrader.patterns import CandlestickPatterns
 from stocktrader.utils.model_manager import ModelManager
 from stocktrader.utils.validation import validate_training_params
 
+# Configure module logger
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -26,8 +26,8 @@ class TrainingConfig:
     batch_size: int = 32
     validation_split: float = 0.2
     early_stopping_patience: int = 5
-    min_patterns: int = 100  # Minimum patterns needed for training
-    max_samples_per_symbol: int = 10000  # Prevent memory issues
+    min_patterns: int = 100            # Minimum total patterns needed
+    max_samples_per_symbol: int = 10000  # Per-symbol sample cap
 
 class PatternModelTrainer:
     """Handles the training of neural network models for candlestick pattern recognition."""
@@ -38,79 +38,57 @@ class PatternModelTrainer:
         model_manager: ModelManager,
         config: TrainingConfig
     ):
-        """
-        Initialize the pattern model trainer.
-
-        Args:
-            client: Authenticated ETradeClient instance
-            model_manager: ModelManager instance for model persistence
-            config: Training configuration parameters
-        """
         self.client = client
         self.model_manager = model_manager
         self.config = config
         self._validate_dependencies()
+        # Validate config values
+        validate_training_params(self.config)
 
     def _validate_dependencies(self) -> None:
-        """Validate required dependencies and configurations."""
         if not isinstance(self.client, ETradeClient):
             raise ValueError("Invalid ETradeClient instance")
         if not isinstance(self.model_manager, ModelManager):
             raise ValueError("Invalid ModelManager instance")
-        validate_training_params(self.config)
 
     def prepare_training_data(
-        self, 
+        self,
         symbols: List[str]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Collect and prepare training data from historical candlesticks.
-
-        Args:
-            symbols: List of stock symbols to train on
-
-        Returns:
-            Tuple of (features, labels) as numpy arrays
-        
-        Raises:
-            ValueError: If insufficient training data is collected
         """
         X, y = [], []
-        
+
         for symbol in tqdm(symbols, desc="Collecting training data"):
             try:
                 features, labels = self._process_symbol(symbol)
+                # Enforce per-symbol cap
+                if len(features) > self.config.max_samples_per_symbol:
+                    features = features[: self.config.max_samples_per_symbol]
+                    labels = labels[: self.config.max_samples_per_symbol]
+
                 X.extend(features)
                 y.extend(labels)
-                
-                if len(X) >= self.config.max_samples_per_symbol:
-                    logger.info(f"Reached max samples for {symbol}")
-                    break
-                    
+
             except Exception as e:
-                logger.error(f"Error processing {symbol}: {str(e)}", exc_info=True)
+                logger.error(f"Error processing {symbol}: {e}", exc_info=True)
                 continue
 
         if len(X) < self.config.min_patterns:
             raise ValueError(
                 f"Insufficient training data: {len(X)} samples. "
-                f"Need at least {self.config.min_patterns}"
+                f"Need at least {self.config.min_patterns} patterns."
             )
 
         return np.array(X), np.array(y)
 
     def _process_symbol(
-        self, 
+        self,
         symbol: str
     ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
         """
         Process individual symbol data into training sequences.
-
-        Args:
-            symbol: Stock symbol to process
-
-        Returns:
-            Tuple of (feature_sequences, pattern_labels)
         """
         df = self.client.get_candles(symbol, interval="5min", days=30)
         if df.empty:
@@ -118,39 +96,31 @@ class PatternModelTrainer:
 
         features, labels = [], []
         for i in range(len(df) - self.config.seq_len):
-            sequence = self._extract_sequence(df, i)
+            # Extract and normalize sequence
+            window = df.iloc[i : i + self.config.seq_len][["open", "high", "low", "close"]].values
+            seq = (window - window[0]) / window[0]
+
+            # Detect patterns in this window
             patterns = CandlestickPatterns.detect_patterns(
-                df.iloc[i:i + self.config.seq_len]
+                df.iloc[i : i + self.config.seq_len]
             )
-            
+
             if patterns:
-                features.append(sequence)
+                features.append(seq)
                 labels.append(self._encode_patterns(patterns))
 
         return features, labels
 
-    def _extract_sequence(
-        self, 
-        df: pd.DataFrame, 
-        start_idx: int
-    ) -> np.ndarray:
-        """Extract and normalize a training sequence."""
-        sequence = df.iloc[
-            start_idx:start_idx + self.config.seq_len
-        ][['open', 'high', 'low', 'close']].values
-        
-        # Normalize using percentage changes
-        return (sequence - sequence[0]) / sequence[0]
-
     def _encode_patterns(
-        self, 
+        self,
         patterns: List[str]
     ) -> np.ndarray:
         """One-hot encode detected patterns."""
-        label = np.zeros(len(PatternNN.PATTERN_CLASSES))
-        for pattern in patterns:
-            if pattern in PatternNN.PATTERN_CLASSES:
-                label[PatternNN.PATTERN_CLASSES.index(pattern)] = 1
+        label = np.zeros(len(PatternNN.PATTERN_CLASSES), dtype=float)
+        for pat in patterns:
+            if pat in PatternNN.PATTERN_CLASSES:
+                idx = PatternNN.PATTERN_CLASSES.index(pat)
+                label[idx] = 1.0
         return label
 
     def train_model(
@@ -161,76 +131,70 @@ class PatternModelTrainer:
     ) -> PatternNN:
         """
         Train a pattern recognition model on historical data.
-
-        Args:
-            symbols: List of stock symbols to train on
-            model: Optional existing model to fine-tune
-            metadata: Optional metadata to save with model
-
-        Returns:
-            Trained PatternNN model
-
-        Raises:
-            ValueError: If training fails or validation errors occur
         """
         logger.info(f"Starting model training with {len(symbols)} symbols")
-        
+
+        # Device selection
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         try:
             # Prepare data
             X, y = self.prepare_training_data(symbols)
             X_train, X_val, y_train, y_val = self._train_test_split(X, y)
 
-            # Initialize or use existing model
+            # Initialize or fine-tune model
             model = model or PatternNN()
-            
-            # Create data loaders
+            model.to(device)
+
+            # Data loaders
             train_loader = self._create_data_loader(X_train, y_train)
             val_loader = self._create_data_loader(X_val, y_val)
 
-            # Train model
-            model.train(
+            # Fit the model (ensure PatternNN has a fit method)
+            model.fit(
                 train_loader=train_loader,
                 val_loader=val_loader,
                 epochs=self.config.epochs,
                 learning_rate=self.config.learning_rate,
-                early_stopping_patience=self.config.early_stopping_patience
+                early_stopping_patience=self.config.early_stopping_patience,
+                device=device
             )
 
-            # Save trained model
+            # Persist the trained model
             self._save_model(model, metadata)
-            
             return model
 
         except Exception as e:
             logger.error("Training failed", exc_info=True)
-            raise ValueError(f"Model training failed: {str(e)}") from e
+            raise ValueError(f"Model training failed: {e}") from e
 
     def _train_test_split(
-        self, 
-        X: np.ndarray, 
+        self,
+        X: np.ndarray,
         y: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Split data into training and validation sets."""
         split_idx = int(len(X) * (1 - self.config.validation_split))
         return (
-            X[:split_idx], X[split_idx:],
-            y[:split_idx], y[split_idx:]
+            X[:split_idx],
+            X[split_idx:],
+            y[:split_idx],
+            y[split_idx:]
         )
 
     def _create_data_loader(
-        self, 
-        X: np.ndarray, 
+        self,
+        X: np.ndarray,
         y: np.ndarray
     ) -> DataLoader:
         """Create PyTorch DataLoader for training."""
-        dataset = TensorDataset(
-            torch.FloatTensor(X),
-            torch.FloatTensor(y)
-        )
+        tensor_x = torch.tensor(X, dtype=torch.float32)
+        tensor_y = torch.tensor(y, dtype=torch.float32)
         return DataLoader(
-            dataset,
+            TensorDataset(tensor_x, tensor_y),
             batch_size=self.config.batch_size,
-            shuffle=True
+            shuffle=True,
+            pin_memory=torch.cuda.is_available()
         )
 
     def _save_model(
@@ -239,13 +203,9 @@ class PatternModelTrainer:
         metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         """Save trained model with metadata."""
-        metadata = metadata or {}
-        metadata.update({
-            'config': self.config.__dict__,
-            'timestamp': pd.Timestamp.now().isoformat()
+        meta = metadata.copy() if metadata else {}
+        meta.update({
+            "config": self.config.__dict__,
+            "timestamp": datetime.now().isoformat()
         })
-        
-        self.model_manager.save_model(
-            model=model,
-            metadata=metadata
-        )
+        self.model_manager.save_model(model=model, metadata=meta)
