@@ -1,5 +1,5 @@
 import streamlit as st
-import ast
+from patterns import CandlestickPatterns
 
 st.set_page_config(
     page_title="Candlestick Patterns Editor",
@@ -12,32 +12,12 @@ st.title("🔧 Candlestick Patterns Editor")
 st.header("Current Patterns")
 
 def get_pattern_names():
-    """Parse patterns.py and return the list of pattern names."""
+    """Get pattern names from CandlestickPatterns."""
     try:
-        with open("patterns.py", "r") as f:
-            source = f.read()
+        return CandlestickPatterns.get_pattern_names()
     except Exception as e:
-        st.error(f"Could not open patterns.py: {e}")
+        st.error(f"Could not get pattern names: {e}")
         return []
-
-    names = []
-    try:
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            # Find the assignment to pattern_checks
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "pattern_checks":
-                        # node.value should be a List of Tuples
-                        for elt in node.value.elts:
-                            if isinstance(elt, ast.Tuple) and elt.elts:
-                                name_node = elt.elts[0]
-                                if hasattr(name_node, 'value'):
-                                    names.append(name_node.value)
-                        return names
-    except Exception as e:
-        st.error(f"Error parsing patterns.py: {e}")
-    return names
 
 pattern_names = get_pattern_names()
 st.write(f"Detected **{len(pattern_names)}** patterns:")

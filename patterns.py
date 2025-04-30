@@ -38,6 +38,26 @@ class CandlestickPatterns:
 
         return detected
 
+    @classmethod
+    def get_pattern_names(cls):
+        """Return the list of pattern names."""
+        pattern_checks = [
+            ("Hammer", cls.is_hammer),
+            ("Bullish Engulfing", cls.is_bullish_engulfing),
+            ("Morning Star", cls.is_morning_star),
+            ("Piercing Pattern", cls.is_piercing_pattern),
+            ("Bullish Harami", cls.is_bullish_harami),
+            ("Three White Soldiers", cls.is_three_white_soldiers),
+            ("Inverted Hammer", cls.is_inverted_hammer),
+            ("Doji", cls.is_doji),
+            ("Morning Doji Star", cls.is_morning_doji_star),
+            ("Bullish Abandoned Baby", cls.is_bullish_abandoned_baby),
+            ("Bullish Belt Hold", cls.is_bullish_belt_hold),
+            ("Three Inside Up", cls.is_three_inside_up),
+            ("Rising Window", cls.is_rising_window)
+        ]
+        return [name for name, _ in pattern_checks]
+
     @staticmethod
     def is_hammer(df: pd.DataFrame) -> bool:
         o, h, l, c = df['open'].iloc[-1], df['high'].iloc[-1], df['low'].iloc[-1], df['close'].iloc[-1]
