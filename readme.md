@@ -255,18 +255,44 @@ config = {
 trainer = ModelTrainer(
     config,
     feature_config=FeatureConfig(),
-    training_params=TrainingParams()
+    training_params=TrainingParams(
+        n_estimators=100,
+        max_depth=10,
+        min_samples_split=10
+    )
 )
 
-# Load and validate data
+# Train on OHLCV data
 df = pd.read_csv('data/AAPL_1d.csv')
-trainer.validate_input_data(df)
-
-# Train model
 model, metrics, cm, report = trainer.train_model(df)
+```
 
-# Save model artifacts
-path = trainer.save_model(model, "AAPL", "1d")
+### PatternModelTrainer Example
+```python
+from train.trainer import PatternModelTrainer, TrainingConfig
+from stocktrader.utils.model_manager import ModelManager
+from stocktrader.etrade_candlestick_bot import ETradeClient
+
+# Configure training
+config = TrainingConfig(
+    epochs=10,
+    seq_len=10, 
+    batch_size=32,
+    learning_rate=0.001
+)
+
+# Initialize trainer
+trainer = PatternModelTrainer(
+    client=ETradeClient(...),
+    model_manager=ModelManager(...),
+    config=config
+)
+
+# Train on multiple symbols
+model = trainer.train_model(
+    symbols=["AAPL", "MSFT", "GOOG"],
+    metadata={"version": "1.0"}
+)
 ```
 
 These updates better reflect the actual implementation in `model_trainer.py` and related files, showing:
