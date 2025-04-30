@@ -90,12 +90,12 @@ Edit the `.env` file with your credentials and settings:
 
 ```plaintext
 # E*TRADE API (Required)
-ETRADE_CONSUMER_KEY=your_key
-ETRADE_CONSUMER_SECRET=your_secret
-ETRADE_OAUTH_TOKEN=your_token
-ETRADE_OAUTH_TOKEN_SECRET=your_token_secret
-ETRADE_ACCOUNT_ID=your_account_id
-ETRADE_SANDBOX=True  # Set to False for production
+ETRADE_CONSUMER_KEY=your_sandbox_consumer_key
+ETRADE_CONSUMER_SECRET=your_sandbox_consumer_secret
+ETRADE_OAUTH_TOKEN=your_sandbox_access_token
+ETRADE_OAUTH_TOKEN_SECRET=your_sandbox_access_token_secret
+ETRADE_ACCOUNT_ID=your_sandbox_account_id
+ETRADE_USE_SANDBOX=true # Set to False for production
 
 # Trading Parameters
 MAX_POSITIONS=5
