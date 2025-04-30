@@ -10,7 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# ——— Install OS dependencies & build tools ———
+WORKDIR /app
+
+# ——— Install build tools, Python deps, then remove build tools ———
+COPY requirements.txt .
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential \
@@ -19,21 +22,28 @@ RUN apt-get update \
       libpq-dev \
       libpq5 \
       curl \
+ \
+ # Upgrade pip and install Python packages
+ && pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt \
+ \
+ # Clean up build tools to slim image
+ && apt-get purge -y --auto-remove \
+      build-essential \
+      libssl-dev \
+      libffi-dev \
+      libpq-dev \
  && rm -rf /var/lib/apt/lists/*
 
-# ——— Create non-root user ———
-RUN useradd -m -s /bin/bash appuser
+# ——— Copy application code ———
+COPY . .
 
-WORKDIR /app
+# ——— Pre-create and chown the log file ———
+RUN useradd -m -s /bin/bash appuser \
+ && touch /app/trading.log \
+ && chown -R appuser:appuser /app
 
-# ——— Copy & install Python dependencies ———
-COPY requirements.txt .
-RUN pip install --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt
-
-# ——— Copy app code & switch to appuser ———
-COPY --chown=appuser:appuser . .
-
+# ——— Switch to non-root user ———
 USER appuser
 
 # ——— Healthcheck & ports ———
