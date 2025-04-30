@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 import signal
 import sys
 
-from patterns_nn import PatternNN
+from models.patterns_nn import PatternNN
 
 # Configure logging to both file and console for traceability
 logging.basicConfig(
