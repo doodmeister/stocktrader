@@ -10,7 +10,7 @@ import streamlit as st
 import pandas as pd
 import torch
 import plotly.graph_objs as go
-from stocktrader.etrade_candlestick_bot import (
+from utils.etrade_candlestick_bot import (
     ETradeClient,
     CandlestickPatterns,
     PatternNN,

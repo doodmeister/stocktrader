@@ -12,8 +12,8 @@ from typing import Tuple, Dict, Optional
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
 import json
-from etrade_candlestick_bot import ETradeClient
-from model.patterns_nn import PatternNN
+from utils.etrade_candlestick_bot import ETradeClient
+from models.patterns_nn import PatternNN
 
 from utils.performance_utils import get_candles_cached
 from utils.model_manager import save_model

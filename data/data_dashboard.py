@@ -17,9 +17,9 @@ from .config import DashboardConfig
 from .logger import setup_logger
 from .model_trainer import ModelTrainer, TrainingParams
 from .data_validator import DataValidator
-from stocktrader.utils.validation import sanitize_input
-from stocktrader.utils.io import create_zip_archive
-from stocktrader.core.notifier import Notifier
+from utils.validation import sanitize_input
+from utils.io import create_zip_archive
+from core.notifier import Notifier
 
 logger = setup_logger(__name__)
 

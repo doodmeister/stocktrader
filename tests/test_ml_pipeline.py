@@ -3,9 +3,9 @@ import torch
 import numpy as np
 from unittest.mock import Mock, patch
 
-from ml_pipeline import MLPipeline
+from utils.ml_pipeline import MLPipeline
 from config import MLConfig
-from etrade_candlestick_bot import ETradeClient, PatternNN
+from utils.etrade_candlestick_bot import ETradeClient, PatternNN
 
 @pytest.fixture
 def mock_client():
