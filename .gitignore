@@ -5,6 +5,8 @@ __pycache__/
 
 # C extensions
 *.so
+# Junk
+source/
 
 # Distribution / packaging
 .Python
@@ -30,7 +32,24 @@ share/python-wheels/
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Virtual environment
+# Unit test / coverage reports
+.coverage
+coverage.xml
+*.cover
+htmlcov/
+
+# Pytest
+.cache/
+.pytest_cache/
+
+# Tox
+.tox/
+
+# Translations
+*.mo
+*.pot
+
+# Virtual environments
 .env
 .venv/
 env/
@@ -41,40 +60,42 @@ build-env/
 # Spyder project settings
 .spyderproject
 
+# Rope project settings
+.ropeproject
+
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints
 
-# Pytest
-.cache
-.pytest_cache/
-
-# Mypy
-.mypy_cache/
-.dmypy.json
-
-# IDEs
+# IDEs and editors
 .idea/
 .vscode/
+*.code-workspace
 
 # OS files
 .DS_Store
 Thumbs.db
 
-# Data files
+# Database files
 *.sqlite3
+*.db
 
 # Logs and reports
 *.log
-coverage.xml
-*.cover
-htmlcov/
 model_training.log
 
 # Models
 models/*.pth
 
-source/
+# Data files / large artifacts
+data/
 context.tar
-*.log
+
+# Node.js dependencies
 node_modules/
-.git/
+
+# Miscellaneous
+pip-selfcheck.json
+.python-version
+
+# Temp files
+*~
