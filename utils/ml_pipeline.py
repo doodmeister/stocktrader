@@ -16,7 +16,7 @@ from utils.etrade_candlestick_bot import ETradeClient
 from utils.patterns_nn import PatternNN
 
 from utils.performance_utils import get_candles_cached
-from utils.model_manager import save_model
+from utils.model_manager import ModelManager
 from config import MLConfig
 from utils.notifier import Notifier
 from utils.performance_utils import get_candles_cached
@@ -46,6 +46,8 @@ class MLPipeline:
             config.device if torch.cuda.is_available() and config.device == "cuda"
             else "cpu"
         )
+        # Initialize ModelManager once here
+        self.model_manager = ModelManager(base_directory=str(self.config.model_dir))
         logger.info(f"Using device: {self.device}")
 
     def prepare_dataset(
@@ -240,12 +242,11 @@ class MLPipeline:
         metrics: Dict[str, float]
     ) -> None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        model_path = self.config.model_dir / f"pattern_nn_{timestamp}.pth"
         metrics_path = self.config.model_dir / f"metrics_{timestamp}.json"
         
-        save_model(
+        # Use the existing model_manager instance
+        model_path = self.model_manager.save_model(
             model,
-            model_path,
             metadata={
                 'accuracy': metrics['accuracy'],
                 'epochs': self.config.epochs,
