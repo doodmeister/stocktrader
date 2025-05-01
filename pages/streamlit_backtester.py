@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import logging
 from datetime import datetime
-from backtester import run_backtest  # Ensure this function is properly defined in backtester.py
+from stocktrader.backtester import run_backtest  # Ensure this function is properly defined in backtester.py
 
 # Configure logging
 logging.basicConfig(
