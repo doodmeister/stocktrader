@@ -16,8 +16,9 @@ import plotly.graph_objects as go
 import streamlit as st
 from pydantic import BaseModel, Field, validator
 
+
 # Local imports
-from utils.etrade_client import ETradeClient
+from utils.etrade_candlestick_bot import ETradeClient
 from utils.indicators import add_technical_indicators
 from utils.model_manager import ModelManager
 from utils.validation import validate_symbol, safe_request

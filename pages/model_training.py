@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, NamedTuple
 from datetime import datetime
 from dataclasses import dataclass
-
 from utils.ml_pipeline import MLPipeline
 from utils.model_manager import ModelManager, ModelMetadata
 from utils.patterns_nn import PatternNN

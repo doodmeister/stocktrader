@@ -15,6 +15,25 @@ from utils.etrade_candlestick_bot import ETradeClient
 from patterns import CandlestickPatterns
 from utils.patterns_nn import PatternNN
 from train.trainer import train_pattern_model
+import streamlit as st
+from contextlib import contextmanager
+
+@contextmanager
+def st_error_boundary():
+    """
+    Context manager for Streamlit pages: catches any exception in the block
+    and displays it with st.error(), then re-raises.
+    Usage:
+        from utils.performance_utils import st_error_boundary
+
+        with st_error_boundary():
+            # your code here
+    """
+    try:
+        yield
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        raise
 
 @functools.lru_cache(maxsize=128)
 def get_candles_cached(
