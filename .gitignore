@@ -74,3 +74,7 @@ model_training.log
 models/*.pth
 
 source/
+context.tar
+*.log
+node_modules/
+.git/
