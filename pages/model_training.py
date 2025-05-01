@@ -6,11 +6,20 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, NamedTuple
 from datetime import datetime
 from dataclasses import dataclass
+
+# Import torch at the top level to avoid circular imports
+import torch
+
+# Now import your utility modules after torch is imported
 from utils.ml_pipeline import MLPipeline
 from utils.model_manager import ModelManager, ModelMetadata
 from utils.patterns_nn import PatternNN
 from utils.performance_utils import st_error_boundary
 from config import get_settings
+from utils.synthetic_trading_data import add_to_model_training_ui, generate_synthetic_data
+from utils.etrade_candlestick_bot import ETradeClient
+from data.ml_config import MLConfig
+from utils.stock_validation import get_valid_tickers
 
 # Configure structured logging
 logging.basicConfig(
@@ -49,10 +58,10 @@ class DataValidationResult(NamedTuple):
 
 # Constants moved to settings
 settings = get_settings()
-REQUIRED_COLUMNS = settings.REQUIRED_COLUMNS
-MAX_FILE_SIZE_MB = settings.MAX_FILE_SIZE_MB
-MODELS_DIR = Path(settings.MODELS_DIR)
-MIN_SAMPLES = settings.MIN_SAMPLES
+REQUIRED_COLUMNS = settings.required_columns  # lowercase
+MAX_FILE_SIZE_MB = settings.max_file_size_mb  # lowercase
+MODELS_DIR = Path(settings.models_dir)        # lowercase
+MIN_SAMPLES = settings.min_samples            # lowercase
 
 @st.cache_resource
 def get_model_manager() -> ModelManager:
@@ -142,12 +151,20 @@ def train_model(
     Returns:
         Tuple of (trained_model, metrics)
     """
-    from utils.etrade_candlestick_bot import ETradeClient
-    from data.ml_config import MLConfig
-    import torch
-    
-    # Get symbol from data if available or use default
-    symbols = data.get('symbol', ['UNKNOWN']).unique().tolist() if 'symbol' in data.columns else ['TRAINING_DATA']
+    # Get available tickers
+    available_tickers = get_valid_tickers()
+
+    # Let user select from validated tickers
+    selected_symbols = st.multiselect(
+        "Select stocks to include",
+        options=available_tickers,
+        default=available_tickers[:min(3, len(available_tickers))]  # Default to first 3 valid tickers
+    )
+
+    # Ensure at least one symbol is selected
+    if not selected_symbols:
+        st.warning("Please select at least one stock ticker")
+        selected_symbols = [available_tickers[0]]  # Default to first ticker
     
     # Create configuration
     config = MLConfig(
@@ -159,7 +176,7 @@ def train_model(
         random_state=42,
         device="cuda" if torch.cuda.is_available() else "cpu",
         model_dir=MODELS_DIR,
-        symbols=symbols
+        symbols=selected_symbols
     )
     
     # Create client and pipeline
@@ -208,29 +225,40 @@ def save_trained_model(
         logger.exception("Failed to save model")
         return False, str(e)
 
-@st_error_boundary
 def render_training_page():
     """Main training page render function with error boundary."""
     st.title("🧠 Model Training and Deployment")
     
+    # Add option to generate synthetic data
+    use_synthetic = st.checkbox("Generate synthetic data instead of uploading a file")
+    
+    if use_synthetic:
+        add_to_model_training_ui()
+    
+    # Original file upload code continues below
     uploaded_file = st.file_uploader(
-        "Upload Training Data (CSV)", 
+        "Upload Training Data (CSV)" if not use_synthetic else "Or upload your own data (CSV)", 
         type="csv",
         help=f"CSV file with {', '.join(REQUIRED_COLUMNS)} columns"
     )
 
-    if not uploaded_file:
+    if not uploaded_file and not use_synthetic:
         st.info("Please upload a training data file to begin.")
         return
 
     # Validate file size
-    file_size_mb = uploaded_file.size / (1024 * 1024)
-    if file_size_mb > MAX_FILE_SIZE_MB:
-        st.error(f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB")
-        return
+    if uploaded_file:
+        file_size_mb = uploaded_file.size / (1024 * 1024)
+        if file_size_mb > MAX_FILE_SIZE_MB:
+            st.error(f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB")
+            return
 
     try:
-        data = pd.read_csv(uploaded_file)
+        if use_synthetic:
+            data = generate_synthetic_data()
+        else:
+            data = pd.read_csv(uploaded_file)
+        
         validation_result = validate_training_data(data)
         
         if not validation_result.is_valid:
@@ -300,4 +328,5 @@ def render_training_page():
         st.error(f"Error processing file: {str(e)}")
 
 if __name__ == "__main__":
-    render_training_page()
+    with st_error_boundary():
+        render_training_page()

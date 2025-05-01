@@ -4,19 +4,20 @@ from pydantic import Field, field_validator
 
 # Handle BaseSettings for both Pydantic v1 and v2
 try:
-    from pydantic_settings import BaseSettings
+    from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
     # Fallback for older pydantic versions
     from pydantic import BaseSettings
+    SettingsConfigDict = dict
 
 
 class Settings(BaseSettings):
-    # E*TRADE API
-    etrade_consumer_key: str = Field(..., env="ETRADE_CONSUMER_KEY")
-    etrade_consumer_secret: str = Field(..., env="ETRADE_CONSUMER_SECRET")
-    etrade_oauth_token: str = Field(..., env="ETRADE_OAUTH_TOKEN")
-    etrade_oauth_token_secret: str = Field(..., env="ETRADE_OAUTH_TOKEN_SECRET")
-    etrade_account_id: str = Field(..., env="ETRADE_ACCOUNT_ID")
+    # E*TRADE API - Make these optional for development
+    etrade_consumer_key: str = Field(default="", env="ETRADE_CONSUMER_KEY")
+    etrade_consumer_secret: str = Field(default="", env="ETRADE_CONSUMER_SECRET")
+    etrade_oauth_token: str = Field(default="", env="ETRADE_OAUTH_TOKEN")
+    etrade_oauth_token_secret: str = Field(default="", env="ETRADE_OAUTH_TOKEN_SECRET")
+    etrade_account_id: str = Field(default="", env="ETRADE_ACCOUNT_ID")
     etrade_use_sandbox: bool = Field(True, env="ETRADE_USE_SANDBOX")
 
     # Notifications
@@ -58,9 +59,12 @@ class Settings(BaseSettings):
         """Access symbols as a property"""
         return self.parse_symbols(self.symbols_str)
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # Update this Config class to handle case insensitivity
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,  # Key change: make it case insensitive
+        extra="ignore"         # Ignore extra fields in environment
+    )
 
 
 @lru_cache()
