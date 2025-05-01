@@ -19,6 +19,7 @@ from utils.performance_utils import get_candles_cached
 from utils.model_manager import save_model
 from config import MLConfig
 from utils.notifier import Notifier
+from utils.performance_utils import get_candles_cached
 
 # Configure logging
 logging.basicConfig(

@@ -15,6 +15,18 @@ from patterns import CandlestickPatterns
 from utils.patterns_nn import PatternNN
 from train.trainer import train_pattern_model
 
+@functools.lru_cache(maxsize=128)
+def get_candles_cached(
+    symbol: str,
+    interval: str = "5min",
+    days: int = 1
+) -> pd.DataFrame:
+    """
+    Fetch OHLCV data via ETradeClient and cache up to 128 distinct calls.
+    """
+    client = ETradeClient()   # reads creds from your .env
+    return client.get_candles(symbol, interval=interval, days=days)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
