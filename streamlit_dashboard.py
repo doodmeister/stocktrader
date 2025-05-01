@@ -14,6 +14,21 @@ from utils.risk_manager import RiskManager
 from utils.notifier import Notifier
 from utils.indicators import TechnicalIndicators
 
+import os
+from pathlib import Path
+
+def in_docker() -> bool:
+    # Docker injects this file at container runtime
+    return os.path.exists('/.dockerenv')
+
+# Pick the right project root:
+if in_docker():
+    PROJECT_ROOT = Path('/app')
+else:
+    # On your host, assume the script lives in the project root
+    PROJECT_ROOT = Path(__file__).resolve().parent
+
+    
 # --- Constants for Session State Keys ---
 SESSION_KEYS = {
     "initialized": "initialized",
@@ -25,9 +40,15 @@ SESSION_KEYS = {
 }
 
 # --- Logging Configuration ---
+LOG_FILE = PROJECT_ROOT / 'trading.log'
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
