@@ -1,5 +1,5 @@
 import streamlit as st
-from stocktrader.patterns import CandlestickPatterns
+from patterns import CandlestickPatterns
 
 st.set_page_config(
     page_title="Candlestick Patterns Editor",
