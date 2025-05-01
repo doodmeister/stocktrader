@@ -1,13 +1,47 @@
-from pydantic import BaseSettings
+from pydantic import BaseSettings, Field
+from typing import List
+from functools import lru_cache
+
 
 class Settings(BaseSettings):
-    REQUIRED_COLUMNS: list = ['open', 'high', 'low', 'close', 'volume', 'target']
-    MAX_FILE_SIZE_MB: int = 100
-    MODELS_DIR: str = "models"
-    MIN_SAMPLES: int = 1000
-    
+    # E*TRADE API
+    etrade_consumer_key: str = Field(..., env="ETRADE_CONSUMER_KEY")
+    etrade_consumer_secret: str = Field(..., env="ETRADE_CONSUMER_SECRET")
+    etrade_oauth_token: str = Field(..., env="ETRADE_OAUTH_TOKEN")
+    etrade_oauth_token_secret: str = Field(..., env="ETRADE_OAUTH_TOKEN_SECRET")
+    etrade_account_id: str = Field(..., env="ETRADE_ACCOUNT_ID")
+    etrade_use_sandbox: bool = Field(True, env="ETRADE_USE_SANDBOX")
+
+    # Notifications
+    smtp_server: str = Field(default="", env="SMTP_SERVER")
+    smtp_port: int = Field(default=587, env="SMTP_PORT")
+    smtp_user: str = Field(default="", env="SMTP_USER")
+    smtp_pass: str = Field(default="", env="SMTP_PASS")
+
+    twilio_account_sid: str = Field(default="", env="TWILIO_ACCOUNT_SID")
+    twilio_auth_token: str = Field(default="", env="TWILIO_AUTH_TOKEN")
+    twilio_from_number: str = Field(default="", env="TWILIO_FROM_NUMBER")
+
+    slack_webhook_url: str = Field(default="", env="SLACK_WEBHOOK_URL")
+
+    # Trading Configuration
+    max_positions: int = Field(5, env="MAX_POSITIONS")
+    max_loss_percent: float = Field(0.02, env="MAX_LOSS_PERCENT")
+    profit_target_percent: float = Field(0.03, env="PROFIT_TARGET_PERCENT")
+    max_daily_loss: float = Field(0.05, env="MAX_DAILY_LOSS")
+    symbols: List[str] = Field(default_factory=lambda: ["AAPL"], env="SYMBOLS")
+
+    # Project paths and limits
+    required_columns: List[str] = Field(default=["open", "high", "low", "close", "volume", "target"])
+    max_file_size_mb: int = Field(100)
+    models_dir: str = Field("models")
+    min_samples: int = Field(1000)
+
     class Config:
         env_file = ".env"
+        case_sensitive = False
 
-def get_settings():
+
+@lru_cache()
+def get_settings() -> Settings:
     return Settings()

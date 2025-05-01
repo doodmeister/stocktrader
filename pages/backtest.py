@@ -6,7 +6,7 @@ import torch
 
 from utils.backtester import run_backtest_wrapper
 from utils.model_manager import load_latest_model
-from models.patterns_nn import PatternNN  # <-- Import your model class (adjust if needed)
+from utils.patterns_nn import PatternNN  # <-- Import your model class (adjust if needed)
 
 @st.cache_resource
 def load_model_once():

@@ -8,7 +8,7 @@ import plotly.graph_objs as go
 
 from utils.etrade_candlestick_bot import ETradeClient
 from patterns import CandlestickPatterns
-from models.patterns_nn import PatternNN
+from utils.patterns_nn import PatternNN
 from train.trainer import train_pattern_model
 from utils.risk_manager import RiskManager
 from utils.notifier import Notifier

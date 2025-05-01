@@ -1,9 +1,37 @@
+# Version control and test artifacts
 .git
 .github
 .pytest_cache
-**/__pycache__
-*.pyc
 .coverage
 htmlcov/
 test-results.xml
+
+# Python artifacts
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
 *.log
+
+# Jupyter Notebooks and outputs
+*.ipynb
+.ipynb_checkpoints/
+
+# Data & Models
+data/
+datasets/
+models/
+*.csv
+*.parquet
+*.feather
+*.npy
+*.npz
+
+# Environment & Secrets
+.env
+*.env
+
+# Misc
+.DS_Store
