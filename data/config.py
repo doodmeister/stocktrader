@@ -4,14 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
-# Try the new pydantic-settings package first…
 try:
     from pydantic_settings import BaseSettings
 except ImportError:
-    # Fallback for older Pydantic versions
+    # fallback for older pydantic versions
     from pydantic import BaseSettings
 
-# Field is still in pydantic
 from pydantic import Field
 
 
