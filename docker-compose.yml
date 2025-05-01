@@ -3,15 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: stocktrader:latest          # optional: tag the built image
     container_name: streamlit_dashboard
     ports:
       - "8501:8501"
     env_file:
-      - .env
-    volumes:
-      - .:/app
+      - .env                           # ensure this file exists
+    # volumes:
+    #   - .:/app                       # enable only for dev mounts; comment out for production
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8501/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

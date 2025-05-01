@@ -1,25 +1,33 @@
-# Version control and test artifacts
-.git
-.github
-.pytest_cache
+# Version control & CI artifacts
+.git/
+.github/
+.pytest_cache/
 .coverage
 htmlcov/
 test-results.xml
 
-# Python artifacts
+# Python bytecode & caches
 **/__pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Virtual environments
+venv/
+env/
+.venv/
 
 # Logs
 *.log
 
-# Jupyter Notebooks and outputs
+# Jupyter
 *.ipynb
 .ipynb_checkpoints/
 
-# Data & Models
+# Data & models (built or downloaded)
 data/
 datasets/
 models/
@@ -29,14 +37,15 @@ models/
 *.npy
 *.npz
 
-# Environment & Secrets
+# Environment & secrets
 .env
 *.env
 
+# Editor configs
+.vscode/
+.idea/
+
 # Misc
 .DS_Store
-
-context.tar
-*.log
 node_modules/
-.git/
+source/
