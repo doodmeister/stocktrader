@@ -3,6 +3,7 @@ E*Trade Candlestick Trading Dashboard utility module.
 Handles data visualization, pattern detection, and order execution.
 """
 import logging
+import functools
 from typing import Dict, List, Optional, Tuple
 import asyncio
 from datetime import datetime
@@ -24,7 +25,7 @@ def get_candles_cached(
     """
     Fetch OHLCV data via ETradeClient and cache up to 128 distinct calls.
     """
-    client = ETradeClient()   # reads creds from your .env
+    client = ETradeClient()   # reads creds from .env
     return client.get_candles(symbol, interval=interval, days=days)
 
 # Configure logging
@@ -57,6 +58,23 @@ class DashboardState:
 
 class DataManager:
     """Handles data fetching and caching operations."""
+
+    async def fetch_all_candles(
+        self, client: ETradeClient, symbols: List[str], interval: str, days: int
+    ) -> Dict[str, pd.DataFrame]:
+        """Fetch OHLCV data for multiple symbols asynchronously."""
+        tasks = [
+            asyncio.create_task(client.get_candles(symbol, interval=interval, days=days))
+            for symbol in symbols
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        data = {}
+            data = await self.fetch_all_candles(
+            if isinstance(result, Exception):
+                logger.error(f"Error fetching data for {symbol}: {result}")
+            else:
+                data[symbol] = result
+        return data
 
     def __init__(self, client: Optional[ETradeClient] = None):
         self.client = client

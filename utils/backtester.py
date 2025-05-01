@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def empty_backtest_result(initial_capital: float) -> (Dict[str, Any], pd.DataFrame, pd.DataFrame):
+def empty_backtest_result(initial_capital: float) -> Tuple[Dict[str, Any], pd.DataFrame, pd.DataFrame]:
     """
     Return zeroed‐out metrics, an empty equity curve, and empty trade log.
     """
