@@ -4,6 +4,8 @@ Helper functions to validate and sanitize user input.
 """
 
 import re
+from train.trainer import TrainingConfig
+from train.config import TrainingConfig
 
 def sanitize_input(text: str) -> str:
     """Sanitize stock symbol input (basic alphanumeric)."""

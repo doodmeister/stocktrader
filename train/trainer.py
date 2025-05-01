@@ -8,11 +8,13 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from stocktrader.models.pattern_nn import PatternNN
-from stocktrader.etrade_candlestick_bot import ETradeClient
-from stocktrader.patterns import CandlestickPatterns
-from stocktrader.utils.model_manager import ModelManager
-from stocktrader.utils.validation import validate_training_params
+from train.config import TrainingConfig
+from utils.validation import validate_training_params
+from utils.patterns_nn import PatternNN
+from utils.etrade_candlestick_bot import ETradeClient
+from patterns import CandlestickPatterns
+from utils.model_manager import ModelManager
+
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -209,3 +211,31 @@ class PatternModelTrainer:
             "timestamp": datetime.now().isoformat()
         })
         self.model_manager.save_model(model=model, metadata=meta)
+
+def train_pattern_model(
+    client,
+    symbols,
+    model=None,
+    epochs: int = 10,
+    seq_len: int = 10,
+    learning_rate: float = 0.001
+):
+    """
+    Convenience wrapper that mirrors the old signature:
+    train_pattern_model(client, symbols, model, epochs, seq_len, learning_rate)
+    """
+    # Build the config and manager
+    config = TrainingConfig(
+        epochs=epochs,
+        seq_len=seq_len,
+        learning_rate=learning_rate
+    )
+    manager = ModelManager()
+
+    # Instantiate and run the trainer
+    trainer = PatternModelTrainer(
+        client=client,
+        model_manager=manager,
+        config=config
+    )
+    return trainer.train_model(symbols=symbols, model=model)

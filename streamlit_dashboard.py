@@ -1,7 +1,18 @@
+import os, sys
+from pathlib import Path
+
+def in_docker() -> bool:
+    return os.path.exists('/.dockerenv')
+
+# figure out where “.` actually is
+PROJECT_ROOT = Path('/app') if in_docker() else Path(__file__).resolve().parent
+
+# add it so `import stocktrader…` works
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import logging
 from typing import List, Optional, Dict
 from datetime import datetime
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objs as go
@@ -28,7 +39,8 @@ else:
     # On your host, assume the script lives in the project root
     PROJECT_ROOT = Path(__file__).resolve().parent
 
-    
+    sys.path.insert(0, str(PROJECT_ROOT))
+  
 # --- Constants for Session State Keys ---
 SESSION_KEYS = {
     "initialized": "initialized",

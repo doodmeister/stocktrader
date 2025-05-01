@@ -1,11 +1,13 @@
 """
+indicators.py
+
 Technical indicators module for financial analysis.
 
 Provides wrapper functions around technical analysis libraries with fallback implementations.
 Handles input validation, error cases, and proper typing.
 """
 import logging
-from typing import Optional, Union, Dict, List
+from typing import Optional, Union, List, Any, Dict
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
@@ -24,6 +26,7 @@ class IndicatorError(Exception):
     """Custom exception for indicator calculation errors."""
     pass
 
+
 def validate_dataframe(df: DataFrame, required_columns: List[str]) -> None:
     """Validate DataFrame has required columns and no NaN values."""
     if not isinstance(df, DataFrame):
@@ -39,6 +42,7 @@ def validate_dataframe(df: DataFrame, required_columns: List[str]) -> None:
     if df[required_columns].isna().any().any():
         raise ValueError("DataFrame contains NaN values in required columns")
 
+
 def add_rsi(
     df: DataFrame, 
     length: int = 14,
@@ -46,17 +50,6 @@ def add_rsi(
 ) -> DataFrame:
     """
     Calculate Relative Strength Index (RSI) and append as 'rsi' column.
-    
-    Args:
-        df: DataFrame with OHLCV data
-        length: Lookback period for RSI calculation
-        close_col: Name of close price column
-    
-    Returns:
-        DataFrame with new 'rsi' column
-    
-    Raises:
-        IndicatorError: If calculation fails
     """
     try:
         df = df.copy()
@@ -72,18 +65,16 @@ def add_rsi(
             gain = delta.clip(lower=0).rolling(window=length, min_periods=1).mean()
             loss = -delta.clip(upper=0).rolling(window=length, min_periods=1).mean()
             
-            # Handle division by zero
             rs = gain / np.where(loss == 0, np.inf, loss)
             df['rsi'] = 100 - (100 / (1 + rs))
             
-        # Ensure results are within valid range
         df['rsi'] = df['rsi'].clip(0, 100)
-        
         return df
         
     except Exception as e:
-        logger.error(f"RSI calculation failed: {str(e)}")
-        raise IndicatorError(f"Failed to calculate RSI: {str(e)}") from e
+        logger.error(f"RSI calculation failed: {e}")
+        raise IndicatorError(f"Failed to calculate RSI: {e}") from e
+
 
 def add_macd(
     df: DataFrame,
@@ -94,16 +85,6 @@ def add_macd(
 ) -> DataFrame:
     """
     Calculate MACD indicator and append columns.
-    
-    Args:
-        df: DataFrame with OHLCV data
-        fast: Fast EMA period
-        slow: Slow EMA period
-        signal: Signal line period
-        close_col: Name of close price column
-    
-    Returns:
-        DataFrame with new 'macd', 'macd_signal', 'macd_hist' columns
     """
     try:
         df = df.copy()
@@ -136,8 +117,9 @@ def add_macd(
         return df
         
     except Exception as e:
-        logger.error(f"MACD calculation failed: {str(e)}")
-        raise IndicatorError(f"Failed to calculate MACD: {str(e)}") from e
+        logger.error(f"MACD calculation failed: {e}")
+        raise IndicatorError(f"Failed to calculate MACD: {e}") from e
+
 
 def add_bollinger_bands(
     df: DataFrame,
@@ -147,15 +129,6 @@ def add_bollinger_bands(
 ) -> DataFrame:
     """
     Calculate Bollinger Bands and append band columns.
-    
-    Args:
-        df: DataFrame with OHLCV data
-        length: Moving average period
-        std: Number of standard deviations
-        close_col: Name of close price column
-    
-    Returns:
-        DataFrame with new 'bb_upper', 'bb_middle', 'bb_lower' columns
     """
     try:
         df = df.copy()
@@ -190,5 +163,23 @@ def add_bollinger_bands(
         return df
         
     except Exception as e:
-        logger.error(f"Bollinger Bands calculation failed: {str(e)}")
-        raise IndicatorError(f"Failed to calculate Bollinger Bands: {str(e)}") from e
+        logger.error(f"Bollinger Bands calculation failed: {e}")
+        raise IndicatorError(f"Failed to calculate Bollinger Bands: {e}") from e
+
+
+class TechnicalIndicators:
+    """
+    Facade for technical indicator functions. Call static methods or instantiate to use.
+    """
+
+    @staticmethod
+    def add_rsi(df: DataFrame, length: int = 14, close_col: str = 'close') -> DataFrame:
+        return add_rsi(df, length, close_col)
+
+    @staticmethod
+    def add_macd(df: DataFrame, fast: int = 12, slow: int = 26, signal: int = 9, close_col: str = 'close') -> DataFrame:
+        return add_macd(df, fast, slow, signal, close_col)
+
+    @staticmethod
+    def add_bollinger_bands(df: DataFrame, length: int = 20, std: Union[int, float] = 2, close_col: str = 'close') -> DataFrame:
+        return add_bollinger_bands(df, length, std, close_col)
