@@ -69,7 +69,7 @@ class DataManager:
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         data = {}
-            data = await self.fetch_all_candles(
+        for symbol, result in zip(symbols, results):
             if isinstance(result, Exception):
                 logger.error(f"Error fetching data for {symbol}: {result}")
             else:
@@ -86,7 +86,7 @@ class DataManager:
             raise ValueError("E*Trade client not initialized")
         
         try:
-            data = await fetch_all_candles(
+            data = await self.fetch_all_candles(
                 self.client, symbols, interval=interval, days=days
             )
             return data
