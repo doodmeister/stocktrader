@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from utils.etrade_candlestick_bot import CandlestickPatterns
-from backtester import Backtest
+from utils.backtester import Backtest
 
 # --- CandlestickPatterns Tests ---
 

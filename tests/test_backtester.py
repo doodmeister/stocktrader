@@ -4,7 +4,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from backtester import Backtest, BacktestConfig, Trade, BacktestResults
+from utils.backtester import Backtest, BacktestConfig, Trade, BacktestResults
 
 @pytest.fixture
 def sample_data():

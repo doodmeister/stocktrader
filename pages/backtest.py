@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import numpy as np
 import torch
 
-from stocktrade.backtester import run_backtest_wrapper
+from utils.backtester import run_backtest_wrapper
 from utils.model_manager import load_latest_model
 from models.patterns_nn import PatternNN  # <-- Import your model class (adjust if needed)
 
