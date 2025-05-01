@@ -35,3 +35,8 @@ models/
 
 # Misc
 .DS_Store
+
+context.tar
+*.log
+node_modules/
+.git/
