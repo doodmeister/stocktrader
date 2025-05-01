@@ -1,6 +1,6 @@
 from typing import List
 from functools import lru_cache
-from pydantic import Field
+from pydantic import Field, field_validator
 
 # Handle BaseSettings for both Pydantic v1 and v2
 try:
@@ -36,13 +36,27 @@ class Settings(BaseSettings):
     max_loss_percent: float = Field(0.02, env="MAX_LOSS_PERCENT")
     profit_target_percent: float = Field(0.03, env="PROFIT_TARGET_PERCENT")
     max_daily_loss: float = Field(0.05, env="MAX_DAILY_LOSS")
-    symbols: List[str] = Field(default_factory=lambda: ["AAPL"], env="SYMBOLS")
-
+    
+    # Use str type with default and validate later
+    symbols_str: str = Field(default="AAPL", env="SYMBOLS")
+    
     # Project paths and limits
     required_columns: List[str] = Field(default=["open", "high", "low", "close", "volume", "target"])
     max_file_size_mb: int = Field(100)
     models_dir: str = Field("models")
     min_samples: int = Field(1000)
+
+    # Add a validator to convert symbols_str to symbols list
+    @field_validator("symbols_str")
+    def parse_symbols(cls, v):
+        if not v:
+            return ["AAPL"]  # Default if empty
+        return [s.strip() for s in v.split(",") if s.strip()]
+    
+    @property
+    def symbols(self) -> List[str]:
+        """Access symbols as a property"""
+        return self.parse_symbols(self.symbols_str)
 
     class Config:
         env_file = ".env"
