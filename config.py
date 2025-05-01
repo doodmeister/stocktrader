@@ -1,6 +1,13 @@
-from pydantic import BaseSettings, Field
 from typing import List
 from functools import lru_cache
+from pydantic import Field
+
+# Handle BaseSettings for both Pydantic v1 and v2
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    # Fallback for older pydantic versions
+    from pydantic import BaseSettings
 
 
 class Settings(BaseSettings):
