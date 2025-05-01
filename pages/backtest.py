@@ -71,12 +71,15 @@ if run_button:
 
     results = run_backtest_wrapper(symbol, start_date, end_date, strategy, initial_capital, risk_per_trade)
 
+    if "metrics" in results and results["metrics"]["num_trades"] == 0:
+        st.warning("⚠️ No trades executed—try broadening your date range or strategy parameters")
+
     st.success("Backtest Completed!")
 
     # Metrics
-    st.metric("Total Return", f"{results['total_return']:.2f}%")
-    st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
-    st.metric("Max Drawdown", f"{results['max_drawdown']:.2f}%")
+    st.metric("Total Return", f"{results['metrics']['total_return']:.2f}%")
+    st.metric("Sharpe Ratio", f"{results['metrics']['sharpe_ratio']:.2f}")
+    st.metric("Max Drawdown", f"{results['metrics']['max_drawdown']:.2f}%")
 
     # Equity Curve
     st.subheader("Equity Curve")

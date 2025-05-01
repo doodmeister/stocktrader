@@ -10,12 +10,10 @@ import streamlit as st
 import pandas as pd
 import torch
 import plotly.graph_objs as go
-from utils.etrade_candlestick_bot import (
-    ETradeClient,
-    CandlestickPatterns,
-    PatternNN,
-    train_pattern_model
-)
+from utils.etrade_candlestick_bot import ETradeClient
+from patterns import CandlestickPatterns
+from utils.patterns_nn import PatternNN
+from train.trainer import train_pattern_model
 
 # Configure logging
 logging.basicConfig(

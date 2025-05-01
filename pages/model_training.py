@@ -7,7 +7,7 @@ from typing import Optional, Tuple, Dict, Any, NamedTuple
 from datetime import datetime
 from dataclasses import dataclass
 
-from stocktrader.utils.ml_pipeline import train_model
+from utils.ml_pipeline import train_model
 from utils.model_manager import ModelManager, ModelMetadata
 from utils.patterns_nn import PatternNN
 from utils.performance_utils import st_error_boundary
