@@ -1,5 +1,3 @@
-# Dockerfile
-
 FROM python:3.10-slim
 
 # ——— Environment variables ———
@@ -13,8 +11,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# ——— Install build tools, Python deps, then remove build tools ———
-COPY requirements.txt .
+# ——— Install build dependencies and cleanly install pip packages ———
+COPY requirements.txt .  # ✅ Caching benefit here
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential \
@@ -24,30 +23,27 @@ RUN apt-get update \
       libpq5 \
       curl \
  \
- # Upgrade pip and install Python packages
- && pip install --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt \
+ && python -m pip install --upgrade pip \
+ && python -m pip install --no-cache-dir -r requirements.txt \
  \
- # Clean up build tools to slim image
  && apt-get purge -y --auto-remove \
       build-essential \
       libssl-dev \
       libffi-dev \
       libpq-dev \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* /root/.cache
 
-# ——— Copy application code ———
+# ——— Copy project code last to avoid invalidating pip cache ———
 COPY . .
 
-# ——— Pre-create and chown the log file ———
+# ——— App user and file permissions ———
 RUN useradd -m -s /bin/bash appuser \
  && touch /app/trading.log \
  && chown -R appuser:appuser /app
 
-# ——— Switch to non-root user ———
 USER appuser
 
-# ——— Healthcheck & ports ———
+# ——— Healthcheck & port exposure ———
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${STREAMLIT_SERVER_PORT}/_stcore/health || exit 1
 
