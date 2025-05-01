@@ -63,20 +63,13 @@ with st.form("backtest_form"):
     fast_period = st.number_input("Fast Period (for SMA)", min_value=1, max_value=100, value=10)
     slow_period = st.number_input("Slow Period (for SMA)", min_value=10, max_value=200, value=30)
     initial_capital = st.number_input("Initial Capital ($)", min_value=1000, value=100000)
+    risk_per_trade = st.number_input("Risk Per Trade (%)", min_value=0.1, max_value=100.0, value=1.0)
     run_button = st.form_submit_button("Run Backtest")
 
 if run_button:
     st.info(f"Running {strategy} backtest for {symbol}...")
 
-    if strategy == "SMA Crossover":
-        strategy_fn = lambda df: sma_crossover_strategy(df, fast_period, slow_period)
-    elif strategy == "Pattern NN":
-        strategy_fn = pattern_nn_predict
-    else:
-        st.error(f"Strategy '{strategy}' not implemented.")
-        st.stop()
-
-    results = run_backtest_wrapper(symbol, start_date, end_date, strategy_fn, initial_capital)
+    results = run_backtest_wrapper(symbol, start_date, end_date, strategy, initial_capital, risk_per_trade)
 
     st.success("Backtest Completed!")
 

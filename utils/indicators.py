@@ -167,6 +167,62 @@ def add_bollinger_bands(
         raise IndicatorError(f"Failed to calculate Bollinger Bands: {e}") from e
 
 
+def add_technical_indicators(df: pd.DataFrame, indicators: List[str]) -> pd.DataFrame:
+    """
+    Add technical indicators to a price DataFrame.
+    
+    Args:
+        df: DataFrame with OHLCV data
+        indicators: List of indicator names to add
+        
+    Returns:
+        DataFrame with added indicators
+    """
+    result = df.copy()
+    
+    for indicator in indicators:
+        if indicator == "SMA":
+            # Simple Moving Average (20-day)
+            result["SMA"] = result["close"].rolling(window=20).mean()
+            
+        elif indicator == "EMA":
+            # Exponential Moving Average (20-day)
+            result["EMA"] = result["close"].ewm(span=20, adjust=False).mean()
+            
+        elif indicator == "MACD":
+            # MACD Line (12, 26)
+            ema12 = result["close"].ewm(span=12, adjust=False).mean()
+            ema26 = result["close"].ewm(span=26, adjust=False).mean()
+            result["MACD"] = ema12 - ema26
+            
+            # Signal Line (9-day EMA of MACD Line)
+            result["MACD_signal"] = result["MACD"].ewm(span=9, adjust=False).mean()
+            
+        elif indicator == "RSI":
+            # Relative Strength Index (14-day)
+            delta = result["close"].diff()
+            gain = delta.where(delta > 0, 0).fillna(0)
+            loss = -delta.where(delta < 0, 0).fillna(0)
+            
+            avg_gain = gain.rolling(window=14).mean()
+            avg_loss = loss.rolling(window=14).mean()
+            
+            # Avoid division by zero
+            rs = pd.Series(np.where(avg_loss != 0, avg_gain / avg_loss, 0), index=result.index)
+            result["RSI"] = 100 - (100 / (1 + rs))
+            
+        elif indicator == "Bollinger Bands":
+            # Bollinger Bands (20-day, 2 std dev)
+            sma20 = result["close"].rolling(window=20).mean()
+            std20 = result["close"].rolling(window=20).std()
+            
+            result["BB_upper"] = sma20 + (std20 * 2)
+            result["BB_middle"] = sma20
+            result["BB_lower"] = sma20 - (std20 * 2)
+    
+    return result
+
+
 class TechnicalIndicators:
     """
     Facade for technical indicator functions. Call static methods or instantiate to use.

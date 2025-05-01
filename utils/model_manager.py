@@ -225,3 +225,20 @@ class ModelManager:
 
         except Exception as e:
             raise ModelError(f"Failed to cleanup old models: {str(e)}") from e
+
+def load_latest_model(model_class, base_directory: str = "models/"):
+    """
+    Load the most recent model from the model directory.
+    """
+    base_dir = Path(base_directory)
+    model_files = sorted(
+        base_dir.glob("pattern_nn_v*.pth"),
+        key=lambda x: x.stat().st_mtime,
+        reverse=True
+    )
+    if not model_files:
+        raise FileNotFoundError("No saved models found in the model directory.")
+    latest_model_path = model_files[0]
+    manager = ModelManager(base_directory)
+    model, metadata = manager.load_model(model_class, str(latest_model_path))
+    return model
