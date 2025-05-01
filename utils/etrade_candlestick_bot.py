@@ -21,6 +21,7 @@ import signal
 import sys
 
 from utils.patterns_nn import PatternNN
+from utils.notifier import Notifier as CoreNotifier
 
 # Configure logging to both file and console for traceability
 logging.basicConfig(
@@ -35,12 +36,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TradeConfig:
-    """Configuration dataclass for trading parameters"""
+    """Enhanced configuration dataclass for trading parameters"""
     max_positions: int = 5
     max_loss_percent: float = 0.02
     profit_target_percent: float = 0.03
     max_daily_loss: float = 0.05
     polling_interval: int = 300  # seconds
+    risk_per_trade_pct: float = 0.01
+    max_position_size_pct: float = 0.10
+    trailing_stop_activation_pct: float = 0.01  # Activate trailing stop after 1% gain
+    use_market_hours: bool = True
+    enable_notifications: bool = False
+    pattern_confidence_threshold: float = 0.6
+    require_indicator_confirmation: bool = True
 
 class ETradeClient:
     """
@@ -211,6 +219,94 @@ class ETradeClient:
 
         raise RuntimeError(f"Failed to place order for {symbol} after {self.max_retries} retries")
 
+class PerformanceTracker:
+    def __init__(self):
+        self.trades = []
+        self.daily_returns = {}
+        
+    def add_trade(self, trade_data: Dict):
+        self.trades.append(trade_data)
+        
+    def calculate_metrics(self) -> Dict:
+        if not self.trades:
+            return {}
+            
+        wins = sum(1 for t in self.trades if t['profit_pct'] > 0)
+        losses = len(self.trades) - wins
+        
+        return {
+            'total_trades': len(self.trades),
+            'win_rate': wins / len(self.trades) if self.trades else 0,
+            'avg_profit': sum(t['profit_pct'] for t in self.trades) / len(self.trades),
+            'profit_factor': (
+                sum(t['profit_pct'] for t in self.trades if t['profit_pct'] > 0) /
+                abs(sum(t['profit_pct'] for t in self.trades if t['profit_pct'] < 0) or 1)
+            )
+        }
+
+class Notifier:
+    """
+    Wrapper for core notification system that integrates with trading bot configuration.
+    """
+    def __init__(self, config):
+        self.config = config
+        self.enabled = config.enable_notifications
+        # Only initialize the underlying notifier if notifications are enabled
+        self.core_notifier = CoreNotifier() if self.enabled else None
+        
+    def send_trade_notification(self, symbol: str, action: str, quantity: int, price: float):
+        if not self.enabled:
+            return
+            
+        # Format order data in the structure expected by core notifier
+        order_result = {
+            'symbol': symbol,
+            'side': action,
+            'quantity': quantity,
+            'filled_price': price,
+            'timestamp': dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        # Log locally
+        logger.info(f"NOTIFICATION: TRADE ALERT: {action} {quantity} shares of {symbol} at ${price:.2f}")
+        
+        # Send through notification system
+        try:
+            self.core_notifier.send_order_notification(order_result)
+        except Exception as e:
+            logger.error(f"Failed to send notification: {e}")
+    
+    def send_daily_summary(self, metrics: Dict):
+        if not self.enabled:
+            return
+            
+        summary = (
+            f"DAILY SUMMARY:\n" + 
+            f"Win Rate: {metrics.get('win_rate', 0):.1%}\n" + 
+            f"P&L: ${metrics.get('daily_pl', 0):.2f}\n" +
+            f"Total Trades: {metrics.get('total_trades', 0)}\n" +
+            f"Profit Factor: {metrics.get('profit_factor', 0):.2f}"
+        )
+        
+        # Log locally
+        logger.info(f"NOTIFICATION: {summary}")
+        
+        # Format as an "order" to use existing notification infrastructure
+        # This is a workaround to use the existing notification system
+        summary_data = {
+            'symbol': 'SUMMARY',
+            'side': 'INFO',
+            'quantity': 0,
+            'filled_price': 0.0,
+            'timestamp': dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'message': summary
+        }
+        
+        try:
+            self.core_notifier.send_order_notification(summary_data)
+        except Exception as e:
+            logger.error(f"Failed to send summary notification: {e}")
+
 class StrategyEngine:
     """
     Main trading strategy engine. Monitors symbols, detects patterns, manages positions, and enforces risk controls.
@@ -223,6 +319,8 @@ class StrategyEngine:
         self.daily_pl = 0.0
         self.running = True
         self.pattern_model = PatternNN()
+        self.performance_tracker = PerformanceTracker()
+        self.notifier = Notifier(config)
         self._setup_signal_handlers()
 
     def _setup_signal_handlers(self):
@@ -254,12 +352,44 @@ class StrategyEngine:
             return False
         return True
 
+    def calculate_position_size(self, symbol: str, price: float, stop_price: float) -> int:
+        """Calculate position size based on risk per trade"""
+        # Risk 1% of account per trade
+        account_value = self.get_account_value()  # New method to fetch account value
+        risk_amount = account_value * 0.01
+        risk_per_share = abs(price - stop_price)
+        
+        if risk_per_share <= 0:
+            return 0
+        
+        shares = int(risk_amount / risk_per_share)
+        return max(1, min(shares, int(account_value * 0.1 / price)))  # Cap at 10% of account
+
+    def _is_market_open(self) -> bool:
+        """Check if the market is currently open"""
+        now = dt.datetime.now(dt.timezone(dt.timedelta(hours=-5)))  # Eastern Time
+        
+        # Check weekday (0=Monday, 4=Friday)
+        if now.weekday() > 4:
+            return False
+            
+        # Check time (9:30 AM to 4:00 PM ET)
+        market_open = now.replace(hour=9, minute=30, second=0)
+        market_close = now.replace(hour=16, minute=0, second=0)
+        
+        return market_open <= now <= market_close
+
     def run(self):
         logger.info("Strategy engine started.")
         while self.running:
             try:
-                self._process_symbols()
-                self._monitor_positions()
+                if self._is_market_open():
+                    self._process_symbols()
+                    self._monitor_positions()
+                else:
+                    logger.info("Market closed. Waiting...")
+                    # Sleep until next market open or check every hour
+                    time.sleep(3600)  # Check every hour when market is closed
                 time.sleep(self.config.polling_interval)
             except Exception as e:
                 logger.error(f"Error in main loop: {e}")
@@ -280,11 +410,46 @@ class StrategyEngine:
         if symbol in self.positions:
             return
 
+        # Calculate technical indicators
+        df = self._add_indicators(df)
+        
+        # Pattern detection with PatternNN
         detected_patterns = self.pattern_model.predict(df)
-        if detected_patterns:
+        
+        # Only enter if confirmed by indicators
+        if detected_patterns and self._check_indicator_confirmation(df):
             price = df['close'].iloc[-1]
             if self._check_risk_limits(symbol, price):
                 self._enter_position(symbol, df, detected_patterns)
+
+    def _add_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        # RSI
+        delta = df['close'].diff()
+        gain = delta.clip(lower=0).rolling(window=14).mean()
+        loss = -delta.clip(upper=0).rolling(window=14).mean()
+        rs = gain / (loss + 1e-9)
+        df['rsi'] = 100 - (100 / (1 + rs))
+        
+        # MACD
+        df['ema12'] = df['close'].ewm(span=12, adjust=False).mean()
+        df['ema26'] = df['close'].ewm(span=26, adjust=False).mean()
+        df['macd'] = df['ema12'] - df['ema26']
+        df['signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+        
+        return df
+
+    def _check_indicator_confirmation(self, df: pd.DataFrame) -> bool:
+        """Check if indicators confirm the pattern signal"""
+        last_row = df.iloc[-1]
+        
+        # RSI confirming oversold for buy signals
+        rsi_confirms = last_row['rsi'] < 40
+        
+        # MACD confirming bullish crossover
+        macd_confirms = (df['macd'].iloc[-1] > df['signal'].iloc[-1] and 
+                       df['macd'].iloc[-2] <= df['signal'].iloc[-2])
+        
+        return rsi_confirms or macd_confirms
 
     def _enter_position(self, symbol: str, df: pd.DataFrame, patterns: List[str]):
         try:
@@ -296,6 +461,7 @@ class StrategyEngine:
                 'pattern': patterns
             }
             logger.info(f"Entered position in {symbol} due to pattern(s): {', '.join(patterns)}")
+            self.notifier.send_trade_notification(symbol, "BUY", quantity, df['close'].iloc[-1])
         except Exception as e:
             logger.error(f"Failed to enter position in {symbol}: {e}")
 
@@ -304,28 +470,35 @@ class StrategyEngine:
             try:
                 df = self.client.get_candles(symbol)
                 if df.empty:
-                    logger.warning(f"No data for {symbol} while monitoring position.")
                     continue
+                
                 current_price = df['close'].iloc[-1]
                 entry_price = position['entry_price']
-                pnl_percent = (current_price - entry_price) / entry_price
-                pnl_absolute = pnl_percent * entry_price * position['quantity']
-
-                if (
-                    pnl_percent >= self.config.profit_target_percent or
-                    pnl_percent <= -self.config.max_loss_percent
-                ):
-                    self.client.place_market_order(symbol,
-                                                   position['quantity'],
-                                                   instruction="SELL")
-                    self.daily_pl += pnl_absolute
-                    logger.info(
-                        f"Exited position in {symbol} with PnL: {pnl_percent:.2%}. "
-                        f"Entry pattern(s): {', '.join(position.get('pattern', []))}"
-                    )
-                    del self.positions[symbol]
+                
+                # Update trailing stop if price moves in favorable direction
+                if 'trailing_stop' not in position:
+                    position['trailing_stop'] = entry_price * (1 - self.config.max_loss_percent)
+                
+                new_stop = current_price * (1 - self.config.max_loss_percent * 0.8)
+                if new_stop > position['trailing_stop']:
+                    position['trailing_stop'] = new_stop
+                    logger.info(f"Updated trailing stop for {symbol} to {new_stop:.2f}")
+                
+                # Check stop conditions
+                if current_price <= position['trailing_stop']:
+                    self._exit_position(symbol, "Trailing stop hit")
             except Exception as e:
                 logger.error(f"Error monitoring position in {symbol}: {e}")
+
+    def _exit_position(self, symbol: str, reason: str):
+        try:
+            position = self.positions[symbol]
+            self.client.place_market_order(symbol, position['quantity'], instruction="SELL")
+            logger.info(f"Exited position in {symbol} due to {reason}.")
+            self.notifier.send_trade_notification(symbol, "SELL", position['quantity'], position['entry_price'])
+            del self.positions[symbol]
+        except Exception as e:
+            logger.error(f"Failed to exit position in {symbol}: {e}")
 
 def main():
     try:

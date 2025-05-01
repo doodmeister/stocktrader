@@ -264,17 +264,22 @@ def run_backtest(
     initial_capital: float,
     risk_per_trade: float
 ) -> Dict[str, Any]:
+    """
+    Run a backtest for a given trading strategy.
+    """
     df = load_ohlcv(symbol, start_date, end_date)
     data = {symbol: df}
+    
     config = BacktestConfig(
         initial_capital=initial_capital,
         commission_rate=0.001,
-        slippage_rate=0.0005,
-        risk_free_rate=0.02,
-        position_size_limit=risk_per_trade / 100.0
+        slippage_rate=0.0005
     )
+    
     bt = Backtest(config)
-    if strategy == "Moving Average Crossover":
+
+    # Map strategy name to function
+    if strategy in ("Moving Average Crossover", "SMA Crossover"):
         strategy_fn = moving_average_crossover_strategy
     elif strategy == "RSI Strategy":
         strategy_fn = rsi_strategy
@@ -282,10 +287,12 @@ def run_backtest(
         strategy_fn = macd_strategy
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
+
     results = bt.simulate(data, strategy_fn)
     equity_curve = bt.equity_curve.reset_index().rename(columns={'index': 'date'})
     trades = pd.DataFrame([t.__dict__ for t in bt.trades])
     metrics = results.dict()
+    
     return {
         "metrics": metrics,
         "equity_curve": equity_curve,
