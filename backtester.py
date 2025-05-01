@@ -258,3 +258,108 @@ class Backtest:
         except Exception as e:
             logger.error(f"Failed to export results: {str(e)}")
             raise
+
+def load_ohlcv(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
+    """
+    Example OHLCV loader. Replace with your real data source.
+    Returns a DataFrame with columns: open, high, low, close, volume, indexed by date.
+    """
+    dates = pd.date_range(start, end, freq='B')
+    np.random.seed(hash(symbol) % 2**32)
+    price = np.cumsum(np.random.randn(len(dates))) + 100
+    df = pd.DataFrame({
+        'open': price + np.random.uniform(-1, 1, len(dates)),
+        'high': price + np.random.uniform(0, 2, len(dates)),
+        'low': price - np.random.uniform(0, 2, len(dates)),
+        'close': price + np.random.uniform(-1, 1, len(dates)),
+        'volume': np.random.randint(100000, 200000, len(dates))
+    }, index=dates)
+    df.index.name = 'date'
+    return df
+
+def moving_average_crossover_strategy(df: pd.DataFrame, fast: int = 10, slow: int = 30) -> float:
+    if len(df) < slow:
+        return 0
+    fast_ma = df['close'].rolling(window=fast).mean()
+    slow_ma = df['close'].rolling(window=slow).mean()
+    if fast_ma.iloc[-2] < slow_ma.iloc[-2] and fast_ma.iloc[-1] > slow_ma.iloc[-1]:
+        return 1  # Buy
+    elif fast_ma.iloc[-2] > slow_ma.iloc[-2] and fast_ma.iloc[-1] < slow_ma.iloc[-1]:
+        return -1  # Sell
+    return 0
+
+def rsi_strategy(df: pd.DataFrame, period: int = 14, overbought: float = 70, oversold: float = 30) -> float:
+    if len(df) < period + 1:
+        return 0
+    delta = df['close'].diff()
+    gain = delta.clip(lower=0).rolling(window=period).mean()
+    loss = -delta.clip(upper=0).rolling(window=period).mean()
+    rs = gain / (loss + 1e-9)
+    rsi = 100 - (100 / (1 + rs))
+    if rsi.iloc[-1] < oversold:
+        return 1
+    elif rsi.iloc[-1] > overbought:
+        return -1
+    return 0
+
+def macd_strategy(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> float:
+    if len(df) < slow + signal:
+        return 0
+    ema_fast = df['close'].ewm(span=fast, adjust=False).mean()
+    ema_slow = df['close'].ewm(span=slow, adjust=False).mean()
+    macd = ema_fast - ema_slow
+    macd_signal = macd.ewm(span=signal, adjust=False).mean()
+    if macd.iloc[-2] < macd_signal.iloc[-2] and macd.iloc[-1] > macd_signal.iloc[-1]:
+        return 1
+    elif macd.iloc[-2] > macd_signal.iloc[-2] and macd.iloc[-1] < macd_signal.iloc[-1]:
+        return -1
+    return 0
+
+def run_backtest(
+    symbol: str,
+    start_date: datetime,
+    end_date: datetime,
+    strategy: str,
+    initial_capital: float,
+    risk_per_trade: float
+) -> Dict:
+    """
+    Run a backtest for the given symbol, date range, and strategy.
+    Returns a dict with metrics, equity_curve, and trade_log for Streamlit display.
+    """
+    # Load data
+    df = load_ohlcv(symbol, start_date, end_date)
+    data = {symbol: df}
+
+    # Prepare config
+    config = BacktestConfig(
+        initial_capital=initial_capital,
+        commission_rate=0.001,
+        slippage_rate=0.0005,
+        risk_free_rate=0.02,
+        position_size_limit=risk_per_trade / 100.0
+    )
+    bt = Backtest(config)
+
+    # Map strategy name to function
+    if strategy == "Moving Average Crossover":
+        strategy_fn = lambda d: moving_average_crossover_strategy(d)
+    elif strategy == "RSI Strategy":
+        strategy_fn = lambda d: rsi_strategy(d)
+    elif strategy == "MACD Strategy":
+        strategy_fn = lambda d: macd_strategy(d)
+    else:
+        raise ValueError(f"Unknown strategy: {strategy}")
+
+    # Run simulation
+    results = bt.simulate(data, strategy_fn)
+
+    # Prepare results for Streamlit
+    equity_curve = bt.equity_curve.reset_index().rename(columns={'index': 'date'})
+    trades = pd.DataFrame([t.__dict__ for t in bt.trades])
+    metrics = results.dict()
+    return {
+        "metrics": metrics,
+        "equity_curve": equity_curve,
+        "trade_log": trades
+    }
