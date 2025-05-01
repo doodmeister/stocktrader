@@ -17,7 +17,7 @@ from utils.patterns_nn import PatternNN
 
 from utils.performance_utils import get_candles_cached
 from utils.model_manager import ModelManager
-from config import MLConfig
+from ml_config import MLConfig
 from utils.notifier import Notifier
 from utils.performance_utils import get_candles_cached
 
