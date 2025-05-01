@@ -7,7 +7,7 @@ from typing import Optional, Tuple, Dict, Any, NamedTuple
 from datetime import datetime
 from dataclasses import dataclass
 
-from utils.ml_pipeline import train_model
+from utils.ml_pipeline import MLPipeline
 from utils.model_manager import ModelManager, ModelMetadata
 from utils.patterns_nn import PatternNN
 from utils.performance_utils import st_error_boundary
@@ -124,6 +124,56 @@ def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
     except Exception as e:
         logger.exception("Data validation error")
         return DataValidationResult(False, f"Validation error: {str(e)}", None)
+
+def train_model(
+    data: pd.DataFrame,
+    epochs: int = 10,
+    batch_size: int = 32,
+    learning_rate: float = 0.001
+) -> Tuple[PatternNN, Dict[str, float]]:
+    """
+    Train a pattern recognition model using MLPipeline.
+    
+    Args:
+        data: Training data as a DataFrame
+        epochs: Number of training epochs
+        batch_size: Batch size for training
+        learning_rate: Learning rate for optimizer
+        
+    Returns:
+        Tuple of (trained_model, metrics)
+    """
+    from utils.etrade_candlestick_bot import ETradeClient
+    from data.ml_config import MLConfig
+    import torch
+    
+    # Get symbol from data if available or use default
+    symbols = data.get('symbol', ['UNKNOWN']).unique().tolist() if 'symbol' in data.columns else ['TRAINING_DATA']
+    
+    # Create configuration
+    config = MLConfig(
+        seq_len=10,
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        test_size=0.2,
+        random_state=42,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        model_dir=MODELS_DIR,
+        symbols=symbols
+    )
+    
+    # Create client and pipeline
+    client = ETradeClient(sandbox=True)
+    pipeline = MLPipeline(client, config)
+    
+    # Initialize model
+    model = PatternNN()
+    
+    # Train model
+    metrics = pipeline.train_and_evaluate(model)
+    
+    return model, metrics
 
 def save_trained_model(
     model: PatternNN,
