@@ -66,6 +66,19 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_hammer(df: pd.DataFrame) -> bool:
+        """
+        The Hammer is a bullish reversal pattern that forms during a downtrend.
+        
+        Visual: A candle with a small body at the top and a long lower shadow (at least 
+        twice the length of the body) with little to no upper shadow.
+        
+        Psychology: After a downtrend, bears push prices lower, but bulls step in and 
+        drive prices back up to close near the opening price, signaling that bulls 
+        are regaining control.
+        
+        Significance: Often signals a potential bottom or support level has been reached, 
+        suggesting a reversal from bearish to bullish sentiment.
+        """
         row = df.iloc[-1]
         body = abs(row.close - row.open)
         lower_wick = min(row.open, row.close) - row.low
@@ -74,6 +87,19 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_bullish_engulfing(df: pd.DataFrame) -> bool:
+        """
+        The Bullish Engulfing pattern is a two-candle reversal pattern that occurs during a downtrend.
+        
+        Visual: A small bearish (red/black) candle followed by a larger bullish (green/white) 
+        candle that completely engulfs the body of the previous candle.
+        
+        Psychology: After a downtrend, bears lose momentum and bulls take control, 
+        overpowering the previous bearish sentiment. The larger bullish candle shows 
+        strong buying pressure.
+        
+        Significance: Signals a potential reversal from a downtrend to an uptrend, 
+        especially when appearing at support levels or after extended downward movements.
+        """
         prev, last = df.iloc[-2], df.iloc[-1]
         return (
             prev.close < prev.open and
@@ -84,6 +110,19 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_morning_star(df: pd.DataFrame) -> bool:
+        """
+        The Morning Star is a three-candle bullish reversal pattern that signifies a potential bottom.
+        
+        Visual: A long bearish candle, followed by a small-bodied candle (star) that gaps 
+        down, followed by a bullish candle that closes well into the first candle's body.
+        
+        Psychology: After sellers push prices down (first candle), uncertainty enters 
+        the market (second candle/star), followed by strong buying pressure (third candle) 
+        confirming a shift in sentiment.
+        
+        Significance: Considered a strong reversal signal, especially when the third 
+        candle retraces deeply into the first candle, showing rejection of lower prices.
+        """
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         return (
             first.close < first.open and
@@ -94,6 +133,19 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_piercing_pattern(df: pd.DataFrame) -> bool:
+        """
+        The Piercing Pattern is a two-candle bullish reversal pattern found in downtrends.
+        
+        Visual: A bearish candle followed by a bullish candle that opens below the 
+        previous candle's low but closes above the midpoint of the previous candle.
+        
+        Psychology: After a downtrend, bears appear to maintain control with a bearish 
+        candle. The next day opens even lower (bearish sentiment), but bulls take control 
+        and push prices up significantly, showing a shift in momentum.
+        
+        Significance: Signals potential reversal of a downtrend, particularly when it 
+        appears after a prolonged decline or at support levels.
+        """
         prev, last = df.iloc[-2], df.iloc[-1]
         midpoint = (prev.open + prev.close) / 2
         return (
@@ -104,6 +156,20 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_bullish_harami(df: pd.DataFrame) -> bool:
+        """
+        The Bullish Harami is a two-candle reversal pattern that appears during downtrends.
+        
+        Visual: A large bearish candle followed by a smaller bullish candle that is 
+        completely contained within the body of the previous candle (like a pregnant woman, 
+        which is what "harami" means in Japanese).
+        
+        Psychology: After strong selling pressure (first candle), a small bullish candle 
+        indicates indecision and potential exhaustion of the downtrend. The contrast in 
+        candle size suggests a weakening of the bearish momentum.
+        
+        Significance: Indicates potential reversal of the prevailing downtrend, especially 
+        when confirmed by increased volume on the second day or subsequent bullish price action.
+        """
         prev, last = df.iloc[-2], df.iloc[-1]
         return (
             prev.close < prev.open and
@@ -114,6 +180,20 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_three_white_soldiers(df: pd.DataFrame) -> bool:
+        """
+        Three White Soldiers is a bullish reversal pattern consisting of three consecutive bullish candles.
+        
+        Visual: Three consecutive bullish candles, each opening within the body of the 
+        previous candle and closing higher than the previous candle's high.
+        
+        Psychology: Demonstrates persistent buying pressure over three periods, with 
+        bulls gaining confidence and momentum with each successive candle. Bears are 
+        continuously overpowered by bulls.
+        
+        Significance: A strong bullish reversal signal that shows increasing conviction 
+        among buyers. Most reliable when appearing after a downtrend or at support levels, 
+        suggesting a potential trend change.
+        """
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         return (
             first.close > first.open and
@@ -127,6 +207,20 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_inverted_hammer(df: pd.DataFrame) -> bool:
+        """
+        The Inverted Hammer is a bullish reversal candlestick pattern that typically appears at the bottom of downtrends.
+        
+        Visual: A candle with a small body at the bottom and a long upper shadow (at least 
+        twice the length of the body) with little to no lower shadow, resembling an upside-down hammer.
+        
+        Psychology: After a downtrend, bulls attempt to drive prices higher (long upper shadow), 
+        but face selling pressure that pushes prices back down. However, the close near the 
+        open suggests bears couldn't maintain complete control, hinting at weakening downward momentum.
+        
+        Significance: While not as strong as a regular hammer, it suggests potential buying interest 
+        emerging and often precedes a trend reversal, especially when confirmed by a bullish candle 
+        the following period.
+        """
         row = df.iloc[-1]
         body = abs(row.close - row.open)
         upper_wick = row.high - max(row.open, row.close)
@@ -135,11 +229,38 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_doji(df: pd.DataFrame) -> bool:
+        """
+        A Doji is a candlestick pattern where the opening and closing prices are virtually equal.
+        
+        Visual: A candlestick with a very small body (or no body) and upper and/or lower shadows 
+        of varying length, resembling a cross or plus sign.
+        
+        Psychology: Represents market indecision where neither bulls nor bears gain control. 
+        The session opens and closes at nearly the same level despite price fluctuations during the period.
+        
+        Significance: By itself, a Doji indicates equilibrium or indecision, but when appearing 
+        after a strong trend or at support/resistance levels, it can signal potential reversal. 
+        The longer the shadows, the more volatile the period was, showing greater uncertainty.
+        """
         row = df.iloc[-1]
         return abs(row.open - row.close) <= (row.high - row.low) * 0.1
 
     @staticmethod
     def is_morning_doji_star(df: pd.DataFrame) -> bool:
+        """
+        The Morning Doji Star is a three-candle bullish reversal pattern similar to the Morning Star, 
+        but with a Doji as the middle candle.
+        
+        Visual: A long bearish candle, followed by a Doji that gaps down, followed by a bullish 
+        candle that closes well into the first candle's body.
+        
+        Psychology: After strong selling (first candle), the market enters indecision (Doji), 
+        followed by strong buying pressure (third candle). The Doji represents the point where 
+        selling pressure diminishes and buying pressure begins to build.
+        
+        Significance: Considered even more reliable than the regular Morning Star due to the 
+        clear indecision signaled by the Doji. Strongly indicates a potential bottom and trend reversal.
+        """
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         second_open_close_diff = abs(second.open - second.close)
         return (
@@ -151,6 +272,20 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_bullish_abandoned_baby(df: pd.DataFrame) -> bool:
+        """
+        The Bullish Abandoned Baby is a rare but powerful three-candle reversal pattern.
+        
+        Visual: A bearish candle, followed by a Doji that gaps down (with no overlap in 
+        price range with either the first or third candle), followed by a bullish candle 
+        that gaps up from the Doji.
+        
+        Psychology: After a downtrend (first candle), a Doji forms with gaps on both sides, 
+        representing complete indecision isolated from the previous trend. The subsequent 
+        bullish candle (third) confirms a reversal in sentiment as buyers take control.
+        
+        Significance: One of the most reliable reversal patterns due to the complete isolation 
+        of the middle Doji (the "abandoned baby"). Signals a strong shift from bearish to bullish momentum.
+        """
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         return (
             first.close < first.open and
@@ -161,6 +296,20 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_bullish_belt_hold(df: pd.DataFrame) -> bool:
+        """
+        The Bullish Belt Hold is a single-candle reversal pattern that appears in downtrends.
+        
+        Visual: A bullish candle that opens at or near the low of the day (little to no 
+        lower shadow) and closes significantly higher, creating a strong bullish body.
+        
+        Psychology: After a downtrend, the day opens at a low point (showing bears still 
+        in control), but bulls immediately take over and drive prices higher throughout the 
+        session, closing near the high and showing strong buying pressure.
+        
+        Significance: Suggests a potential reversal of the downtrend, particularly when the 
+        candle is long and appears after an extended decline. The lack of a lower shadow 
+        indicates immediate rejection of lower prices.
+        """
         row = df.iloc[-1]
         return (
             row.close > row.open and
@@ -170,6 +319,20 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_three_inside_up(df: pd.DataFrame) -> bool:
+        """
+        The Three Inside Up is a three-candle bullish reversal pattern that begins with a Bullish Harami.
+        
+        Visual: A large bearish candle, followed by a smaller bullish candle contained within 
+        the first (a Bullish Harami), followed by a third bullish candle that closes above 
+        the high of the second candle.
+        
+        Psychology: After a downtrend (first candle), the smaller bullish candle indicates 
+        diminishing bearish momentum. The third candle confirms the reversal as bulls gain 
+        control and push prices higher, breaking the previous pattern.
+        
+        Significance: More reliable than a simple Bullish Harami because the third candle 
+        provides confirmation of the reversal. Signals a shift from a downtrend to a potential uptrend.
+        """
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         return (
             first.close < first.open and
@@ -181,6 +344,19 @@ class CandlestickPatterns:
 
     @staticmethod
     def is_rising_window(df: pd.DataFrame) -> bool:
+        """
+        The Rising Window (also called a Bullish Gap) is a two-candle continuation pattern in an uptrend.
+        
+        Visual: Two consecutive candles where the low of the second candle is higher than 
+        the high of the first candle, creating a price gap or "window" between them.
+        
+        Psychology: During an uptrend, strong buying pressure causes the second day to open 
+        above the previous day's high, indicating enthusiasm among buyers and unwillingness 
+        to enter at lower prices.
+        
+        Significance: Confirms the strength of an existing uptrend and suggests continuation 
+        of the bullish momentum. The gap often acts as a support level in future price movements.
+        """
         prev, last = df.iloc[-2], df.iloc[-1]
         return prev.high < last.low
 
