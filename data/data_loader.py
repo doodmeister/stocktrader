@@ -128,23 +128,44 @@ def download_stock_data(
         # ————————————————
 
         if df is None or df.empty:
-            logger.warning(f"Batch empty for {symbol_str}, falling back to fetch_daily_ohlcv().")
+            logger.warning(f"Batch empty for {symbol_str}, falling back to period-based history.")
             result: Dict[str, pd.DataFrame] = {}
+            window_days = (end_date - start_date).days + 1
+
             for symbol in sanitized_symbols:
                 try:
-                    single = fetch_daily_ohlcv(
-                        symbol,
-                        start=start_str,
-                        end=end_str,
-                        interval=interval
+                    ticker = yf.Ticker(symbol)
+                    # Fetch a rolling window that definitely covers our dates
+                    hist = ticker.history(
+                        period=f"{window_days}d",
+                        interval=interval,
+                        auto_adjust=False,
+                        actions=False
                     )
-                    # fetch_daily_ohlcv already lower-cases its columns
-                    result[symbol] = single
+
+                    if hist is None or hist.empty:
+                        logger.warning(f"No history data for {symbol} with period={window_days}d")
+                        continue
+
+                    # Ensure datetime index and slice to exact window
+                    hist.index = pd.to_datetime(hist.index)
+                    sliced = hist.loc[start_date:end_date]
+                    if sliced.empty:
+                        logger.warning(f"After slicing, no rows for {symbol} in {start_date}→{end_date}")
+                        continue
+
+                    # Select & lowercase columns
+                    sliced = sliced[['Open','High','Low','Close','Volume']]
+                    sliced.columns = [c.lower() for c in sliced.columns]
+                    result[symbol] = sliced
+
                 except Exception as e:
-                    logger.warning(f"fetch_daily_ohlcv failed for {symbol}: {e}")
+                    logger.warning(f"Period-based history failed for {symbol}: {e}")
+
             if not result:
-                logger.warning("No data returned after fallback for any symbol.")
+                logger.warning("No data returned after period-based fallback.")
                 return None
+
             _data_cache[cache_key] = result
             return result
 
