@@ -144,7 +144,7 @@ class DataDashboard:
         st.divider()
 
     @st.cache_data(ttl=3600, show_spinner=True)
-    def _download(self, symbol: str) -> Optional[pd.DataFrame]:
+    def _download(_self, symbol: str) -> Optional[pd.DataFrame]:
         """
         Download stock data for the given symbol.
         
@@ -164,9 +164,9 @@ class DataDashboard:
             start_time = time.time()
             df = yf.download(
                 symbol,
-                start=self.start_date.strftime("%Y-%m-%d"),
-                end=self.end_date.strftime("%Y-%m-%d"),
-                interval=self.interval,
+                start=_self.start_date.strftime("%Y-%m-%d"),
+                end=_self.end_date.strftime("%Y-%m-%d"),
+                interval=_self.interval,
                 progress=False,
                 timeout=30
             )
@@ -178,33 +178,33 @@ class DataDashboard:
                 logger.warning(f"No data returned for {symbol}")
                 return None
                 
-            # Ensure all required columns are present
-            required_cols = {'Open', 'High', 'Low', 'Close', 'Volume'}
-            if not required_cols.issubset(df.columns):
-                missing = required_cols - set(df.columns)
+            # Ensure all required columns are present (case-insensitive check)
+            required_cols = {'open', 'high', 'low', 'close', 'volume'}
+            df_cols_lower = {col.lower() for col in df.columns}
+            if not required_cols.issubset(df_cols_lower):
+                missing = required_cols - df_cols_lower
                 logger.error(f"Missing required columns for {symbol}: {missing}")
                 return None
                 
+            # Map the actual column names to our expected lowercase names
+            col_mapping = {col: col.lower() for col in df.columns if col.lower() in required_cols}
+            result_df = df[list(col_mapping.keys())].copy()
+            result_df.columns = list(col_mapping.values())
+            
             # Check for excessive NaN values
-            nan_percentage = df[list(required_cols)].isna().mean().mean() * 100
+            nan_percentage = result_df.isna().mean().mean() * 100
             if nan_percentage > 20:  # If more than 20% of data is missing
                 logger.warning(f"{symbol} data has {nan_percentage:.1f}% missing values")
                 
-            # Return only the columns we need, renamed to lowercase for consistency
-            result_df = df[list(required_cols)].copy()
-            result_df.columns = [col.lower() for col in result_df.columns]
-            
             # Handle timezone issues that might arise from different exchanges
             if result_df.index.tzinfo is not None:
                 result_df.index = result_df.index.tz_localize(None)
                 
-            logger.debug(f"Downloaded {len(result_df)} rows for {symbol}")
-            return result_df
             
         except Exception as e:
             logger.exception(f"Error downloading data for {symbol}: {str(e)}")
             # Send alert for critical download failures
-            self.notifier.send_alert(f"Failed to download {symbol} data: {str(e)}")
+            _self.notifier.send_alert(f"Failed to download {symbol} data: {str(e)}")
             return None
 
     def _clean_existing_files(self) -> None:
