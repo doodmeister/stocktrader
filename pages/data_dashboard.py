@@ -12,7 +12,6 @@ import functools
 
 import pandas as pd
 import streamlit as st
-import yfinance as yf
 import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
 
