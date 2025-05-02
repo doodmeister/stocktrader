@@ -6,7 +6,7 @@ import os
 import time
 import logging
 from typing import Dict, List, Optional
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 import functools
 
@@ -14,37 +14,46 @@ import yfinance as yf
 import pandas as pd
 from utils.validation import sanitize_input, validate_symbol, safe_request
 
-# Set up basic logging
-logging.basicConfig(level=logging.INFO)
+# Set up basic + debug logging
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 # Optional in-memory cache for fetched data
 _data_cache = {}
 
 
-def fetch_daily_ohlcv(symbol: str, start: str, end: str) -> pd.DataFrame:
+def fetch_daily_ohlcv(
+    symbol: str,
+    start: str,
+    end: str,
+    interval: str = "1d"
+) -> pd.DataFrame:
     """
     Fetch daily OHLCV data from Yahoo Finance.
-    
-    Args:
-        symbol (str): Ticker symbol (e.g., 'AAPL').
-        start (str): Start date in 'YYYY-MM-DD' format.
-        end (str): End date in 'YYYY-MM-DD' format.
-        
-    Returns:
-        pd.DataFrame: DataFrame containing Date, Open, High, Low, Close, Volume.
     """
-    logger.info(f"Fetching data for {symbol} from {start} to {end}")
+    logger.info(f"Fetching data for {symbol} from {start} to {end} ({interval})")
     
     def fetch_attempt():
-        data = yf.download(symbol, start=start, end=end, progress=False)
+        # use the Ticker.history API here
+        ticker = yf.Ticker(symbol)
+        data = ticker.history(
+            start=start,
+            end=end,
+            interval=interval,
+            actions=False,
+            auto_adjust=False,
+            timeout=30
+        )
         if data.empty:
-            raise ValueError("Received empty data.")
+            raise ValueError(f"No data returned for {symbol} ({interval})")
+        # select and lowercase columns
         data = data[['Open', 'High', 'Low', 'Close', 'Volume']]
         data.index.name = 'Date'
+        data.columns = [c.lower() for c in data.columns]
         return data
-    
+
     result = safe_request(
         func=fetch_attempt,
         max_retries=3,
@@ -68,17 +77,6 @@ def download_stock_data(
 ) -> Optional[Dict[str, pd.DataFrame]]:
     """
     Download and validate OHLCV stock data for one or more symbols.
-
-    Args:
-        symbols: List of stock ticker symbols.
-        start_date: Start date for data range.
-        end_date: End date for data range.
-        interval: Data interval (1d, 1h, etc.).
-        timeout: Timeout in seconds for the request.
-        notifier: Optional notification service.
-
-    Returns:
-        Dict of symbol -> DataFrame, or None if download/validation fails.
     """
     # Generate cache key
     cache_key = f"{','.join(sorted(symbols))}-{start_date}-{end_date}-{interval}"
@@ -95,7 +93,6 @@ def download_stock_data(
     sanitized_symbols = []
     for symbol in symbols:
         try:
-            # Use validate_symbol which calls sanitize_input internally
             sanitized = validate_symbol(symbol)
             sanitized_symbols.append(sanitized)
         except ValueError as e:
@@ -106,44 +103,58 @@ def download_stock_data(
         return None
 
     try:
-        # Log operation and measure time
-        start_time = time.time()
+        # make end inclusive (yfinance end= is exclusive)
+        start_str = start_date.strftime("%Y-%m-%d")
+        end_str   = (end_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        # use ASCII arrow in logs so Windows console won’t choke
         symbol_str = ",".join(sanitized_symbols)
-        
-        logger.info(
-            f"Fetching: symbols={symbol_str}, start={start_date}, end={end_date}, interval={interval}"
-        )
-        
-        # Perform download with properly formatted dates
+        logger.info(f"Batch fetching: {symbol_str}  {start_str} -> {end_date.isoformat()} ({interval})")
         df = yf.download(
             symbol_str,
-            start=start_date.strftime("%Y-%m-%d"),
-            end=end_date.strftime("%Y-%m-%d"),
+            start=start_str,
+            end=end_str,
             interval=interval,
             progress=False,
             timeout=timeout,
             auto_adjust=False
         )
-        
-        # Log download time
-        download_time = time.time() - start_time
-        logger.info(f"Downloaded data for {symbol_str} in {download_time:.2f}s")
+        # ——— DEBUG LOGGING ———
+        logger.debug(f"[Batch] df.shape={None if df is None else df.shape}")
+        if df is not None and not df.empty:
+            logger.debug(
+                f"[Batch] index {df.index.min()} -> {df.index.max()}, "
+                f"cols {df.columns.tolist()}"
+            )
+        # ————————————————
 
-        # Validate downloaded data
         if df is None or df.empty:
-            logger.warning(f"No data returned for {symbol_str}")
-            return None
+            logger.warning(f"Batch empty for {symbol_str}, falling back to fetch_daily_ohlcv().")
+            result: Dict[str, pd.DataFrame] = {}
+            for symbol in sanitized_symbols:
+                try:
+                    single = fetch_daily_ohlcv(
+                        symbol,
+                        start=start_str,
+                        end=end_str,
+                        interval=interval
+                    )
+                    # fetch_daily_ohlcv already lower-cases its columns
+                    result[symbol] = single
+                except Exception as e:
+                    logger.warning(f"fetch_daily_ohlcv failed for {symbol}: {e}")
+            if not result:
+                logger.warning("No data returned after fallback for any symbol.")
+                return None
+            _data_cache[cache_key] = result
+            return result
 
         # Process downloaded data into individual symbol DataFrames
         result = process_downloaded_data(df, sanitized_symbols)
-        
-        # Cache the result
         _data_cache[cache_key] = result
         return result
 
     except Exception as e:
         logger.exception(f"Error downloading data for {symbols}: {e}")
-        # Only notify for critical errors if notifier provided
         if notifier:
             try:
                 notifier.send_notification(
