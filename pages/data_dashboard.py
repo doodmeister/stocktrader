@@ -23,6 +23,7 @@ from data.data_validator import DataValidator
 from utils.validation import sanitize_input
 from utils.io import create_zip_archive
 from utils.notifier import Notifier
+from data.data_loader import download_stock_data, clear_cache
 
 
 # Configure logger
@@ -49,7 +50,6 @@ def handle_streamlit_exception(method):
             st.error(f"An error occurred: {str(e)}")
             return None
     return wrapper
-
 
 class DataDashboard:
     """
@@ -210,6 +210,8 @@ class DataDashboard:
         """Render and validate date inputs."""
         col1, col2 = st.columns(2)
         
+        today = date.today()
+        
         with col1:
             new_start_date = st.date_input("Start Date", value=self.start_date)
             if new_start_date != self.start_date:
@@ -218,15 +220,19 @@ class DataDashboard:
                 st.session_state["data_fetched"] = False
                 
         with col2:
-            new_end_date = st.date_input("End Date", value=self.end_date)
+            new_end_date = st.date_input("End Date", value=self.end_date, max_value=today)
             if new_end_date != self.end_date:
                 self.end_date = new_end_date
                 # Reset fetch state if date changed
                 st.session_state["data_fetched"] = False
             
-        # Date validation with clear error message
-        if not self.validator.validate_dates(self.start_date, self.end_date):
-            st.error("Invalid date range: Start date must be before end date and not in the future.")
+        # Date validation with clear error messages
+        if self.end_date > today:
+            st.error(f"End date cannot be in the future. Please select a date on or before {today}.")
+            self.end_date = today  # Automatically fix the end date
+            
+        if self.start_date >= self.end_date:
+            st.error("Invalid date range: Start date must be before end date.")
             
         # If using intraday data, enforce the limit
         if self.interval != "1d" and (self.end_date - self.start_date).days > self.config.MAX_INTRADAY_DAYS:
@@ -253,140 +259,12 @@ class DataDashboard:
                 value=self.auto_refresh,
                 help="Automatically refresh data every 5 minutes"
             )
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def _download(_self, symbols: List[str], start_date: date, end_date: date, interval: str) -> Optional[Dict[str, pd.DataFrame]]:
-        """
-        Download and validate OHLCV stock data for one or more symbols.
-
-        Args:
-            symbols: List of stock ticker symbols.
-            start_date: Start date for data range.
-            end_date: End date for data range.
-            interval: Data interval (1d, 1h, etc.).
-
-        Returns:
-            Dict of symbol -> DataFrame, or None if download/validation fails.
-        """
-        # Validate inputs
-        if not symbols:
-            logger.warning("No valid symbols provided")
-            return None
             
-        # Create sanitized symbol list
-        sanitized_symbols = []
-        for symbol in symbols:
-            symbol = sanitize_input(symbol.strip().upper())
-            if symbol and symbol.isalnum():
-                sanitized_symbols.append(symbol)
-            else:
-                logger.warning(f"Skipping invalid symbol: {symbol}")
-                
-        if not sanitized_symbols:
-            logger.warning("No valid symbols after sanitization")
-            return None
-
-        try:
-            # Log operation and measure time
-            start_time = time.time()
-            symbol_str = ",".join(sanitized_symbols)
-            
-            logger.info(
-                f"Fetching: symbols={symbol_str}, start={start_date}, end={end_date}, interval={interval}"
-            )
-            
-            # Perform download with properly formatted dates
-            df = yf.download(
-                symbol_str,
-                start=start_date.strftime("%Y-%m-%d"),
-                end=end_date.strftime("%Y-%m-%d"),
-                interval=interval,
-                progress=False,
-                timeout=30,
-                auto_adjust=False
-            )
-            
-            # Log download time
-            download_time = time.time() - start_time
-            logger.info(f"Downloaded data for {symbol_str} in {download_time:.2f}s")
-
-            # Validate downloaded data
-            if df is None or df.empty:
-                logger.warning(f"No data returned for {symbol_str}")
-                return None
-
-            # Process downloaded data into individual symbol DataFrames
-            return _self._process_downloaded_data(df, sanitized_symbols)
-
-        except Exception as e:
-            logger.exception(f"Error downloading data for {symbols}: {e}")
-            # Only notify for critical errors
-            try:
-                _self.notifier.send_notification(
-                    f"Critical: Failed to download data for {', '.join(symbols)}. Error: {str(e)}"
-                )
-            except Exception as notify_err:
-                logger.error(f"Notifier failed: {notify_err}")
-            return None
-
-    def _process_downloaded_data(self, df: pd.DataFrame, symbols: List[str]) -> Dict[str, pd.DataFrame]:
-        """
-        Process a downloaded DataFrame into individual symbol DataFrames.
-        
-        Args:
-            df: Raw DataFrame from yfinance
-            symbols: List of symbols to extract
-            
-        Returns:
-            Dict of symbol -> DataFrame with standardized columns
-        """
-        result = {}
-        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-
-        if isinstance(df.columns, pd.MultiIndex):
-            # Handle MultiIndex columns (multiple symbols)
-            for symbol in symbols:
-                symbol_df = pd.DataFrame(index=df.index)
-                missing_cols = []
-                
-                # Extract each required column
-                for col in required_cols:
-                    col_tuple = (col, symbol)
-                    if col_tuple in df.columns:
-                        symbol_df[col.lower()] = df[col_tuple]
-                    else:
-                        missing_cols.append(col)
-                        
-                # Log any missing columns
-                if missing_cols:
-                    logger.warning(f"Missing columns for {symbol}: {missing_cols}")
-                
-                # Include if we have data
-                symbol_df.dropna(how="all", inplace=True)
-                if not symbol_df.empty and not missing_cols:
-                    result[symbol] = symbol_df
-        else:
-            # Handle single-level columns (single symbol)
-            symbol_df = pd.DataFrame(index=df.index)
-            missing_cols = []
-            
-            # Extract each required column
-            for col in required_cols:
-                if col in df.columns:
-                    symbol_df[col.lower()] = df[col]
-                else:
-                    missing_cols.append(col)
-            
-            # Log any missing columns
-            if missing_cols:
-                logger.warning(f"Missing columns for {symbols[0]}: {missing_cols}")
-                
-            # Include if we have data
-            symbol_df.dropna(how="all", inplace=True)
-            if not symbol_df.empty and not missing_cols:
-                result[symbols[0]] = symbol_df
-
-        return result if result else None
+            # Add clear cache button
+            if st.button("🧹 Clear Data Cache", help="Clear cached stock data"):
+                from data.data_loader import clear_cache
+                clear_cache()
+                st.success("Data cache cleared!")
 
     @handle_streamlit_exception
     def _clean_existing_files(self) -> None:
@@ -413,8 +291,13 @@ class DataDashboard:
     @handle_streamlit_exception
     def _fetch_and_display_data(self) -> None:
         """Fetch data for all symbols and display in the UI."""
-        # Clear previous data and setup
         self.saved_paths.clear()
+        
+        # Ensure end date is not in the future - do this right before fetching
+        today = date.today()
+        if self.end_date > today:
+            self.end_date = today
+            st.warning(f"Adjusted end date to today ({today}) as future dates are not available.")
         
         # Block with invalid dates
         if not self.validator.validate_dates(self.start_date, self.end_date):
@@ -428,35 +311,30 @@ class DataDashboard:
             
         # Show spinner during operation
         with st.spinner("Downloading stock data..."):
-            # Clean if requested
             if self.clean_old:
                 self._clean_existing_files()
-                
-            # Download all at once
-            data_dict = self._download(self.symbols, self.start_date, self.end_date, self.interval)
-            
-            # Track fetch time
+            logger.info(f"Fetching data with dates: {self.start_date} to {self.end_date}")
+            data_dict = download_stock_data(
+                self.symbols,
+                self.start_date,
+                self.end_date,
+                self.interval,
+                notifier=self.notifier
+            )
+
+        # === guard against no data ===
+        if data_dict is None or (isinstance(data_dict, dict) and not data_dict):
+            st.error("No data returned for those symbols – please check ticker symbols and date range.")
+            return
+
+        # === save & display ===
+        count = self._save_and_display_data(data_dict)
+        if count == 0:
+            st.warning("Downloaded data but nothing matched your columns – check logs for missing fields.")
+        else:
+            st.success(f"✅ Data fetched for {count}/{len(self.symbols)} symbols.")
             st.session_state["last_fetch_time"] = datetime.now()
-            st.session_state["fetch_count"] = st.session_state.get("fetch_count", 0) + 1
-            
-            # Handle no data
-            if not data_dict:
-                st.error(
-                    "No data available for the selected symbols. "
-                    "This may be due to market holidays, delisting, incorrect symbol, "
-                    "or unavailable data for the selected date range."
-                )
-                return
-
-        # Reset pagination for all symbols to prevent "out of bounds" issues
-        for symbol in self.symbols:
-            st.session_state[f"page_number_{symbol}"] = 0
-
-        # Display data for each symbol
-        successful_downloads = self._save_and_display_data(data_dict)
-                    
-        # Offer batch download if multiple files were saved
-        self._offer_batch_download(successful_downloads)
+            st.session_state["fetch_count"] += 1
 
     def _save_and_display_data(self, data_dict: Dict[str, pd.DataFrame]) -> int:
         """

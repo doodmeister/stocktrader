@@ -43,6 +43,26 @@ class EmailNotifier:
             client.login(self.username, self.password)
             client.send_message(msg)
 
+    def send_email(self, recipient, subject, message):
+        """Send an email notification."""
+        sender = "your-app@example.com"
+        password = "your-app-password" 
+        
+        msg = MIMEText(message)
+        msg['Subject'] = subject
+        msg['From'] = sender
+        msg['To'] = recipient
+        
+        try:
+            server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+            server.login(sender, password)
+            server.sendmail(sender, recipient, msg.as_string())
+            server.quit()
+            return True
+        except Exception as e:
+            logger.error(f"Email sending error: {e}")
+            return False
+
 
 class SMSNotifier:
     def __init__(self, account_sid: str, auth_token: str, from_number: str):
@@ -57,6 +77,29 @@ class SMSNotifier:
             from_=self.from_number,
             body=message
         )
+
+    def send_sms(self, phone_number, message):
+        """Send an SMS notification."""
+        try:
+            from twilio.rest import Client
+            
+            account_sid = 'your_account_sid'
+            auth_token = 'your_auth_token'
+            from_number = 'your_twilio_number'
+            
+            client = Client(account_sid, auth_token)
+            client.messages.create(
+                body=message,
+                from_=from_number,
+                to=phone_number
+            )
+            return True
+        except ImportError:
+            logger.error("Twilio package not installed")
+            return False
+        except Exception as e:
+            logger.error(f"SMS sending error: {e}")
+            return False
 
 
 class SlackNotifier:

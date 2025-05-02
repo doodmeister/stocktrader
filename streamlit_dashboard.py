@@ -1,5 +1,6 @@
 import os, sys
 from pathlib import Path
+import functools
 
 def in_docker() -> bool:
     return os.path.exists('/.dockerenv')
@@ -71,6 +72,18 @@ def detect_patterns(df: pd.DataFrame) -> List[str]:
     return CandlestickPatterns.detect_patterns(df)
 
 
+def handle_streamlit_exception(method):
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as e:
+            logger.exception(f"Error in {method.__name__}: {e}")
+            st.error(f"An error occurred: {str(e)}")
+            return None
+    return wrapper
+
+
 class DashboardState:
     def __init__(self):
         if not st.session_state.get(SESSION_KEYS["initialized"], False):
@@ -90,6 +103,17 @@ class DashboardState:
         st.session_state[SESSION_KEYS["risk_params"]] = {
             'max_position_size': 0.02,
             'stop_loss_atr': 2.0,
+        }
+        # Add alert configurations
+        st.session_state["alerts"] = {
+            "price_alerts": {},  # {symbol: {"above": price, "below": price}}
+            "pattern_alerts": {},  # {symbol: [pattern_names]}
+            "triggered_alerts": [],  # Store recently triggered alerts
+            "notification_channels": {
+                "email": {"enabled": False, "address": ""},
+                "sms": {"enabled": False, "number": ""},
+                "dashboard": {"enabled": True},
+            }
         }
 
     @property
@@ -279,11 +303,38 @@ class Dashboard:
 
     def render_main_content(self):
         st.title("📈 E*Trade Candlestick Strategy Dashboard")
-        self._render_metrics_row()
-        self._render_positions_section()
-
-        for symbol in self.state.symbols:
-            self._render_symbol_section(symbol)
+        
+        # Check for alerts on each refresh
+        self._check_for_alerts()
+        
+        # Show tabs with the new alerts tab
+        tabs = st.tabs(["Overview", "Trading", "Alerts & Notifications", "Analysis", "Settings"])
+        
+        with tabs[0]:
+            self._render_metrics_row()
+            self._render_positions_section()
+            
+            for symbol in self.state.symbols:
+                self._render_symbol_section(symbol)
+                
+        # Trading tab contents would go here
+        with tabs[1]:
+            st.header("Trading")
+            st.info("Trading functions")
+        
+        # Render the alerts tab
+        with tabs[2]:
+            self._render_alerts_tab()
+        
+        # Analysis tab contents would go here  
+        with tabs[3]:
+            st.header("Analysis")
+            st.info("Analysis tools")
+        
+        # Settings tab contents would go here
+        with tabs[4]:
+            st.header("Settings")
+            st.info("Additional settings")
 
     def _render_metrics_row(self):
         st.subheader("📊 Strategy Summary")
@@ -348,26 +399,10 @@ class Dashboard:
                     textposition="top center",
                     name=f"{symbol} Pattern"
                 ))
-
-        fig.update_layout(title=f"{symbol} 5-min Candlestick Chart", xaxis_rangeslider_visible=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-    def _analyze_patterns(self, df: pd.DataFrame, symbol: str):
-        all_patterns = detect_patterns(df)
-        st.write(f"Detected Patterns for {symbol}: {', '.join(all_patterns) or 'None'}")
-
-    def _render_trading_controls(self, symbol: str):
-        st.markdown("### Trading Controls")
-        col1, col2 = st.columns(2)
-        order_type = col1.selectbox("Order Type", ["MARKET", "LIMIT"], key=f"{symbol}_order_type")
-        quantity = col1.number_input("Quantity", min_value=1, key=f"{symbol}_quantity")
-
-        limit_price = None
-        if order_type == "LIMIT":
-            limit_price = col2.number_input("Limit Price", min_value=0.01, key=f"{symbol}_limit_price")
-
-        if col2.button("Place Buy Order", key=f"{symbol}_buy"):
-            self._place_order(symbol, "BUY", quantity, order_type, limit_price)
+        col1, col2, col3 = st.columns(3)  # Define columns
+        quantity = 1  # Define a default quantity or fetch it dynamically
+        order_type = "LIMIT"  # Define a default order type or fetch it dynamically
+        limit_price = None  # Define a default limit price or fetch it dynamically
         if col2.button("Place Sell Order", key=f"{symbol}_sell"):
             self._place_order(symbol, "SELL", quantity, order_type, limit_price)
 
@@ -395,6 +430,345 @@ class Dashboard:
             except Exception as e:
                 logger.error(f"Failed to place order: {e}")
                 st.error(f"Failed to place order: {e}")
+
+    def _setup_auto_refresh(self, interval_seconds=60):
+        if "last_refresh" not in st.session_state:
+            st.session_state.last_refresh = datetime.now()
+        
+        # Check if time to refresh
+        now = datetime.now()
+        elapsed = (now - st.session_state.last_refresh).total_seconds()
+        
+        # Auto refresh if interval has passed
+        if elapsed >= interval_seconds:
+            st.session_state.last_refresh = now
+            st.experimental_rerun()
+
+    def _render_alerts_tab(self):
+        """Render the alerts and notifications tab."""
+        st.header("⚠️ Alerts & Notifications")
+        
+        # Status indicator
+        status_col1, status_col2 = st.columns(2)
+        
+        # System status indicators
+        with status_col1.container():
+            st.subheader("System Status")
+            
+            # Check API connection
+            api_connected = self.client is not None
+            api_status = "🟢 Connected" if api_connected else "🔴 Disconnected"
+            
+            # Check if model is trained
+            model_trained = st.session_state.get(SESSION_KEYS["model"]) is not None
+            model_status = "🟢 Trained" if model_trained else "🔴 Not Trained"
+            
+            # Last refresh time
+            last_refresh = st.session_state.get("last_refresh", datetime.now())
+            refresh_age = (datetime.now() - last_refresh).total_seconds()
+            refresh_status = "🟢 Recent" if refresh_age < 300 else "🟠 Stale"
+            
+            # Display statuses
+            status_df = pd.DataFrame({
+                "Component": ["API Connection", "ML Model", "Data Refresh"],
+                "Status": [api_status, model_status, refresh_status],
+                "Last Updated": [datetime.now().strftime("%H:%M:%S"), 
+                                "N/A" if not model_trained else "Unknown",
+                                last_refresh.strftime("%H:%M:%S")]
+            })
+            st.dataframe(status_df, hide_index=True)
+        
+        # Alerts management
+        with status_col2.container():
+            st.subheader("Alert History")
+            triggered = st.session_state["alerts"]["triggered_alerts"]
+            if not triggered:
+                st.info("No alerts have been triggered yet")
+            else:
+                alerts_df = pd.DataFrame(triggered[-10:])  # Show last 10 alerts
+                st.dataframe(alerts_df, hide_index=True)
+                if st.button("Clear Alert History"):
+                    st.session_state["alerts"]["triggered_alerts"] = []
+                    st.success("Alert history cleared")
+
+        # Price alerts section
+        st.subheader("📊 Price Alerts")
+        
+        # Select symbol for price alert
+        alert_cols = st.columns([2, 1, 1, 1])
+        symbol = alert_cols[0].selectbox("Symbol", self.state.symbols, key="price_alert_symbol")
+        
+        # Get current price
+        current_price = 0
+        try:
+            if self.client:
+                df = self.client.get_quote(symbol)
+                if not df.empty:
+                    current_price = df['last'][0]
+        except Exception as e:
+            logger.error(f"Error getting quote for {symbol}: {e}")
+        
+        # Price conditions
+        alert_type = alert_cols[1].radio("Condition", ["Above", "Below"], key="price_alert_condition")
+        
+        # Price threshold with current price as default
+        price = alert_cols[2].number_input(
+            f"Price (Current: ${current_price:.2f})", 
+            min_value=0.01, 
+            value=current_price,
+            step=0.01,
+            key="price_alert_value"
+        )
+        
+        # Add alert button
+        if alert_cols[3].button("Add Alert"):
+            # Initialize price alerts for this symbol if needed
+            if symbol not in st.session_state["alerts"]["price_alerts"]:
+                st.session_state["alerts"]["price_alerts"][symbol] = {}
+            
+            # Add alert
+            condition_key = alert_type.lower()
+            st.session_state["alerts"]["price_alerts"][symbol][condition_key] = price
+            st.success(f"Alert set for {symbol} {alert_type} ${price:.2f}")
+        
+        # Display current price alerts
+        price_alerts = st.session_state["alerts"]["price_alerts"]
+        if price_alerts:
+            alert_data = []
+            for sym, conditions in price_alerts.items():
+                for condition, threshold in conditions.items():
+                    alert_data.append({
+                        "Symbol": sym,
+                        "Condition": condition.capitalize(),
+                        "Price": f"${threshold:.2f}",
+                        "Delete": False  # For deletion checkbox
+                    })
+            
+            if alert_data:
+                alert_df = pd.DataFrame(alert_data)
+                edited_df = st.data_editor(alert_df, hide_index=True)
+                
+                # Handle deletions
+                if not edited_df.equals(alert_df):
+                    for i, row in edited_df.iterrows():
+                        if row["Delete"]:
+                            symbol = row["Symbol"]
+                            condition = row["Condition"].lower()
+                            if symbol in price_alerts and condition in price_alerts[symbol]:
+                                del price_alerts[symbol][condition]
+                                if not price_alerts[symbol]:  # If no more conditions for this symbol
+                                    del price_alerts[symbol]
+                                st.rerun()
+        else:
+            st.info("No price alerts configured")
+        
+        # Pattern alerts section
+        st.subheader("📈 Pattern Alerts")
+        
+        pattern_cols = st.columns([2, 2, 1])
+        pattern_symbol = pattern_cols[0].selectbox("Symbol", self.state.symbols, key="pattern_alert_symbol")
+        available_patterns = st.session_state[SESSION_KEYS["class_names"]]
+        selected_pattern = pattern_cols[1].selectbox("Pattern", available_patterns, key="pattern_alert_pattern")
+        
+        if pattern_cols[2].button("Add Pattern Alert"):
+            # Initialize pattern alerts for this symbol if needed
+            if pattern_symbol not in st.session_state["alerts"]["pattern_alerts"]:
+                st.session_state["alerts"]["pattern_alerts"][pattern_symbol] = []
+            
+            # Add pattern to alerts if not already there
+            if selected_pattern not in st.session_state["alerts"]["pattern_alerts"][pattern_symbol]:
+                st.session_state["alerts"]["pattern_alerts"][pattern_symbol].append(selected_pattern)
+                st.success(f"Alert set for {selected_pattern} pattern on {pattern_symbol}")
+            else:
+                st.info(f"Alert for {selected_pattern} on {pattern_symbol} already exists")
+        
+        # Display current pattern alerts
+        pattern_alerts = st.session_state["alerts"]["pattern_alerts"]
+        if pattern_alerts:
+            pattern_data = []
+            for sym, patterns in pattern_alerts.items():
+                for pattern in patterns:
+                    pattern_data.append({
+                        "Symbol": sym,
+                        "Pattern": pattern,
+                        "Delete": False
+                    })
+            
+            if pattern_data:
+                pattern_df = pd.DataFrame(pattern_data)
+                edited_pattern_df = st.data_editor(pattern_df, hide_index=True)
+                
+                # Handle deletions
+                if not edited_pattern_df.equals(pattern_df):
+                    for i, row in edited_pattern_df.iterrows():
+                        if row["Delete"]:
+                            symbol = row["Symbol"]
+                            pattern = row["Pattern"]
+                            if symbol in pattern_alerts and pattern in pattern_alerts[symbol]:
+                                pattern_alerts[symbol].remove(pattern)
+                                if not pattern_alerts[symbol]:  # If no more patterns for this symbol
+                                    del pattern_alerts[symbol]
+                                st.rerun()
+        else:
+            st.info("No pattern alerts configured")
+
+        # Notification settings
+        st.subheader("📬 Notification Settings")
+        
+        notification_channels = st.session_state["alerts"]["notification_channels"]
+        
+        # Dashboard notifications (always available)
+        st.checkbox("Show Dashboard Notifications", 
+                    value=notification_channels["dashboard"]["enabled"],
+                    key="notify_dashboard",
+                    on_change=lambda: self._update_notification_setting("dashboard", "enabled", 
+                                                                       st.session_state["notify_dashboard"]))
+        
+        # Email notifications
+        email_enabled = st.checkbox("Email Notifications", 
+                                   value=notification_channels["email"]["enabled"],
+                                   key="notify_email",
+                                   on_change=lambda: self._update_notification_setting("email", "enabled", 
+                                                                                     st.session_state["notify_email"]))
+        
+        if email_enabled:
+            email = st.text_input("Email Address", 
+                                 value=notification_channels["email"]["address"],
+                                 key="email_address",
+                                 on_change=lambda: self._update_notification_setting("email", "address", 
+                                                                                   st.session_state["email_address"]))
+        
+        # SMS notifications
+        sms_enabled = st.checkbox("SMS Notifications", 
+                                 value=notification_channels["sms"]["enabled"],
+                                 key="notify_sms",
+                                 on_change=lambda: self._update_notification_setting("sms", "enabled", 
+                                                                                   st.session_state["notify_sms"]))
+        
+        if sms_enabled:
+            sms = st.text_input("Phone Number", 
+                               value=notification_channels["sms"]["number"],
+                               key="sms_number",
+                               on_change=lambda: self._update_notification_setting("sms", "number", 
+                                                                                 st.session_state["sms_number"]))
+        
+        # Test notifications
+        if st.button("Test Notifications"):
+            self._send_test_notification()
+
+    def _update_notification_setting(self, channel, setting, value):
+        """Update a notification setting in session state."""
+        st.session_state["alerts"]["notification_channels"][channel][setting] = value
+
+    def _send_test_notification(self):
+        """Send a test notification using the configured channels."""
+        channels = st.session_state["alerts"]["notification_channels"]
+        test_message = f"Test notification from E*Trade Bot at {datetime.now().strftime('%H:%M:%S')}"
+        
+        sent_to = []
+        
+        if channels["dashboard"]["enabled"]:
+            st.success(f"🔔 {test_message}")
+            sent_to.append("dashboard")
+        
+        if channels["email"]["enabled"] and channels["email"]["address"]:
+            try:
+                self.notifier.send_email(channels["email"]["address"], "StockTrader Alert Test", test_message)
+                sent_to.append(f"email ({channels['email']['address']})")
+            except Exception as e:
+                logger.error(f"Failed to send email: {e}")
+                st.error(f"Failed to send email: {str(e)}")
+        
+        if channels["sms"]["enabled"] and channels["sms"]["number"]:
+            try:
+                self.notifier.send_sms(channels["sms"]["number"], test_message)
+                sent_to.append(f"SMS ({channels['sms']['number']})")
+            except Exception as e:
+                logger.error(f"Failed to send SMS: {e}")
+                st.error(f"Failed to send SMS: {str(e)}")
+        
+        if sent_to:
+            st.info(f"Test notification sent to: {', '.join(sent_to)}")
+        else:
+            st.warning("No notification channels enabled")
+
+    def _check_for_alerts(self):
+        """Check if any alerts have been triggered and notify if needed."""
+        if not self.client:
+            return
+        
+        alerts = st.session_state["alerts"]
+        channels = alerts["notification_channels"]
+        triggered = []
+        
+        # Check price alerts
+        for symbol, conditions in alerts["price_alerts"].items():
+            try:
+                df = self.client.get_quote(symbol)
+                if df.empty:
+                    continue
+                    
+                current_price = df['last'][0]
+                
+                if "above" in conditions and current_price > conditions["above"]:
+                    msg = f"🔔 {symbol} price alert: ${current_price:.2f} above ${conditions['above']:.2f}"
+                    triggered.append({"type": "price", "symbol": symbol, "message": msg, "time": datetime.now()})
+                
+                if "below" in conditions and current_price < conditions["below"]:
+                    msg = f"🔔 {symbol} price alert: ${current_price:.2f} below ${conditions['below']:.2f}"
+                    triggered.append({"type": "price", "symbol": symbol, "message": msg, "time": datetime.now()})
+                    
+            except Exception as e:
+                logger.error(f"Error checking price alerts for {symbol}: {e}")
+        
+        # Check pattern alerts
+        for symbol, patterns in alerts["pattern_alerts"].items():
+            try:
+                df = self.client.get_candles(symbol, interval="5min", days=1)
+                if df.empty:
+                    continue
+                    
+                detected_patterns = detect_patterns(df)
+                
+                for pattern in patterns:
+                    if pattern in detected_patterns:
+                        msg = f"🔔 {symbol} pattern alert: {pattern} detected"
+                        triggered.append({"type": "pattern", "symbol": symbol, "message": msg, "time": datetime.now()})
+                        
+            except Exception as e:
+                logger.error(f"Error checking pattern alerts for {symbol}: {e}")
+        
+        # Process triggered alerts
+        for alert in triggered:
+            # Add to alert history
+            alerts["triggered_alerts"].append({
+                "Time": alert["time"].strftime("%H:%M:%S"),
+                "Symbol": alert["symbol"],
+                "Type": alert["type"].capitalize(),
+                "Message": alert["message"]
+            })
+            
+            # Dashboard notification
+            if channels["dashboard"]["enabled"]:
+                st.warning(alert["message"])
+            
+            # Email notification
+            if channels["email"]["enabled"] and channels["email"]["address"]:
+                try:
+                    self.notifier.send_email(
+                        channels["email"]["address"],
+                        f"StockTrader Alert: {alert['symbol']} {alert['type']}",
+                        alert["message"]
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send email alert: {e}")
+            
+            # SMS notification
+            if channels["sms"]["enabled"] and channels["sms"]["number"]:
+                try:
+                    self.notifier.send_sms(channels["sms"]["number"], alert["message"])
+                except Exception as e:
+                    logger.error(f"Failed to send SMS alert: {e}")
 
     def run(self):
         creds = self.render_sidebar()
