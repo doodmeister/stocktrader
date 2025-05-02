@@ -146,19 +146,24 @@ class DataDashboard:
     @st.cache_data(ttl=3600, show_spinner=True)
     def _download(_self, symbol: str) -> Optional[pd.DataFrame]:
         """
-        Download stock data for the given symbol.
-        
+        Download and validate OHLCV stock data for a given symbol.
+
         Args:
-            symbol: Stock ticker symbol
-            
+            symbol (str): Stock ticker symbol.
+
         Returns:
-            DataFrame with OHLCV data or None if download failed
+            Optional[pd.DataFrame]: Cleaned DataFrame with columns ['open', 'high', 'low', 'close', 'volume'],
+                                    or None if download/validation fails.
+
+        Raises:
+            None. All exceptions are logged and handled gracefully.
         """
+        # Sanitize and validate symbol input
         symbol = sanitize_input(symbol.strip().upper())
-        if not symbol:
-            logger.warning("Empty symbol provided to download function")
+        if not symbol or not symbol.isalnum():
+            logger.warning("Invalid or empty symbol provided to download function: '%s'", symbol)
             return None
-            
+
         try:
             # Add a timeout to prevent hanging on slow connections
             start_time = time.time()
@@ -171,40 +176,56 @@ class DataDashboard:
                 timeout=30
             )
             download_time = time.time() - start_time
-            logger.info(f"Downloaded data for {symbol} in {download_time:.2f}s")
-            
+            logger.info("Downloaded data for %s in %.2fs", symbol, download_time)
+
             # Validate the downloaded data
-            if df.empty:
-                logger.warning(f"No data returned for {symbol}")
+            if df is None or df.empty:
+                logger.warning("No data returned for %s", symbol)
                 return None
-                
+
             # Ensure all required columns are present (case-insensitive check)
             required_cols = {'open', 'high', 'low', 'close', 'volume'}
             df_cols_lower = {col.lower() for col in df.columns}
             if not required_cols.issubset(df_cols_lower):
                 missing = required_cols - df_cols_lower
-                logger.error(f"Missing required columns for {symbol}: {missing}")
+                logger.error("Missing required columns for %s: %s", symbol, missing)
                 return None
-                
+
             # Map the actual column names to our expected lowercase names
             col_mapping = {col: col.lower() for col in df.columns if col.lower() in required_cols}
             result_df = df[list(col_mapping.keys())].copy()
             result_df.columns = list(col_mapping.values())
-            
+
+            # Drop rows where all required columns are NaN
+            result_df.dropna(subset=list(required_cols), how='all', inplace=True)
+
             # Check for excessive NaN values
             nan_percentage = result_df.isna().mean().mean() * 100
-            if nan_percentage > 20:  # If more than 20% of data is missing
-                logger.warning(f"{symbol} data has {nan_percentage:.1f}% missing values")
-                
+            if nan_percentage > 20:
+                logger.warning("%s data has %.1f%% missing values", symbol, nan_percentage)
+                # Optionally, drop rows with NaNs or impute missing values here
+
             # Handle timezone issues that might arise from different exchanges
-            if result_df.index.tzinfo is not None:
+            if hasattr(result_df.index, 'tzinfo') and result_df.index.tzinfo is not None:
                 result_df.index = result_df.index.tz_localize(None)
-                
-            
+
+            # Additional validation: ensure at least 2 rows for downstream processing
+            if len(result_df) < 2:
+                logger.warning("Insufficient data rows for %s after cleaning", symbol)
+                return None
+
+            # Security: Ensure no unexpected columns are present (defense in depth)
+            result_df = result_df[sorted(required_cols)]
+
+            return result_df
+
         except Exception as e:
-            logger.exception(f"Error downloading data for {symbol}: {str(e)}")
+            logger.exception("Error downloading data for %s: %s", symbol, str(e))
             # Send alert for critical download failures
-            _self.notifier.send_alert(f"Failed to download {symbol} data: {str(e)}")
+            try:
+                _self.notifier.send_alert(f"Failed to download {symbol} data: {str(e)}")
+            except Exception as notify_err:
+                logger.error("Notifier failed: %s", notify_err)
             return None
 
     def _clean_existing_files(self) -> None:
