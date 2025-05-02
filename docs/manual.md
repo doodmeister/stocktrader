@@ -296,6 +296,7 @@ Licensed under MIT © 2025
 
 - **Split the manual into multiple files** (e.g., `INSTALL.md`, `USAGE.md`, `TROUBLESHOOTING.md`) for easier maintenance and navigation.
 - **Add code samples and screenshots** for dashboard usage, model training, and backtesting results.
-- **Link to external documentation** (e.g., E*Trade API docs, Streamlit guides) where relevant.
+- **Link to external documentation**
+Etrade API developer website https://developer.etrade.com/getting-started/developer-guides
 - **Include a FAQ section** addressing common setup and runtime issues.
 - **Provide example `.env` files** and sample data for quick testing.

@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from train.config import TrainingConfig
-from utils.validation import validate_training_params
 from utils.patterns_nn import PatternNN
 from utils.etrade_candlestick_bot import ETradeClient
 from patterns import CandlestickPatterns
@@ -45,13 +44,17 @@ class PatternModelTrainer:
         self.config = config
         self._validate_dependencies()
         # Validate config values
-        validate_training_params(self.config)
+        self._validate_training_params()
 
     def _validate_dependencies(self) -> None:
         if not isinstance(self.client, ETradeClient):
             raise ValueError("Invalid ETradeClient instance")
         if not isinstance(self.model_manager, ModelManager):
             raise ValueError("Invalid ModelManager instance")
+
+    def _validate_training_params(self) -> None:
+        from utils.validation import validate_training_params
+        validate_training_params(self.config)
 
     def prepare_training_data(
         self,
