@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from typing import Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator  # For Pydantic v2
 import pandas as pd
 import math
 
@@ -19,11 +19,15 @@ class RiskParameters(BaseModel):
     atr_period: int = Field(default=14, ge=5, le=50)
     atr_multiplier: float = Field(default=1.5, gt=0, le=5.0)
 
-    @validator('stop_loss_price')
-    def validate_stop_price(cls, v, values):
-        entry = values.get('entry_price')
-        if v is not None and entry is not None and v >= entry:
-            raise ValueError("stop_loss_price must be below entry_price for longs")
+    @field_validator('stop_loss_price')
+    def validate_stop_price(cls, v, info):
+        if v is not None:
+            entry_price = info.data.get('entry_price')
+            if entry_price is None:
+                raise ValueError("entry_price is required to validate stop_loss_price")
+            
+            if v >= entry_price:
+                raise ValueError("stop_loss_price must be below entry_price for longs")
         return v
 
 @dataclass

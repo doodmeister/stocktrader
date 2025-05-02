@@ -122,7 +122,11 @@ class Dashboard:
     def render_sidebar(self) -> Optional[Dict[str, str]]:
         st.sidebar.title("⚙️ Configuration")
         st.sidebar.markdown("### 🔒 Trading Environment")
-
+        
+        # Load credentials from .env file
+        from utils.security import get_api_credentials
+        env_creds = get_api_credentials()
+        
         env = st.sidebar.radio("Select Environment", ["Sandbox", "Live"], index=0)
         live_ok = False
         if env == "Live":
@@ -131,13 +135,19 @@ class Dashboard:
         else:
             st.sidebar.success("🔒 Safe Mode - Using Sandbox environment")
 
+        # Pre-populate fields with values from .env
         creds = {
-            'consumer_key': st.sidebar.text_input("Consumer Key", type="password"),
-            'consumer_secret': st.sidebar.text_input("Consumer Secret", type="password"),
-            'oauth_token': st.sidebar.text_input("OAuth Token", type="password"),
-            'oauth_token_secret': st.sidebar.text_input("OAuth Token Secret", type="password"),
-            'account_id': st.sidebar.text_input("Account ID")
+            'consumer_key': st.sidebar.text_input("Consumer Key", value=env_creds.get('consumer_key', ''), type="password"),
+            'consumer_secret': st.sidebar.text_input("Consumer Secret", value=env_creds.get('consumer_secret', ''), type="password"),
+            'oauth_token': st.sidebar.text_input("OAuth Token", value=env_creds.get('oauth_token', ''), type="password"),
+            'oauth_token_secret': st.sidebar.text_input("OAuth Token Secret", value=env_creds.get('oauth_token_secret', ''), type="password"),
+            'account_id': st.sidebar.text_input("Account ID", value=env_creds.get('account_id', ''))
         }
+        
+        # Display confirmation of loaded values
+        if all(creds.values()):
+            st.sidebar.success("✅ Credentials loaded from .env file")
+        
         if all(creds.values()) and (env == "Sandbox" or live_ok):
             creds['sandbox'] = (env == "Sandbox")
         else:
@@ -151,12 +161,44 @@ class Dashboard:
 
     def _render_symbol_manager(self):
         st.sidebar.markdown("### 🏷️ Symbols")
+        
+        # Import validation functions from utils.validation
+        from utils.validation import validate_symbol, sanitize_input
+        
         symbols_str = ",".join(self.state.symbols)
         input_str = st.sidebar.text_input("Symbols (comma-separated)", value=symbols_str)
+        
         if st.sidebar.button("Update Symbols"):
-            new_syms = [s.strip().upper() for s in input_str.split(",") if s.strip()]
-            st.session_state[SESSION_KEYS["symbols"]] = new_syms
-            st.sidebar.success(f"Symbols updated: {', '.join(new_syms)}")
+            valid_symbols = []
+            invalid_symbols = []
+            
+            # Process each symbol entry
+            for raw_symbol in input_str.split(","):
+                if not raw_symbol.strip():
+                    continue
+                    
+                try:
+                    # First sanitize the input
+                    sanitized = sanitize_input(raw_symbol)
+                    
+                    # Then validate the symbol format
+                    valid_symbol = validate_symbol(sanitized)
+                    valid_symbols.append(valid_symbol)
+                    
+                except ValueError as e:
+                    invalid_symbols.append(raw_symbol.strip())
+                    st.sidebar.warning(f"Invalid symbol: '{raw_symbol.strip()}' - {str(e)}")
+            
+            # Update session state with valid symbols
+            if valid_symbols:
+                st.session_state[SESSION_KEYS["symbols"]] = valid_symbols
+                st.sidebar.success(f"Symbols updated: {', '.join(valid_symbols)}")
+            else:
+                st.sidebar.error("No valid symbols provided.")
+                
+            # Show warning about invalid symbols if any were found
+            if invalid_symbols:
+                st.sidebar.info(f"Skipped {len(invalid_symbols)} invalid symbols.")
 
     def _render_training_controls(self):
         st.sidebar.markdown("### 🛠️ Training Hyperparameters")
@@ -190,6 +232,50 @@ class Dashboard:
                 st.sidebar.error(f"Training failed: {e}")
             finally:
                 self.state.set_training(False)
+
+    def _render_risk_controls(self):
+        """Render risk management controls in the sidebar."""
+        st.sidebar.markdown("### ⚠️ Risk Management")
+        
+        # Get current risk parameters from session state or use defaults
+        risk_params = st.session_state.get(SESSION_KEYS["risk_params"], {
+            'max_position_size': 0.25,  # Default to 25%
+            'stop_loss_atr': 1.5        # Default ATR multiplier
+        })
+        
+        # Create input fields for each risk parameter
+        new_max_position = st.sidebar.slider(
+            "Max Position Size (%)", 
+            min_value=1.0, 
+            max_value=50.0, 
+            value=risk_params['max_position_size'] * 100,
+            step=1.0,
+            help="Maximum position size as percentage of portfolio"
+        ) / 100.0
+        
+        new_stop_loss_atr = st.sidebar.slider(
+            "Stop Loss (ATR multiplier)",
+            min_value=0.5,
+            max_value=5.0,
+            value=risk_params['stop_loss_atr'],
+            step=0.1,
+            help="Stop loss placement as a multiple of Average True Range"
+        )
+        
+        # Update risk parameters if they've changed
+        if (new_max_position != risk_params['max_position_size'] or
+            new_stop_loss_atr != risk_params['stop_loss_atr']):
+            
+            # Update session state
+            st.session_state[SESSION_KEYS["risk_params"]] = {
+                'max_position_size': new_max_position,
+                'stop_loss_atr': new_stop_loss_atr,
+            }
+            
+            # Create a new RiskManager instance with updated parameters
+            self.risk_manager = RiskManager(max_position_pct=new_max_position)
+            
+            st.sidebar.success("Risk parameters updated!")
 
     def render_main_content(self):
         st.title("📈 E*Trade Candlestick Strategy Dashboard")

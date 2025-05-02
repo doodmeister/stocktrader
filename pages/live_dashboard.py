@@ -385,11 +385,13 @@ def initialize_etrade_client() -> Optional[ETradeClient]:
         # Get credentials from secure storage
         credentials = get_api_credentials()
         
-        # Initialize the client
+        # Initialize the client with correct parameter names
         client = ETradeClient(
-            api_key=credentials['api_key'],
-            api_secret=credentials['api_secret'],
-            account_id=credentials['account_id'],
+            consumer_key=credentials.get('api_key', ''),
+            consumer_secret=credentials.get('api_secret', ''),
+            oauth_token=credentials.get('oauth_token', ''),
+            oauth_token_secret=credentials.get('oauth_token_secret', ''),
+            account_id=credentials.get('account_id', ''),
             sandbox=(credentials.get('use_sandbox', 'true').lower() == 'true')
         )
         

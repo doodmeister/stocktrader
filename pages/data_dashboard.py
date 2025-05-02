@@ -15,10 +15,10 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
 
-from ..data.config import DashboardConfig
-from ..data.logger import setup_logger
-from ..data.model_trainer import ModelTrainer, TrainingParams
-from ..data.data_validator import DataValidator
+from data.config import DashboardConfig
+from data.logger import setup_logger
+from data.model_trainer import ModelTrainer, TrainingParams
+from data.data_validator import DataValidator
 from utils.validation import sanitize_input
 from utils.io import create_zip_archive
 from utils.notifier import Notifier

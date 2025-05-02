@@ -14,41 +14,15 @@ load_dotenv()
 
 def get_api_credentials() -> Dict[str, str]:
     """
-    Retrieve API credentials from secure storage (env variables or .env file).
-    
-    Returns:
-        Dictionary containing API credentials
-    
-    Raises:
-        ValueError: If required credentials are missing
+    Get E*Trade API credentials from environment variables.
     """
-    # Map of environment variable names to credential keys
-    credential_map = {
-        'ETRADE_CONSUMER_KEY': 'api_key',
-        'ETRADE_CONSUMER_SECRET': 'api_secret', 
-        'ETRADE_ACCOUNT_ID': 'account_id',
-        'ETRADE_USE_SANDBOX': 'use_sandbox'
+    load_dotenv()  # Make sure to import this if not already
+    
+    return {
+        'consumer_key': os.getenv('ETRADE_CONSUMER_KEY', ''),
+        'consumer_secret': os.getenv('ETRADE_CONSUMER_SECRET', ''),
+        'oauth_token': os.getenv('ETRADE_OAUTH_TOKEN', ''),
+        'oauth_token_secret': os.getenv('ETRADE_OAUTH_TOKEN_SECRET', ''),
+        'account_id': os.getenv('ETRADE_ACCOUNT_ID', ''),
+        'use_sandbox': os.getenv('ETRADE_USE_SANDBOX', 'true')
     }
-    
-    # Extract credentials from environment
-    credentials = {}
-    missing_keys = []
-    
-    for env_var, cred_key in credential_map.items():
-        value = os.getenv(env_var)
-        if value is None and env_var != 'ETRADE_USE_SANDBOX':
-            missing_keys.append(env_var)
-        elif value is not None:
-            credentials[cred_key] = value
-    
-    # Set default for sandbox if not provided
-    if 'use_sandbox' not in credentials:
-        credentials['use_sandbox'] = 'true'
-    
-    # Validate required credentials
-    if missing_keys:
-        error_msg = f"Missing required API credentials: {', '.join(missing_keys)}"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-    
-    return credentials
