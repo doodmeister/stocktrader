@@ -152,6 +152,23 @@ class DataDashboard:
             logger.error(f"Unexpected error: {e}", exc_info=True)
             raise
 
+    def _log_debug(self, level: str, message: str) -> None:
+        """Add a message to the debug log with timestamp."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        if "debug_logs" not in st.session_state:
+            st.session_state.debug_logs = []
+        st.session_state.debug_logs.append((timestamp, level, message))
+        
+        # Also log to regular logger
+        if level.lower() == "info":
+            logger.info(message)
+        elif level.lower() == "warning":
+            logger.warning(message)
+        elif level.lower() == "error":
+            logger.error(message)
+        else:
+            logger.debug(message)
+
     @handle_streamlit_exception
     def _render_inputs(self) -> None:
         """Render the user input controls for the dashboard."""
@@ -515,6 +532,22 @@ class DataDashboard:
         """
         st.subheader("📚 Model Training Parameters")
         
+        with st.expander("🔍 Debug Log"):
+            if "debug_logs" not in st.session_state:
+                st.session_state.debug_logs = []
+            for timestamp, level, message in st.session_state.debug_logs:
+                st.text(f"{timestamp} - {level}: {message}")
+            if st.button("Clear Logs", key="clear_logs_debug_log"):
+                st.session_state.debug_logs = []
+
+        with st.expander("🔍 Model Training Debug Log"):
+            if "debug_logs" not in st.session_state:
+                st.session_state.debug_logs = []
+            for timestamp, level, message in st.session_state.debug_logs:
+                st.text(f"{timestamp} - {level}: {message}")
+            if st.button("Clear Logs", key="clear_logs_training_log"):
+                st.session_state.debug_logs = []
+        
         # Organize parameters into columns
         col1, col2 = st.columns(2)
         
@@ -556,41 +589,53 @@ class DataDashboard:
     def _train_models(self, params: TrainingParams) -> None:
         """Train models for each downloaded dataset."""
         logger.debug("_train_models method called")
+        self._log_debug("DEBUG", "_train_models method called")
         
         if not self.saved_paths:
             logger.warning("No data paths available for training")
+            self._log_debug("WARNING", "No data paths available for training")
             st.warning("No data available for training. Please download data first.")
             return
             
         # Log what we're about to do
         logger.debug(f"Starting model training with paths: {self.saved_paths}")
+        self._log_debug("INFO", f"Starting model training with {len(self.saved_paths)} paths")
         
         # Check path existence
+        valid_paths = []
         for path in self.saved_paths:
             if not Path(path).exists():
                 logger.warning(f"Path {path} does not exist")
-                st.warning(f"Data file {path} is missing. Try fetching data again.")
-                continue
+                self._log_debug("WARNING", f"Path {path} does not exist")
+            else:
+                valid_paths.append(path)
+        
+        if not valid_paths:
+            self._log_debug("ERROR", "No valid data files found")
+            st.warning("No valid data files found. Try fetching data again.")
+            return
         
         # Train models for each dataset
         with st.spinner("Training models..."):
             successful_count = 0
-            for path in self.saved_paths:
+            for path in valid_paths:
                 try:
                     # Extract symbol and interval from filename
                     filename = Path(path).stem
                     parts = filename.split('_')
                     if len(parts) < 2:
-                        logger.warning(f"Invalid filename format: {filename}")
+                        self._log_debug("WARNING", f"Invalid filename format: {filename}")
                         continue
                         
                     symbol = parts[0]
                     interval = parts[1]
                     
                     # Load data
+                    self._log_debug("DEBUG", f"Loading data for {symbol}")
                     df = pd.read_csv(path, index_col='date', parse_dates=True)
                     
                     # Train model
+                    self._log_debug("DEBUG", f"Starting model training for {symbol}")
                     model, metrics, cm, report = self.model_trainer.train_model(df, params)
                     
                     # Save model
@@ -610,15 +655,19 @@ class DataDashboard:
                     
                     st.success(f"Model saved to {model_path}")
                     successful_count += 1
+                    self._log_debug("INFO", f"Successfully trained model for {symbol}")
                     
                 except Exception as e:
                     logger.exception(f"Error training model for {path}: {e}")
+                    self._log_debug("ERROR", f"Error training model for {path}: {e}")
                     st.error(f"Failed to train model for {Path(path).name}: {e}")
             
             if successful_count > 0:
-                st.success(f"Successfully trained {successful_count}/{len(self.saved_paths)} models!")
+                st.success(f"Successfully trained {successful_count}/{len(valid_paths)} models!")
+                self._log_debug("INFO", f"Successfully trained {successful_count}/{len(valid_paths)} models")
             else:
                 st.error("Failed to train any models. Please check the logs for details.")
+                self._log_debug("ERROR", "Failed to train any models")
 
     def _handle_user_actions(self) -> None:
         """Handle user button interactions and auto-refresh."""
@@ -641,27 +690,75 @@ class DataDashboard:
                 st.header("🤖 Model Training")
                 
                 params = self._render_model_training_ui()
-                if st.button("🧠 Train Models", use_container_width=True):
-                    logger.debug("Train Models button clicked")
-                    try:
-                        # Save paths to session state so they persist through refreshes
-                        if self.saved_paths:
-                            st.session_state['saved_paths'] = self.saved_paths
-                            
-                        # Use paths from state if they exist
-                        paths_to_use = st.session_state.get('saved_paths', self.saved_paths)
-                        if not paths_to_use:
-                            st.warning("No data available for training. Please fetch data first.")
-                            return
+                
+                # DEBUGGING: Add a placeholder to show state
+                st.write(f"Training status: {'Started' if st.session_state.get('training_started', False) else 'Not started'}")
+                
+                # Use a form to prevent rerun issues with buttons
+                with st.form(key="training_form"):
+                    train_button_key = "train_models_clicked"
+                    train_clicked = st.form_submit_button("🧠 Train Models", use_container_width=True)
+                    
+                    if train_clicked:
+                        # Add timestamps and detailed debug info
+                        self._log_debug("INFO", "Train Models button clicked!")
                         
-                        # Add debugging to check if this code is running
-                        logger.info(f"About to train models with paths: {paths_to_use}")
-                        st.info("Starting model training...")
+                        # Make sure we have valid paths to use
+                        paths_to_use = [p for p in self.saved_paths if Path(p).exists()]
+                        self._log_debug("DEBUG", f"Valid paths found: {len(paths_to_use)}/{len(self.saved_paths)}")
+                        
+                        if not paths_to_use:
+                            self._log_debug("WARNING", "No valid data files found")
+                            st.warning("No valid data files found. Please fetch data first.")
+                        else:
+                            # Store the valid paths in session state
+                            st.session_state['saved_paths'] = paths_to_use
                             
-                        self._train_models(params)
-                    except Exception as e:
-                        logger.exception(f"Exception in training: {e}")
-                        st.error(f"Training error: {e}")
+                            # Clearly show that training has started
+                            st.info(f"Starting model training for {len(paths_to_use)} datasets...")
+                            self._log_debug("INFO", f"Starting model training for {len(paths_to_use)} datasets")
+                            
+                            # Try in smaller chunks with better error tracking
+                            for path_idx, path in enumerate(paths_to_use):
+                                try:
+                                    self._log_debug("DEBUG", f"Processing file {path_idx+1}/{len(paths_to_use)}: {Path(path).name}")
+                                    
+                                    # Extract symbol and interval from filename
+                                    filename = Path(path).stem
+                                    parts = filename.split('_')
+                                    if len(parts) < 2:
+                                        self._log_debug("WARNING", f"Invalid filename format: {filename}")
+                                        continue
+                                        
+                                    symbol = parts[0]
+                                    interval = parts[1]
+                                    
+                                    # Load data
+                                    self._log_debug("DEBUG", f"Loading data for {symbol}")
+                                    df = pd.read_csv(path, index_col='date', parse_dates=True)
+                                    self._log_debug("DEBUG", f"Loaded data shape: {df.shape}")
+                                    
+                                    # Train model - capture all exceptions explicitly
+                                    try:
+                                        self._log_debug("INFO", f"Training model for {symbol}")
+                                        model, metrics, cm, report = self.model_trainer.train_model(df, params)
+                                        self._log_debug("INFO", f"Model trained successfully: {metrics['final_metrics']['accuracy']:.2f} accuracy")
+                                        
+                                        # Save model
+                                        model_path = self.model_trainer.save_model(model, symbol, interval)
+                                        self._log_debug("INFO", f"Model saved to {model_path}")
+                                        
+                                        # Show success for this model
+                                        st.success(f"✅ Model for {symbol} trained successfully!")
+                                    
+                                    except Exception as e:
+                                        self._log_debug("ERROR", f"Model training failed for {symbol}: {str(e)}")
+                                        st.error(f"Failed to train model for {symbol}: {str(e)}")
+                                        # Continue with next file
+                                    
+                                except Exception as e:
+                                    self._log_debug("ERROR", f"Error processing {Path(path).name}: {str(e)}")
+                                    st.error(f"Error processing {Path(path).name}: {str(e)}")
 
     def _handle_auto_refresh(self) -> None:
         """Handle auto-refresh logic based on time intervals."""
