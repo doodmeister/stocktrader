@@ -5,15 +5,16 @@ for stock market prediction using a standardized pipeline approach with robust
 validation, error handling, and performance optimizations.
 """
 
+import os
+import logging
+import pickle
+import numpy as np
+import pandas as pd
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Union, Any
-import json
 from datetime import datetime
-
-import numpy as np
-import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import (
@@ -22,11 +23,12 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import StandardScaler
 from sklearn.exceptions import NotFittedError
-import joblib
-import logging
 from logging.handlers import RotatingFileHandler
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 # Type aliases
 ModelMetrics = Dict[str, float]
@@ -49,50 +51,29 @@ class ModelType(Enum):
         try:
             return cls(value.lower())
         except ValueError:
-            raise ValueError(f"Unsupported model type: {value}")
+            valid_values = [t.value for t in cls]
+            raise ValueError(f"Invalid model type '{value}'. Valid options: {valid_values}")
 
 @dataclass
 class FeatureConfig:
     """Configuration for feature engineering pipeline"""
     PRICE_FEATURES: List[str] = field(
-        default_factory=lambda: ['Open', 'High', 'Low', 'Close', 'Volume']
+        default_factory=lambda: ['open', 'high', 'low', 'close', 'volume']
     )
     ROLLING_WINDOWS: List[int] = field(default_factory=lambda: [5, 10, 20])
     TARGET_HORIZON: int = 1
-    MIN_SAMPLES: int = 100
-    
-    def validate(self) -> None:
-        """Validate configuration parameters"""
-        if not self.PRICE_FEATURES:
-            raise ValidationError("Must specify at least one price feature")
-        if not self.ROLLING_WINDOWS:
-            raise ValidationError("Must specify at least one rolling window")
-        if self.TARGET_HORIZON < 1:
-            raise ValidationError("Target horizon must be positive")
-        if self.MIN_SAMPLES < 50:
-            raise ValidationError("Minimum samples must be at least 50")
+
 
 @dataclass
 class TrainingParams:
-    """Model training hyperparameters"""
+    """Parameters for model training"""
     n_estimators: int = 100
     max_depth: int = 10
-    min_samples_split: int = 10
-    model_type: ModelType = ModelType.RANDOM_FOREST
-    cv_folds: int = 5
+    min_samples_split: int = 2
     random_state: int = 42
     n_jobs: int = -1
-    
-    def validate(self) -> None:
-        """Validate training parameters"""
-        if self.n_estimators < 1:
-            raise ValidationError("n_estimators must be positive")
-        if self.max_depth < 1:
-            raise ValidationError("max_depth must be positive")
-        if self.min_samples_split < 2:
-            raise ValidationError("min_samples_split must be at least 2")
-        if self.cv_folds < 2:
-            raise ValidationError("cv_folds must be at least 2")
+    cv_folds: int = 5
+
 
 class ModelTrainer:
     """Handles end-to-end model training pipeline including feature engineering,
@@ -104,177 +85,203 @@ class ModelTrainer:
         feature_config: Optional[FeatureConfig] = None,
         training_params: Optional[TrainingParams] = None
     ):
-        self.model_dir = Path(config.MODEL_DIR)
-        self.model_dir.mkdir(parents=True, exist_ok=True)
-        
+        """Initialize the model trainer with configuration."""
+        self.config = config
         self.feature_config = feature_config or FeatureConfig()
-        self.feature_config.validate()
-        
-        self.training_params = training_params or TrainingParams()
-        self.training_params.validate()
-        
-        self.scaler = StandardScaler()
+        self.default_params = training_params or TrainingParams()
         self._setup_logger()
+        
+        # Create model directory if it doesn't exist
+        os.makedirs(self.config.MODEL_DIR, exist_ok=True)
+        
+        logger.info(f"ModelTrainer initialized with model directory: {self.config.MODEL_DIR}")
 
     def _setup_logger(self) -> None:
-        """Configure rotating file logger with proper formatting"""
-        self.logger = logging.getLogger(__name__)
+        """Set up logger for the model trainer."""
+        log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        log_file = Path('logs/model_trainer.log')
+        log_file.parent.mkdir(exist_ok=True)
         
-        if not self.logger.handlers:
-            handler = RotatingFileHandler(
-                self.model_dir / 'model_training.log',
-                maxBytes=10*1024*1024,  # 10MB
-                backupCount=5
-            )
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            self.logger.setLevel(logging.INFO)
+        # Set up handler
+        file_handler = RotatingFileHandler(
+            log_file, maxBytes=5*1024*1024, backupCount=3
+        )
+        file_handler.setFormatter(log_formatter)
+        
+        # Add handler to logger
+        logger.addHandler(file_handler)
+        logger.setLevel(logging.DEBUG)
 
     def validate_input_data(self, df: pd.DataFrame) -> None:
-        """Validate input data meets requirements for training
+        """
+        Validate input data format and content.
         
         Args:
-            df: Input DataFrame containing price/volume data
+            df: DataFrame to validate
             
         Raises:
-            ValidationError: If data validation fails
+            ValidationError: If validation fails
         """
-        try:
-            required_columns = set(self.feature_config.PRICE_FEATURES)
-            missing = required_columns - set(df.columns)
-            if missing:
-                raise ValidationError(f"Missing required columns: {missing}")
-
-            if len(df) < self.feature_config.MIN_SAMPLES:
-                raise ValidationError(
-                    f"Need at least {self.feature_config.MIN_SAMPLES} samples, "
-                    f"got {len(df)}"
-                )
-
-            null_cols = df[list(required_columns)].columns[
-                df[list(required_columns)].isnull().any()
-            ]
-            if not null_cols.empty:
-                raise ValidationError(f"Null values in columns: {list(null_cols)}")
-
-        except Exception as e:
-            self.logger.error(f"Data validation failed: {str(e)}")
-            raise
+        # Check if DataFrame is empty
+        if df.empty:
+            raise ValidationError("Input DataFrame is empty")
+            
+        # Check required columns
+        required_columns = [col.lower() for col in self.feature_config.PRICE_FEATURES]
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise ValidationError(f"Missing required columns: {missing_columns}")
+            
+        # Check index type
+        if not isinstance(df.index, pd.DatetimeIndex):
+            raise ValidationError("DataFrame index must be DatetimeIndex")
+            
+        # Check for NaN values
+        if df.isna().any().any():
+            logger.warning(f"DataFrame contains NaN values. Rows with NaN: {df.isna().any(axis=1).sum()}")
+            
+        # Check row count
+        min_rows = max(self.feature_config.ROLLING_WINDOWS) + self.feature_config.TARGET_HORIZON + 10
+        if len(df) < min_rows:
+            raise ValidationError(
+                f"Not enough data points. Got {len(df)}, need at least {min_rows} for feature engineering"
+            )
 
     def feature_engineering(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Engineer features for model training using parallel processing
+        """
+        Create features for ML model training.
         
         Args:
-            df: Input DataFrame with validated price/volume data
+            df: Input DataFrame with OHLCV data
             
         Returns:
             DataFrame with engineered features
         """
-        self.validate_input_data(df)
-        df = df.copy()
+        # Start with a copy to avoid modifying the original
+        result_df = df.copy()
         
-        try:
-            # Calculate returns
-            df['returns'] = df['Close'].pct_change()
+        # Ensure column names are lowercase
+        result_df.columns = [c.lower() for c in result_df.columns]
+        
+        # For each window, calculate rolling features
+        for window in self.feature_config.ROLLING_WINDOWS:
+            # Add window-specific features
+            window_features = self._calc_rolling_features(result_df, window)
             
-            # Parallel feature calculation
-            with ThreadPoolExecutor() as executor:
-                # Calculate rolling features in parallel
-                future_to_window = {
-                    executor.submit(
-                        self._calc_rolling_features, 
-                        df, 
-                        window
-                    ): window 
-                    for window in self.feature_config.ROLLING_WINDOWS
-                }
+            # Add to result DataFrame with window suffix
+            for name, series in window_features.items():
+                result_df[f"{name}_{window}"] = series
                 
-                # Collect results
-                for future in future_to_window:
-                    window = future_to_window[future]
-                    features = future.result()
-                    for col, values in features.items():
-                        df[f'{col}_{window}'] = values
-                        
-            # Calculate target
-            df['target'] = df['returns'].shift(
-                -self.feature_config.TARGET_HORIZON
-            ).apply(lambda x: 1 if x > 0 else 0)
-            
-            return df.dropna()
-            
-        except Exception as e:
-            self.logger.error(f"Feature engineering failed: {str(e)}")
-            raise ModelError(f"Feature engineering failed: {str(e)}")
+        # Add target variable - price movement direction
+        result_df['target'] = (
+            result_df['close'].shift(-self.feature_config.TARGET_HORIZON) > result_df['close']
+        ).astype(int)
+        
+        # Drop NaN values created by rolling windows and shifts
+        result_df = result_df.dropna()
+        
+        return result_df
 
     def _calc_rolling_features(
         self, 
         df: pd.DataFrame, 
         window: int
     ) -> Dict[str, pd.Series]:
-        """Calculate rolling window features
+        """
+        Calculate rolling window features.
         
         Args:
-            df: Input DataFrame
+            df: DataFrame with price data
             window: Rolling window size
             
         Returns:
-            Dict mapping feature names to Series
+            Dictionary of feature name to Series
         """
-        return {
-            'volatility': df['returns'].rolling(window=window).std(),
-            'sma': df['Close'].rolling(window=window).mean(),
-            'volume_sma': df['Volume'].rolling(window=window).mean()
-        }
+        features = {}
+        
+        # Price momentum and volatility
+        features['close_pct_change'] = df['close'].pct_change(window)
+        features['close_std'] = df['close'].rolling(window).std()
+        
+        # Volume features
+        features['volume_pct_change'] = df['volume'].pct_change(window)
+        features['volume_std'] = df['volume'].rolling(window).std()
+        
+        # Price-volume relationship
+        features['price_volume_corr'] = df['close'].rolling(window).corr(df['volume'])
+        
+        # Technical indicators
+        # Simple Moving Average
+        features['sma'] = df['close'].rolling(window).mean()
+        
+        # Moving Average Convergence Divergence (basic)
+        if window > 1:  # Only calculate for windows > 1
+            ema_fast = df['close'].ewm(span=window//2, adjust=False).mean()
+            ema_slow = df['close'].ewm(span=window, adjust=False).mean()
+            features['macd'] = ema_fast - ema_slow
+        
+        return features
 
     def get_feature_columns(self) -> List[str]:
-        """Get list of feature column names"""
-        base = list(self.feature_config.PRICE_FEATURES)
-        derived = ['returns'] + [
-            f'{feat}_{w}'
-            for w in self.feature_config.ROLLING_WINDOWS
-            for feat in ('volatility', 'sma', 'volume_sma')
-        ]
-        return base + derived
+        """
+        Get list of feature column names.
+        
+        Returns:
+            List of feature column names
+        """
+        feature_cols = []
+        
+        for window in self.feature_config.ROLLING_WINDOWS:
+            for feat in [
+                'close_pct_change', 'close_std', 'volume_pct_change',
+                'volume_std', 'price_volume_corr', 'sma', 'macd'
+            ]:
+                # Only add MACD for windows > 1
+                if feat == 'macd' and window <= 1:
+                    continue
+                feature_cols.append(f"{feat}_{window}")
+                
+        return feature_cols
 
     def train_model(
         self,
         df: pd.DataFrame,
         params: Optional[TrainingParams] = None
-    ) -> Tuple[RandomForestClassifier, ModelMetrics, np.ndarray, str]:
-        """Train model with cross-validation and final fit
+    ) -> Tuple[RandomForestClassifier, Dict[str, Dict[str, float]], np.ndarray, str]:
+        """
+        Train a model on the input data.
         
         Args:
-            df: Input DataFrame
-            params: Optional training parameters override
+            df: Input DataFrame with OHLCV data
+            params: Training parameters (or use default if None)
             
         Returns:
-            Tuple containing:
-            - Trained model
-            - Performance metrics
-            - Confusion matrix
-            - Classification report
+            Tuple of (trained_model, metrics_dict, confusion_matrix_array, classification_report_str)
         """
-        params = params or self.training_params
-        params.validate()
+        logger.info(f"Starting model training with data shape: {df.shape}")
+        params = params or self.default_params
         
         try:
-            # Feature engineering
-            df = self.feature_engineering(df)
-            features = self.get_feature_columns()
+            # 1. Validate input data
+            self.validate_input_data(df)
             
-            # Prepare data
-            X = self.scaler.fit_transform(df[features])
-            y = df['target'].values
-
-            # Cross-validation
+            # 2. Feature engineering
+            features_df = self.feature_engineering(df)
+            logger.debug(f"Feature-engineered data shape: {features_df.shape}")
+            
+            # 3. Split into features and target
+            feature_cols = self.get_feature_columns()
+            X = features_df[feature_cols]
+            y = features_df['target']
+            
+            # 4. Scale features
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+            
+            # 5. Initialize TimeSeriesSplit for cross-validation
             tscv = TimeSeriesSplit(n_splits=params.cv_folds)
-            train_metrics = []
-            test_metrics = []
             
+            # 6. Initialize model
             model = RandomForestClassifier(
                 n_estimators=params.n_estimators,
                 max_depth=params.max_depth,
@@ -282,74 +289,79 @@ class ModelTrainer:
                 random_state=params.random_state,
                 n_jobs=params.n_jobs
             )
-
-            # Perform cross-validation
-            for train_idx, test_idx in tscv.split(X):
-                X_train, X_test = X[train_idx], X[test_idx]
-                y_train, y_test = y[train_idx], y[test_idx]
+            
+            # 7. Cross-validation
+            cv_metrics = []
+            for train_idx, test_idx in tscv.split(X_scaled):
+                X_train, X_test = X_scaled[train_idx], X_scaled[test_idx]
+                y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
                 
                 model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
                 
-                # Calculate metrics
-                train_pred = model.predict(X_train)
-                test_pred = model.predict(X_test)
+                fold_metrics = self._calculate_metrics(y_test, y_pred)
+                cv_metrics.append(fold_metrics)
                 
-                train_metrics.append(self._calculate_metrics(y_train, train_pred))
-                test_metrics.append(self._calculate_metrics(y_test, test_pred))
-
-            # Final training on full dataset
-            model.fit(X, y)
-            y_pred = model.predict(X)
+            # 8. Train final model on all data
+            model.fit(X_scaled, y)
+            y_pred_final = model.predict(X_scaled)
             
-            # Calculate final metrics
-            metrics = {
-                'train_metrics': self._aggregate_metrics(train_metrics),
-                'test_metrics': self._aggregate_metrics(test_metrics),
-                'final_metrics': self._calculate_metrics(y, y_pred)
-            }
+            # 9. Calculate final metrics
+            final_metrics = self._calculate_metrics(y, y_pred_final)
+            cm = confusion_matrix(y, y_pred_final)
+            report = classification_report(y, y_pred_final)
             
-            cm = confusion_matrix(y, y_pred)
-            report = classification_report(y, y_pred)
-
-            self.logger.info(f"Training complete. Metrics: {metrics}")
-            return model, metrics, cm, report
+            # 10. Aggregate and return results
+            metrics_dict = self._aggregate_metrics(cv_metrics)
+            metrics_dict['final_metrics'] = final_metrics
+            
+            logger.info(f"Model training completed. Final accuracy: {final_metrics['accuracy']:.4f}")
+            
+            return model, metrics_dict, cm, report
             
         except Exception as e:
-            self.logger.error(f"Model training failed: {str(e)}")
-            raise ModelError(f"Training failed: {str(e)}")
+            logger.exception(f"Error during model training: {e}")
+            raise ModelError(f"Model training failed: {str(e)}") from e
 
-def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
-    """Calculate classification metrics."""
-    precision, recall, f1, _ = precision_recall_fscore_support(
-        y_true, y_pred, average='binary', zero_division=0
-    )
-    return {
-        'accuracy': accuracy_score(y_true, y_pred),
-        'precision': precision,
-        'recall': recall,
-        'f1': f1
-    }
+    def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+        """Calculate classification metrics."""
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            y_true, y_pred, average='binary', zero_division=0
+        )
+        return {
+            'accuracy': accuracy_score(y_true, y_pred),
+            'precision': precision,
+            'recall': recall,
+            'f1': f1
+        }
 
     def _aggregate_metrics(
         self, 
         metric_list: List[Dict[str, float]]
     ) -> Dict[str, Dict[str, float]]:
-        """Aggregate metrics across CV folds
+        """
+        Aggregate metrics from cross-validation.
         
         Args:
-            metric_list: List of metric dictionaries
+            metric_list: List of metric dictionaries from each fold
             
         Returns:
-            Dict containing mean and std of each metric
+            Dictionary with mean and std of each metric
         """
-        metrics = {}
-        for metric in metric_list[0].keys():
-            values = [m[metric] for m in metric_list]
-            metrics[metric] = {
-                'mean': float(np.mean(values)),
-                'std': float(np.std(values))
-            }
-        return metrics
+        result = {'mean': {}, 'std': {}}
+        
+        # Get all metric keys
+        all_keys = set()
+        for metrics in metric_list:
+            all_keys.update(metrics.keys())
+            
+        # Calculate mean and std for each metric
+        for key in all_keys:
+            values = [m.get(key, 0) for m in metric_list]
+            result['mean'][key] = np.mean(values)
+            result['std'][key] = np.std(values)
+            
+        return result
 
     def save_model(
         self, 
@@ -357,49 +369,30 @@ def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str
         symbol: str, 
         interval: str
     ) -> Path:
-        """Save trained model and artifacts
+        """
+        Save the trained model to disk.
         
         Args:
-            model: Trained model instance
+            model: Trained model to save
             symbol: Stock symbol
-            interval: Time interval
+            interval: Time interval (e.g., '1d', '1h')
             
         Returns:
-            Path to saved model file
+            Path to the saved model file
         """
         try:
-            # Validate inputs
-            if not isinstance(model, RandomForestClassifier):
-                raise ValidationError("Invalid model type")
-            if not symbol or not interval:
-                raise ValidationError("Symbol and interval required")
-                
-            # Create model artifacts
-            artifacts: ModelArtifacts = {
-                'model': model,
-                'scaler': self.scaler,
-                'features': self.get_feature_columns(),
-                'metadata': {
-                    'symbol': symbol,
-                    'interval': interval,
-                    'timestamp': datetime.now().isoformat(),
-                    'feature_config': self.feature_config.__dict__,
-                    'training_params': self.training_params.__dict__
-                }
-            }
+            # Create filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{symbol}_{interval}_{timestamp}.pkl"
+            filepath = self.config.MODEL_DIR / filename
             
-            # Save to disk
-            model_path = self.model_dir / f"{symbol}_{interval}_model.pkl"
-            joblib.dump(artifacts, model_path)
-            
-            # Save readable metadata
-            metadata_path = model_path.with_suffix('.json')
-            with open(metadata_path, 'w') as f:
-                json.dump(artifacts['metadata'], f, indent=2)
+            # Save model using pickle
+            with open(filepath, 'wb') as f:
+                pickle.dump(model, f)
                 
-            self.logger.info(f"Saved model artifacts to {model_path}")
-            return model_path
+            logger.info(f"Model saved successfully to {filepath}")
+            return filepath
             
         except Exception as e:
-            self.logger.error(f"Failed to save model: {str(e)}")
-            raise ModelError(f"Failed to save model: {str(e)}")
+            logger.exception(f"Error saving model: {e}")
+            raise ModelError(f"Failed to save model: {str(e)}") from e

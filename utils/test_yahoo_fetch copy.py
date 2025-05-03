@@ -4,25 +4,23 @@ import yfinance as yf
 import pandas as pd
 from datetime import date
 
-# Parameters
-symbol = "AAPL"
-start_date = "2025-04-01"
-end_date = "2025-05-01"
-interval = "1d"
+symbol      = "AAPL"
+start_date  = date(2024, 4, 1)
+end_date    = date(2025, 5, 1)
+interval    = "1d"
+window_days = (end_date - start_date).days + 1
 
-print(f"Fetching {symbol} from {start_date} to {end_date} ({interval})...")
+print(f"Fetching {symbol} via history({window_days}d), slicing {start_date}→{end_date}")
 
-df = yf.download(
-    symbol,
-    start=start_date,
-    end=end_date,
-    interval=interval,
-    progress=True,
-    auto_adjust=False
-)
+ticker = yf.Ticker(symbol)
+hist = ticker.history(period=f"{window_days}d", interval=interval)
+print("Raw history shape:", hist.shape)
 
-print("\nRaw DataFrame:")
-print(df)
+hist.index = pd.to_datetime(hist.index)
+df = hist.loc[pd.to_datetime(start_date) : pd.to_datetime(end_date), 
+              ["Open","High","Low","Close","Volume"]]
+print("Sliced DF shape:", df.shape)
+print(df.head(), df.tail())
 
 if df is not None and not df.empty:
     print(f"\nRows: {len(df)} | Date range: {df.index.min()} to {df.index.max()}")

@@ -14,6 +14,7 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
+import yfinance as yf
 
 from data.config import DashboardConfig
 from data.logger import setup_logger
@@ -24,9 +25,10 @@ from utils.io import create_zip_archive
 from utils.notifier import Notifier
 from data.data_loader import download_stock_data, clear_cache
 
-
 # Configure logger
-logger = setup_logger(__name__)
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 def handle_streamlit_exception(method):
@@ -99,7 +101,7 @@ class DataDashboard:
             self._setup_directories()
 
             # 4. Initialize State Variables
-            self.saved_paths: List[Path] = []
+            self.saved_paths = st.session_state.get('saved_paths', [])  # Use session state to persist paths across reruns
             self.symbols: List[str] = []
             self.start_date: date = date.today() - timedelta(days=365)
             self.end_date: date = date.today()
@@ -321,9 +323,30 @@ class DataDashboard:
                 notifier=self.notifier
             )
 
+        # Debugging raw batch output
+        with st.expander("Raw history preview"):
+            period_str = f"{(self.end_date - self.start_date).days + 1}d"
+            preview = yf.Ticker(self.symbols[0]).history(period=period_str, interval=self.interval)
+            st.write({
+                "shape": preview.shape,
+                "index_min": preview.index.min(),
+                "index_max": preview.index.max(),
+                "columns": list(preview.columns)
+            })
+
         # === guard against no data ===
         if data_dict is None or (isinstance(data_dict, dict) and not data_dict):
             st.error("No data returned for those symbols – please check ticker symbols and date range.")
+            # Notify via any available notifier method
+            if self.notifier:
+                for method in ("send_notification", "notify", "send"):
+                    if hasattr(self.notifier, method):
+                        getattr(self.notifier, method)(
+                            f"Data fetch failed for {self.symbols} from {self.start_date} to {self.end_date}"
+                        )
+                        break
+                else:
+                    logger.warning("No notification method on Notifier; skipping")
             return
 
         # === save & display ===
@@ -385,15 +408,27 @@ class DataDashboard:
             # Show basic statistics
             st.caption(f"{len(df)} rows from {df.index.min()} to {df.index.max()}")
             
-            # Date range and statistics
-            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+            # Date range and statistics - use 4 columns instead of 3 to give more space
+            metrics_col1, metrics_col2, metrics_col3, metrics_col4 = st.columns(4)
             metrics_col1.metric("Average Volume", f"{df['volume'].mean():,.0f}")
-            metrics_col2.metric("Price Range", f"${df['low'].min():.2f} - ${df['high'].max():.2f}")
+            
+            # Fix for price range - format with fewer decimals and ensure it fits
+            min_price = df['low'].min()
+            max_price = df['high'].max()
+            
+            # Use 2 decimal places for most stocks, but handle very small penny stocks differently
+            if min_price < 0.1 or max_price < 0.1:
+                price_range = f"${min_price:.4f}-${max_price:.4f}"
+            else:
+                price_range = f"${min_price:.2f}-${max_price:.2f}"
+            
+            # Add price range metric with more space
+            metrics_col2.metric("Price Range", price_range)
             
             # Calculate returns if enough data
             if len(df) > 1:
                 returns = ((df['close'].iloc[-1] / df['close'].iloc[0]) - 1) * 100
-                metrics_col3.metric("Period Return", f"{returns:.2f}%")
+                metrics_col4.metric("Period Return", f"{returns:.2f}%")
             
             # Show paginated data
             self._display_paginated_data(symbol, df)
@@ -519,110 +554,71 @@ class DataDashboard:
 
     @handle_streamlit_exception
     def _train_models(self, params: TrainingParams) -> None:
-        """
-        Train models for each downloaded dataset.
+        """Train models for each downloaded dataset."""
+        logger.debug("_train_models method called")
         
-        Args:
-            params: Training parameters
-        """
         if not self.saved_paths:
+            logger.warning("No data paths available for training")
             st.warning("No data available for training. Please download data first.")
             return
             
-        # Create progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        # Log what we're about to do
+        logger.debug(f"Starting model training with paths: {self.saved_paths}")
         
-        trained_models = []
+        # Check path existence
+        for path in self.saved_paths:
+            if not Path(path).exists():
+                logger.warning(f"Path {path} does not exist")
+                st.warning(f"Data file {path} is missing. Try fetching data again.")
+                continue
         
-        for idx, path in enumerate(self.saved_paths):
-            # Update progress
-            progress_value = idx / len(self.saved_paths)
-            progress_bar.progress(progress_value)
-            
-            try:
-                # Extract symbol from filename
-                symbol = path.stem.split("_", 1)[0]
-                status_text.text(f"Training model for {symbol}...")
-                
-                # Read the data
-                df = pd.read_csv(path, index_col="date", parse_dates=True)
-                
-                # Validate dataset
-                if df.empty or len(df) < 30:  # Minimum rows for meaningful training
-                    st.error(f"Insufficient data for {symbol} ({len(df)} rows), skipping training")
-                    continue
-                
-                missing_cols = {"open", "high", "low", "close", "volume"} - set(df.columns)
-                if missing_cols:
-                    st.error(f"Missing columns in {symbol} data: {missing_cols}")
-                    continue
+        # Train models for each dataset
+        with st.spinner("Training models..."):
+            successful_count = 0
+            for path in self.saved_paths:
+                try:
+                    # Extract symbol and interval from filename
+                    filename = Path(path).stem
+                    parts = filename.split('_')
+                    if len(parts) < 2:
+                        logger.warning(f"Invalid filename format: {filename}")
+                        continue
+                        
+                    symbol = parts[0]
+                    interval = parts[1]
                     
-                # Train the model
-                with st.spinner(f"Training model for {symbol}..."):
+                    # Load data
+                    df = pd.read_csv(path, index_col='date', parse_dates=True)
+                    
+                    # Train model
                     model, metrics, cm, report = self.model_trainer.train_model(df, params)
-                    model_path = self.model_trainer.save_model(model, symbol, self.interval)
-                    trained_models.append(symbol)
-                
-                # Display results
-                self._display_training_results(symbol, metrics, cm, report, model_path)
                     
-            except Exception as e:
-                logger.exception(f"Error training model for {path.stem}: {e}")
-                st.error(f"Training failed for {path.stem}: {str(e)}")
-        
-        # Complete progress
-        progress_bar.progress(1.0)
-        status_text.text(f"Training complete! Trained {len(trained_models)}/{len(self.saved_paths)} models.")
-        
-        # Notify about completion if any models were trained
-        if trained_models:
-            try:
-                self.notifier.send_notification(
-                    f"Training completed for {len(trained_models)} models: {', '.join(trained_models)}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to send notification: {e}")
-
-    def _display_training_results(
-        self, 
-        symbol: str, 
-        metrics: Dict[str, float],
-        cm: Any,  # Confusion matrix
-        report: str,
-        model_path: Path
-    ) -> None:
-        """
-        Display training results for a model.
-        
-        Args:
-            symbol: Stock symbol
-            metrics: Performance metrics
-            cm: Confusion matrix
-            report: Classification report text
-            model_path: Path where model was saved
-        """
-        st.success(f"✅ {symbol} model trained successfully")
-        
-        # Create expander for detailed results
-        with st.expander(f"📊 Results for {symbol}", expanded=True):
-            # Show metrics
-            st.subheader("Performance Metrics")
-            metrics_df = pd.DataFrame([metrics])
-            st.dataframe(metrics_df)
+                    # Save model
+                    model_path = self.model_trainer.save_model(model, symbol, interval)
+                    
+                    # Show metrics
+                    st.subheader(f"Model for {symbol}")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Accuracy", f"{metrics['final_metrics']['accuracy']:.2f}")
+                        st.metric("F1 Score", f"{metrics['final_metrics']['f1']:.2f}")
+                        
+                    with col2:
+                        st.metric("Precision", f"{metrics['final_metrics']['precision']:.2f}")
+                        st.metric("Recall", f"{metrics['final_metrics']['recall']:.2f}")
+                    
+                    st.success(f"Model saved to {model_path}")
+                    successful_count += 1
+                    
+                except Exception as e:
+                    logger.exception(f"Error training model for {path}: {e}")
+                    st.error(f"Failed to train model for {Path(path).name}: {e}")
             
-            # Show confusion matrix
-            st.subheader("Confusion Matrix")
-            fig, ax = plt.subplots(figsize=(10, 8))
-            ConfusionMatrixDisplay(cm).plot(ax=ax)
-            st.pyplot(fig)
-            
-            # Show classification report
-            st.subheader("Classification Report")
-            st.text(report)
-            
-            # Show model path
-            st.caption(f"Model saved to: {model_path}")
+            if successful_count > 0:
+                st.success(f"Successfully trained {successful_count}/{len(self.saved_paths)} models!")
+            else:
+                st.error("Failed to train any models. Please check the logs for details.")
 
     def _handle_user_actions(self) -> None:
         """Handle user button interactions and auto-refresh."""
@@ -646,7 +642,26 @@ class DataDashboard:
                 
                 params = self._render_model_training_ui()
                 if st.button("🧠 Train Models", use_container_width=True):
-                    self._train_models(params)
+                    logger.debug("Train Models button clicked")
+                    try:
+                        # Save paths to session state so they persist through refreshes
+                        if self.saved_paths:
+                            st.session_state['saved_paths'] = self.saved_paths
+                            
+                        # Use paths from state if they exist
+                        paths_to_use = st.session_state.get('saved_paths', self.saved_paths)
+                        if not paths_to_use:
+                            st.warning("No data available for training. Please fetch data first.")
+                            return
+                        
+                        # Add debugging to check if this code is running
+                        logger.info(f"About to train models with paths: {paths_to_use}")
+                        st.info("Starting model training...")
+                            
+                        self._train_models(params)
+                    except Exception as e:
+                        logger.exception(f"Exception in training: {e}")
+                        st.error(f"Training error: {e}")
 
     def _handle_auto_refresh(self) -> None:
         """Handle auto-refresh logic based on time intervals."""
@@ -710,3 +725,4 @@ if __name__ == "__main__":
     except Exception as e:
         logging.exception("Critical error in Data Dashboard")
         st.error(f"Critical error: {str(e)}")
+
