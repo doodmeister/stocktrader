@@ -121,6 +121,7 @@ class ModelTrainer:
         df: pd.DataFrame,
         params: Optional[TrainingParams] = None
     ) -> Tuple[RandomForestClassifier, Dict[str, Dict[str, float]], np.ndarray, str]:
+        logger.info(f"Starting training for {len(df)} rows with params: {params}")
         logger.info(f"Starting model training with data shape: {df.shape}")
         params = params or self.default_params
         try:
