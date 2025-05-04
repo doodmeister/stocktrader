@@ -10,7 +10,9 @@ from pages.model_training import (
     MAX_FILE_SIZE_MB,
     REQUIRED_COLUMNS,
     get_model_manager,
-    TrainingConfig
+    TrainingConfig,
+    train_model_classic_ml,
+    train_model_deep_learning
 )
 
 @pytest.fixture
@@ -120,6 +122,31 @@ def test_training_config_validation():
 def test_data_validation():
     # Add test cases for different validation scenarios
     pass
+
+def test_validate_training_data_valid():
+    df = pd.DataFrame({
+        "open": [1,2,3,4,5]*20,
+        "high": [2,3,4,5,6]*20,
+        "low": [0,1,2,3,4]*20,
+        "close": [1.5,2.5,3.5,4.5,5.5]*20,
+        "volume": [100,200,300,400,500]*20,
+        "timestamp": pd.date_range("2020-01-01", periods=100, freq="D")
+    })
+    result = validate_training_data(df)
+    assert result.is_valid
+
+def test_train_model_classic_ml_runs():
+    df = pd.DataFrame({
+        "open": [1,2,3,4,5]*20,
+        "high": [2,3,4,5,6]*20,
+        "low": [0,1,2,3,4]*20,
+        "close": [1.5,2.5,3.5,4.5,5.5]*20,
+        "volume": [100,200,300,400,500]*20,
+        "timestamp": pd.date_range("2020-01-01", periods=100, freq="D")
+    })
+    model, metrics = train_model_classic_ml(df)
+    assert model is not None
+    assert "metrics" in metrics
 
 if __name__ == '__main__':
     pytest.main(['-v'])
