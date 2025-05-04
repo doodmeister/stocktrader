@@ -4,15 +4,15 @@
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Tuple
 
 @dataclass
 class DashboardConfig:
     """Configuration settings for the stock trading dashboard."""
-    DEFAULT_SYMBOLS: str = "AAPL,MSFT"
-    VALID_INTERVALS: Tuple[str, ...] = ("1d", "1h", "30m", "15m", "5m", "1m")
+    DEFAULT_SYMBOLS: List[str] = field(default_factory=lambda: ["AAPL", "MSFT", "GOOGL"])
+    VALID_INTERVALS: List[str] = field(default_factory=lambda: ["1d", "1h", "15m", "5m", "1m"])
     MAX_INTRADAY_DAYS: int = 60
     REFRESH_INTERVAL: int = 300
     DATA_DIR: Path = Path("data")

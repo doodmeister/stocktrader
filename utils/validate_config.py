@@ -9,6 +9,10 @@ REQUIRED_ENV_VARS = [
     "ETRADE_ACCOUNT_ID",
 ]
 
+class DashboardConfig:
+    # ... your config attributes and methods ...
+    pass
+
 def main():
     env_path = Path(".env")
     if not env_path.exists():
