@@ -1,56 +1,68 @@
 # E*Trade Candlestick Trading Bot & Dashboard
 
+E*Trade Candlestick Trading Bot & Dashboard
 An enterprise-grade trading platform that combines classic technical analysis with machine learning for automated E*Trade trading. Features a Streamlit dashboard for real-time monitoring, robust risk management, and a comprehensive backtesting and ML pipeline.
 
 ---
+📑 Table of Contents
+Key Features
+System Requirements
+Installation
+Configuration
+Project Structure
+Usage
+Machine Learning Pipeline
+Testing
+Documentation
+Contributing
+License
+Support
 
 ## 🎯 Key Features
 
-- **Real-Time Trading Dashboard**
-  - Dynamic symbol watchlist
-  - Interactive candlestick charts (Plotly)
-  - Real-time pattern detection (rule-based & ML)
-  - Integrated PatternNN model predictions
-  - Risk-managed order execution
+Real-Time Trading Dashboard
 
-- **Advanced Technical Analysis**
-  - Candlestick pattern recognition (Hammer, Doji, Engulfing, etc.)
-  - Technical indicators (RSI, MACD, Bollinger Bands)
-  - Custom indicator framework
-  - ATR-based position sizing
+Dynamic symbol watchlist
+Interactive candlestick charts (Plotly)
+Real-time pattern detection (rule-based & ML)
+Integrated PatternNN model predictions
+Risk-managed order execution
+Advanced Technical Analysis
 
-- **Machine Learning Pipeline**
-  - Pattern Neural Network (PatternNN) for pattern classification
-  - Automated data preparation and feature engineering
-  - Model persistence/versioning (ModelManager)
-  - Configurable training parameters
-  - Real-time inference integration
+Candlestick pattern recognition (Hammer, Doji, Engulfing, etc.)
+Technical indicators (RSI, MACD, Bollinger Bands)
+Custom indicator framework
+ATR-based position sizing
+Machine Learning Pipeline
 
-- **Risk Management System**
-  - Position size calculator
-  - Dynamic stop-loss and take-profit
-  - Portfolio exposure controls
+Pattern Neural Network (PatternNN) for pattern classification
+Automated data preparation and feature engineering
+Model persistence/versioning (ModelManager)
+Configurable training parameters
+Real-time inference integration
+Risk Management System
 
-- **Comprehensive Backtesting**
-  - Rule-based and ML strategies
-  - Historical OHLCV data simulation
-  - Performance metrics: Sharpe Ratio, Max Drawdown, Win Rate
+Position size calculator
+Dynamic stop-loss and take-profit
+Portfolio exposure controls
+Comprehensive Backtesting
 
-- **Enterprise Integration**
-  - Multi-channel notifications: Email (SMTP), SMS (Twilio), Slack
-  - Streamlit caching and async data fetching
-  - Containerized deployment (Docker)
+Rule-based and ML strategies
+Historical OHLCV data simulation
+Performance metrics: Sharpe Ratio, Max Drawdown, Win Rate
+Enterprise Integration
 
----
+Multi-channel notifications: Email (SMTP), SMS (Twilio), Slack
+Streamlit caching and async data fetching
+Containerized deployment (Docker)
 
-## 🔧 System Requirements
 
-- Python 3.8+
-- Git
-- E*Trade Developer Account (sandbox and/or production API keys)
-- (Optional) SMTP server, Twilio account, Slack webhook
-- Docker (for containerized deployment)
-
+🔧 System Requirements
+Python 3.8+
+Git
+E*Trade Developer Account (sandbox and/or production API keys)
+(Optional) SMTP server, Twilio account, Slack webhook
+Docker (for containerized deployment)
 ---
 
 ## 📦 Installation
@@ -134,38 +146,39 @@ SLACK_WEBHOOK_URL=your_webhook_url
 
 ```
 stocktrader/
-├── streamlit_dashboard.py       # Web dashboard (Streamlit)
+├── streamlit_dashboard.py       # Web dashboard entry point
 ├── backtester.py                # Strategy backtesting
-├── ml_pipeline.py               # ML model training & inference
+├── ml_pipeline.py               # ML training & inference
 │
 ├── utils/
-│   ├── etrade_candlestick_bot.py   # Main trading logic, E*TRADE API, strategy engine
-│   ├── indicators.py               # Technical indicators (RSI, MACD, BBands, etc.)
+│   ├── etrade_candlestick_bot.py   # Trading logic & E*TRADE API
+│   ├── indicators.py               # Technical indicators
 │   ├── model_manager.py            # Model persistence/versioning
-│   ├── ml_pipeline.py              # ML pipeline (PatternNN, training, evaluation)
-│   ├── performance_utils.py        # Dashboard state, async data, pattern detection, UI
+│   ├── performance_utils.py        # Dashboard state & pattern detection
 │   ├── validate_config.py          # Config validation
-│   ├── validation.py               # Input/config validation helpers
+│   ├── validation.py               # Input validation helpers
+│   ├── risk_manager.py             # Position sizing & risk controls
 │   └── getuservar.py               # E*TRADE OAuth helper
 │
 ├── core/
-│   └── notifier.py                 # Notification utility (email, Slack, etc.)
+│   └── notifier.py                 # Notification system
 │
 ├── data/
-│   ├── data_loader.py              # Download OHLCV data (Yahoo Finance)
-│   ├── io.py                       # IO utilities (e.g., zip archive)
-│   └── data_dashboard.py           # Streamlit dashboard for data/model ops
+│   ├── data_loader.py              # Data download (Yahoo Finance)
+│   ├── io.py                       # I/O utilities
+│   ├── model_trainer.py            # Model training pipeline
+│   └── data_dashboard.py           # Data visualization dashboard
 │
 ├── train/
-│   └── training_pipeline.py        # ML training pipeline (RandomForest, etc.)
+│   ├── training_pipeline.py        # ML training pipeline
 │   └── trainer.py                  # PatternNN model training
 │
 ├── models/
 │   └── patterns_nn.py              # PatternNN model definition
 │
-├── patterns.py                     # Candlestick pattern detection (rule-based)
+├── patterns.py                     # Candlestick pattern detection
 │
-├── pages/
+├── pages/                          # Streamlit multi-page app
 │   ├── live_dashboard.py           # Real-time monitoring
 │   ├── backtest.py                 # Backtesting UI
 │   ├── model_training.py           # ML pipeline UI
@@ -271,6 +284,18 @@ MIT License - Copyright (c) 2025 [Your Organization]
 ---
 
 # Machine Learning Pipeline
+
+Your final dashboard sequence:
+
+Download Data → saves CSVs and displays price plot.
+
+Train Model → saves pipelines and shows metrics.
+
+Run Model on Data → loads each pipeline, runs predict(), displays signal chart.
+
+Combine with Patterns → uses CandlestickPatterns to filter your model’s signals, displays final buy dates or overlays on charts.
+
+This gives you an end-to-end flow: from raw OHLCV to feature engineering → model training → inference → pattern filtering → final trade signals—all within the same Streamlit UI.
 
 ## Enhanced Model Training Framework
 

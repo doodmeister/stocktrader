@@ -20,6 +20,7 @@ from data.data_loader import (
     clear_cache                # For cache clearing UI
 )
 from utils.io import create_zip_archive  # For batch ZIP downloads
+from patterns import CandlestickPatterns
 
 # Configure logging for the dashboard module
 logging.basicConfig(
@@ -370,39 +371,252 @@ class DataDashboard:
                     st.info("⏳ Auto-refreshing data...")
                     self._fetch_and_display_data()
 
+    def get_latest_model(self, symbol: str, interval: str) -> Optional[Path]:
+        """Find the most recent model file for a given symbol and interval."""
+        pattern = f"{symbol}_{interval}_*.joblib"
+        model_files = list(self.config.MODEL_DIR.glob(pattern))
+        if not model_files:
+            return None
+        return sorted(model_files, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+
+    def _display_signal_analysis(self, symbol: str, interval: str):
+        """Display combined ML and pattern-based signal analysis for a symbol."""
+        from utils.performance_utils import generate_combined_signals
+        
+        st.subheader(f"Signal Analysis for {symbol}")
+        
+        # Get model path 
+        model_path = self.get_latest_model(symbol, interval)
+        if not model_path:
+            st.warning(f"No trained model found for {symbol}_{interval}. Please train a model first.")
+            return
+            
+        # Load data
+        data_path = self.config.DATA_DIR / f"{symbol}_{interval}.csv"
+        if not data_path.exists():
+            st.warning(f"No data file found for {symbol}_{interval}. Please download data first.")
+            return
+            
+        df = pd.read_csv(data_path, index_col=0, parse_dates=True)
+        
+        # Pattern selection
+        available_patterns = [
+            "hammer", "bullish_engulfing", "morning_star", "piercing_pattern", 
+            "bullish_harami", "three_white_soldiers", "inverted_hammer", "doji"
+        ]
+        selected_patterns = st.multiselect(
+            "Select patterns to combine with model", 
+            options=available_patterns,
+            default=["hammer", "bullish_engulfing"],
+            help="Choose candlestick patterns to combine with ML model signals"
+        )
+        
+        # Minimum probability threshold
+        prob_threshold = st.slider(
+            "Minimum ML signal probability", 
+            min_value=0.5, 
+            max_value=0.95, 
+            value=0.6, 
+            step=0.05,
+            help="Only consider ML signals with probability above this threshold"
+        )
+        
+        # Analyze signals
+        signals_df = generate_combined_signals(
+            df, 
+            self.model_trainer, 
+            model_path, 
+            pattern_names=selected_patterns
+        )
+        
+        # Display signals
+        tab1, tab2, tab3 = st.tabs(["📊 Signal Chart", "📋 Signal Table", "📈 Signal Details"])
+        
+        with tab1:
+            self._plot_signals_chart(signals_df, prob_threshold)
+        
+        with tab2:
+            filtered_signals = signals_df[
+                (signals_df["ml_pattern_signal"]) & 
+                (signals_df["model_buy_proba"] > prob_threshold)
+            ]
+            if filtered_signals.empty:
+                st.info("No combined signals found with current criteria.")
+            else:
+                st.dataframe(filtered_signals[
+                    ["model_signal", "model_buy_proba"] + 
+                    [f"pattern_{p}" for p in selected_patterns] +
+                    [f"combined_{p}" for p in selected_patterns]
+                ])
+                st.success(f"Found {len(filtered_signals)} combined signals")
+                
+        with tab3:
+            self._display_signal_details(signals_df, selected_patterns, prob_threshold)
+
+    def _plot_signals_chart(self, df: pd.DataFrame, prob_threshold: float):
+        """Plot price chart with signal overlays."""
+        if df.empty:
+            st.info("No data to display")
+            return
+            
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        
+        # Create figure with secondary y-axis
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        
+        # Add price chart
+        fig.add_trace(
+            go.Candlestick(
+                x=df.index,
+                open=df['open'], 
+                high=df['high'],
+                low=df['low'], 
+                close=df['close'],
+                name="Price"
+            ),
+            secondary_y=False
+        )
+        
+        # Add ML probability trace
+        if "model_buy_proba" in df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index, 
+                    y=df["model_buy_proba"],
+                    mode="lines",
+                    line=dict(color="rgba(0, 0, 255, 0.5)", width=1),
+                    name="ML Probability"
+                ),
+                secondary_y=True
+            )
+        
+        # Add buy signals
+        strong_signals = df[
+            (df["ml_pattern_signal"]) & 
+            (df["model_buy_proba"] > prob_threshold)
+        ]
+        
+        if not strong_signals.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=strong_signals.index, 
+                    y=strong_signals['low'] * 0.99,
+                    mode="markers",
+                    marker=dict(
+                        symbol="triangle-up", 
+                        size=12, 
+                        color="green"
+                    ),
+                    name="Buy Signal"
+                ),
+                secondary_y=False
+            )
+        
+        # Update layout
+        fig.update_layout(
+            title="Price Chart with ML + Pattern Signals",
+            xaxis_title="Date",
+            yaxis_title="Price",
+            yaxis2_title="Signal Probability",
+            height=600,
+            xaxis_rangeslider_visible=False
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+
+    def _display_signal_details(self, df: pd.DataFrame, patterns: List[str], prob_threshold: float):
+        """Display detailed information about each signal."""
+        strong_signals = df[
+            (df["ml_pattern_signal"]) & 
+            (df["model_buy_proba"] > prob_threshold)
+        ]
+        
+        if strong_signals.empty:
+            st.info("No signals to display with current criteria.")
+            return
+            
+        st.subheader("Signal Details")
+        
+        for date in strong_signals.index:
+            with st.expander(f"Signal on {date.date()}"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("ML Confidence", f"{df.loc[date, 'model_buy_proba']:.1%}")
+                    detected = []
+                    for pattern in patterns:
+                        if df.loc[date, f"combined_{pattern}"]:
+                            detected.append(pattern)
+                    st.write(f"**Patterns:** {', '.join(detected)}")
+                    
+                with col2:
+                    # Price data
+                    row = df.loc[date]
+                    st.metric("Open", f"{row['open']:.2f}")
+                    st.metric("Close", f"{row['close']:.2f}")
+                    st.metric("Volume", f"{row['volume']:,}")
+
     def run(self):
         """
         Main method to run the dashboard UI and handle user interactions.
-
-        - Renders input controls and handles user actions
-        - Displays fetched data and model training section
-        - Handles auto-refresh and session state
         """
-        self._render_inputs()
-        fetch_clicked = st.button("Download Data", type="primary", use_container_width=True)
-        if fetch_clicked:
-            self._fetch_and_display_data()
-        else:
-            if st.session_state.get("data_fetched") and self.saved_paths:
-                for path in self.saved_paths:
-                    symbol = path.name.split('_')[0]
-                    try:
-                        df = pd.read_csv(path, index_col=0, parse_dates=True)
-                    except Exception as e:
-                        logger.error(f"Failed to read cached data for {symbol}: {e}")
-                        continue
-                    self._display_symbol_data(symbol, df)
-        self._handle_auto_refresh()
-
-        # Modified condition: check only for saved_paths, not data_fetched flag
-        if self.saved_paths:
-            st.divider()
-            st.header("Model Training")
-            logger.info(f"Showing model training UI for {len(self.saved_paths)} saved data files")
-            training_params = self._render_model_training_ui()
-            if st.button("Train Model", type="primary", use_container_width=True):
-                logger.info("Train Model button clicked, starting training process...")
-                self._train_models(training_params)
+        st.title("Stock Data and ML Signal Analysis Dashboard")
+        
+        tabs = st.tabs(["📥 Data Download", "🧠 Model Training", "🔍 Signal Analysis"])
+        
+        with tabs[0]:  # Data Download Tab
+            self._render_inputs()
+            fetch_clicked = st.button("Download Data", type="primary", use_container_width=True)
+            if fetch_clicked:
+                self._fetch_and_display_data()
+            else:
+                if st.session_state.get("data_fetched") and self.saved_paths:
+                    for path in self.saved_paths:
+                        symbol = path.name.split('_')[0]
+                        try:
+                            df = pd.read_csv(path, index_col=0, parse_dates=True)
+                        except Exception as e:
+                            logger.error(f"Failed to read cached data for {symbol}: {e}")
+                            continue
+                        self._display_symbol_data(symbol, df)
+            self._handle_auto_refresh()
+        
+        with tabs[1]:  # Model Training Tab
+            if self.saved_paths:
+                st.header("Model Training")
+                logger.info(f"Showing model training UI for {len(self.saved_paths)} saved data files")
+                training_params = self._render_model_training_ui()
+                if st.button("Train Model", type="primary", use_container_width=True):
+                    logger.info("Train Model button clicked, starting training process...")
+                    self._train_models(training_params)
+            else:
+                st.info("Please download data first before training models.")
+        
+        with tabs[2]:  # Signal Analysis Tab
+            st.header("Signal Analysis")
+            # Get available symbols from data directory
+            data_files = list(self.config.DATA_DIR.glob("*.csv"))
+            available_symbols = sorted(set(f.name.split('_')[0] for f in data_files))
+            
+            if not available_symbols:
+                st.warning("No data files available. Please download data first.")
+            else:
+                col1, col2 = st.columns(2)
+                with col1:
+                    selected_symbol = st.selectbox(
+                        "Select Symbol for Analysis",
+                        options=available_symbols,
+                        index=0
+                    )
+                with col2:
+                    selected_interval = st.selectbox(
+                        "Select Interval",
+                        options=["1d", "1h", "5m"],
+                        index=0
+                    )
+                    
+                if selected_symbol and selected_interval:
+                    self._display_signal_analysis(selected_symbol, selected_interval)
 
 if __name__ == "__main__" or st._is_running_with_streamlit:
     dashboard = DataDashboard()

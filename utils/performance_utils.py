@@ -4,7 +4,7 @@ Handles data visualization, pattern detection, and order execution.
 """
 import logging
 import functools
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 import asyncio
 from datetime import datetime
 import streamlit as st
@@ -15,7 +15,8 @@ from utils.etrade_candlestick_bot import ETradeClient
 from patterns import CandlestickPatterns
 from utils.patterns_nn import PatternNN
 from train.trainer import train_pattern_model
-import streamlit as st
+from data.model_trainer import ModelTrainer
+from pathlib import Path
 from contextlib import contextmanager
 
 @contextmanager
@@ -213,3 +214,77 @@ class DashboardUI:
         except Exception as e:
             st.error(f"Order execution failed: {e}")
             logger.error(f"Order execution error for {symbol}: {e}")
+
+def generate_combined_signals(
+    df: pd.DataFrame,
+    model_trainer: ModelTrainer,
+    model_path: Union[str, Path],
+    pattern_names: Optional[List[str]] = None
+) -> pd.DataFrame:
+    """
+    Combines ML model predictions with candlestick pattern signals.
+    
+    Args:
+        df: DataFrame with OHLCV data
+        model_trainer: ModelTrainer instance
+        model_path: Path to saved model
+        pattern_names: List of pattern methods to use (default: ['bullish_engulfing', 'hammer'])
+    
+    Returns:
+        DataFrame with original data plus signal columns
+    """
+    result_df = df.copy()
+    
+    # Get model signals
+    try:
+        model_signal = model_trainer.predict(df, Path(model_path))
+        model_proba = model_trainer.predict_proba(df, Path(model_path))
+        
+        # Add signals to DataFrame
+        result_df["model_signal"] = pd.NA
+        result_df["model_buy_proba"] = pd.NA
+        result_df.loc[model_signal.index, "model_signal"] = model_signal
+        result_df.loc[model_proba.index, "model_buy_proba"] = model_proba
+    except Exception as e:
+        logger.error(f"Error generating model signals: {e}")
+        return result_df
+    
+    # Get pattern signals
+    if not pattern_names:
+        pattern_names = ["bullish_engulfing", "hammer", "morning_star"]
+    
+    # Generate pattern signals
+    pattern_engine = CandlestickPatterns()
+    for pattern in pattern_names:
+        method_name = f"is_{pattern}"
+        if hasattr(pattern_engine, method_name):
+            try:
+                # Apply pattern detection to each row
+                pattern_results = []
+                for i in range(len(df) - 3):  # -3 to have enough rows for patterns
+                    window = df.iloc[i:i+4]  # Use up to 4 candles for patterns
+                    pattern_fn = getattr(pattern_engine, method_name)
+                    result = pattern_fn(window)
+                    pattern_results.append(result)
+                
+                # Pad with False for the end positions
+                padding = [False] * (len(df) - len(pattern_results))
+                pattern_results = pattern_results + padding
+                result_df[f"pattern_{pattern}"] = pattern_results
+            except Exception as e:
+                logger.error(f"Error detecting {pattern} pattern: {e}")
+    
+    # Create combined signals
+    result_df["ml_pattern_signal"] = False
+    for pattern in pattern_names:
+        pattern_col = f"pattern_{pattern}"
+        if pattern_col in result_df.columns:
+            # Combine each pattern with model signal
+            result_df[f"combined_{pattern}"] = (
+                result_df[pattern_col] & 
+                (result_df["model_signal"] == 1)
+            )
+            # Update the overall combined signal
+            result_df["ml_pattern_signal"] |= result_df[f"combined_{pattern}"]
+    
+    return result_df

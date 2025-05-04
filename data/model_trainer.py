@@ -13,6 +13,8 @@ from typing import List, Tuple, Dict, Optional, Any
 from datetime import datetime
 import numpy as np
 import pandas as pd
+import joblib  # Added joblib for model persistence
+from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import (
@@ -120,7 +122,7 @@ class ModelTrainer:
         self,
         df: pd.DataFrame,
         params: Optional[TrainingParams] = None
-    ) -> Tuple[RandomForestClassifier, Dict[str, Dict[str, float]], np.ndarray, str]:
+    ) -> Tuple[Pipeline, Dict[str, Dict[str, float]], np.ndarray, str]:
         logger.info(f"Starting training for {len(df)} rows with params: {params}")
         logger.info(f"Starting model training with data shape: {df.shape}")
         params = params or self.default_params
@@ -135,33 +137,37 @@ class ModelTrainer:
             y = features_df['target']
             if len(X) < 5:
                 raise ValidationError(f"Not enough samples after feature engineering: {len(X)} rows.")
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
+            
+            # Create a single sklearn Pipeline that scales then classifies
+            pipeline = Pipeline([
+                ("scaler", StandardScaler()),
+                ("clf", RandomForestClassifier(
+                    n_estimators=params.n_estimators,
+                    max_depth=params.max_depth,
+                    min_samples_split=params.min_samples_split,
+                    random_state=params.random_state,
+                    n_jobs=params.n_jobs
+                ))
+            ])
+            
             tscv = TimeSeriesSplit(n_splits=min(params.cv_folds, max(2, len(X) // 2)))
-            model = RandomForestClassifier(
-                n_estimators=params.n_estimators,
-                max_depth=params.max_depth,
-                min_samples_split=params.min_samples_split,
-                random_state=params.random_state,
-                n_jobs=params.n_jobs
-            )
             cv_metrics = []
-            for train_idx, test_idx in tscv.split(X_scaled):
-                X_train, X_test = X_scaled[train_idx], X_scaled[test_idx]
+            for train_idx, test_idx in tscv.split(X):
+                X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
                 y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_test)
+                pipeline.fit(X_train, y_train)
+                y_pred = pipeline.predict(X_test)
                 fold_metrics = self._calculate_metrics(y_test, y_pred)
                 cv_metrics.append(fold_metrics)
-            model.fit(X_scaled, y)
-            y_pred_final = model.predict(X_scaled)
+            pipeline.fit(X, y)
+            y_pred_final = pipeline.predict(X)
             final_metrics = self._calculate_metrics(y, y_pred_final)
             cm = confusion_matrix(y, y_pred_final)
             report = classification_report(y, y_pred_final)
             metrics_dict = self._aggregate_metrics(cv_metrics)
             metrics_dict['final_metrics'] = final_metrics
             logger.info(f"Model training completed. Final accuracy: {final_metrics['accuracy']:.4f}")
-            return model, metrics_dict, cm, report
+            return pipeline, metrics_dict, cm, report
         except Exception as e:
             logger.exception(f"Error during model training: {e}")
             raise ModelError(f"Model training failed: {str(e)}") from e
@@ -192,20 +198,87 @@ class ModelTrainer:
         return result
 
     def save_model(
-        self, 
-        model: RandomForestClassifier,
-        symbol: str, 
+        self,
+        pipeline: Pipeline,
+        symbol: str,
         interval: str
     ) -> Path:
+        """
+        Persist the full sklearn Pipeline (scaler + model) to disk.
+        Returns the filepath of the saved .joblib file.
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{symbol}_{interval}_{timestamp}.joblib"
+        filepath = self.config.MODEL_DIR / filename
         try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{symbol}_{interval}_{timestamp}.pkl"
-            filepath = self.config.MODEL_DIR / filename
-            import pickle
-            with open(filepath, 'wb') as f:
-                pickle.dump(model, f)
-            logger.info(f"Model saved successfully to {filepath}")
+            joblib.dump(pipeline, filepath)
+            logger.info(f"Pipeline saved successfully to {filepath}")
             return filepath
         except Exception as e:
-            logger.exception(f"Error saving model: {e}")
-            raise ModelError(f"Failed to save model: {str(e)}") from e
+            logger.exception(f"Error saving pipeline: {e}")
+            raise ModelError(f"Failed to save pipeline: {e}") from e
+
+    def load_model(self, model_path: Path) -> Pipeline:
+        """
+        Load and return a previously saved Pipeline from disk.
+        """
+        try:
+            pipeline = joblib.load(model_path)
+            logger.info(f"Pipeline loaded from {model_path}")
+            return pipeline
+        except Exception as e:
+            logger.exception(f"Error loading pipeline: {e}")
+            raise ModelError(f"Failed to load pipeline: {e}") from e
+
+    def predict(
+        self,
+        df: pd.DataFrame,
+        model_path: Path
+    ) -> pd.Series:
+        """
+        Given a new OHLCV DataFrame and a saved Pipeline path,
+        runs the same feature engineering + scaling + model.predict
+        and returns a Series of 0/1 predictions indexed by the dates.
+        """
+        # 1) Load pipeline
+        pipeline = self.load_model(model_path)
+
+        # 2) Run feature engineering (must match training)
+        fe_df = self.feature_engineering(df)
+        feature_cols = self.get_feature_columns(fe_df)
+        if not feature_cols:
+            raise ValidationError("No feature columns found during predict()")
+
+        # 3) Predict
+        X = fe_df[feature_cols]
+        preds = pipeline.predict(X)
+
+        # 4) Return as a Pandas Series aligned with fe_df index
+        return pd.Series(preds, index=fe_df.index, name="model_signal")
+
+    def predict_proba(
+        self,
+        df: pd.DataFrame,
+        model_path: Path
+    ) -> pd.Series:
+        """
+        Given a new OHLCV DataFrame and a saved Pipeline path,
+        returns the probability of a positive signal (class 1) as a Series.
+        
+        This allows for more nuanced trading strategies than binary predictions.
+        """
+        # Load pipeline
+        pipeline = self.load_model(model_path)
+        
+        # Run feature engineering (must match training)
+        fe_df = self.feature_engineering(df)
+        feature_cols = self.get_feature_columns(fe_df)
+        if not feature_cols:
+            raise ValidationError("No feature columns found during predict_proba()")
+        
+        # Get probabilities (second column is probability of class 1)
+        X = fe_df[feature_cols]
+        proba = pipeline.predict_proba(X)[:, 1]
+        
+        # Return as a Pandas Series aligned with fe_df index
+        return pd.Series(proba, index=fe_df.index, name="model_buy_proba")
