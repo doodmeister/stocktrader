@@ -15,7 +15,7 @@ from utils.etrade_candlestick_bot import ETradeClient
 from patterns import CandlestickPatterns
 from utils.patterns_nn import PatternNN
 from train.trainer import train_pattern_model
-from data.model_trainer import ModelTrainer
+from data.tradml_model_trainer import ModelTrainer
 from pathlib import Path
 from contextlib import contextmanager
 

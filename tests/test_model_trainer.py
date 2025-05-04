@@ -6,8 +6,10 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
+from sklearn.ensemble import RandomForestClassifier
+import joblib
 
-from data.model_trainer import (
+from data.tradml_model_trainer import (
     ModelTrainer, 
     FeatureConfig,
     TrainingParams,

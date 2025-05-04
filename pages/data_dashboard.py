@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 import pandas as pd
 import streamlit as st
 
-from data.model_trainer import ModelTrainer, TrainingParams
+from data.tradml_model_trainer import ModelTrainer, TrainingParams
 from data.config import DashboardConfig
 from utils.stock_validation import validate_ticker, get_valid_tickers  # If you want direct ticker validation
 from data.data_validator import DataValidator
