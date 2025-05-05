@@ -254,7 +254,10 @@ def display_signal_analysis(config: MLConfig, model_trainer: ModelTrainer) -> No
     st.dataframe(data.head())
 
     with st.spinner("Loading model and running predictions..."):
+        # Classic ML
         model, metadata = model_manager.load_model(selected_model_file)
+        # Deep Learning
+        model, metadata = model_manager.load_model(PatternNN, selected_model_file)
         # Classic ML or DL
         if metadata.backend.startswith("Classic"):
             preds = model.predict(data)

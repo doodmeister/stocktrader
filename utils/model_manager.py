@@ -6,6 +6,7 @@ import logging
 import os
 import torch
 import json
+import joblib
 from typing import List, Type, Dict, Any, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
@@ -71,99 +72,94 @@ class ModelManager:
         self.base_directory = Path(base_directory)
         self.base_directory.mkdir(parents=True, exist_ok=True)
         
-    def save_model(self, 
-                  model: torch.nn.Module, 
-                  metadata: Optional[Dict[str, Any]] = None,
-                  versioning: bool = True) -> str:
+    def save_model(self, model, metadata, backend=None):
         """
-        Save model with metadata and versioning.
+        Save model with metadata and optional backend support.
         
         Args:
-            model: PyTorch model to save
-            metadata: Additional metadata to store
-            versioning: Whether to use timestamped versioning
+            model: Model to save (PyTorch or scikit-learn)
+            metadata: Metadata object
+            backend: Optional backend identifier (e.g., "ClassicML")
             
         Returns:
             Path to saved model file
-            
-        Raises:
-            ModelError: If save operation fails
         """
-        try:
-            # Generate version info
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            version = f"v{timestamp}" if versioning else "latest"
-            
-            # Create and validate metadata
-            model_metadata = ModelMetadata(
-                version=version,
-                saved_at=datetime.now().isoformat(),
-                parameters=metadata
-            )
+        version = metadata.version if hasattr(metadata, "version") else datetime.now().strftime("%Y%m%d_%H%M%S")
+        if backend is None and hasattr(metadata, "backend"):
+            backend = metadata.backend
 
-            # Prepare filenames
-            model_filename = f"pattern_nn_{version}{ModelFormat.PTH.value}"
-            metadata_filename = f"pattern_nn_{version}_metadata.json"
-            
+        if backend and backend.startswith("Classic"):
+            # Save scikit-learn model
+            model_filename = f"classic_ml_{version}.joblib"
             model_path = self.base_directory / model_filename
-            metadata_path = self.base_directory / metadata_filename
-
-            # Save model state
+            joblib.dump(model, model_path)
+        else:
+            # Save PyTorch model
+            model_filename = f"pattern_nn_{version}.pth"
+            model_path = self.base_directory / model_filename
             torch.save({
                 'state_dict': model.state_dict(),
-                'metadata': model_metadata.to_dict()
+                'metadata': metadata.to_dict()
             }, model_path)
 
-            # Save separate metadata for easier access
-            with metadata_path.open('w') as f:
-                json.dump(model_metadata.to_dict(), f, indent=2)
+        # Save metadata as JSON
+        metadata_filename = model_filename.replace(".pth", ".json").replace(".joblib", ".json")
+        metadata_path = self.base_directory / metadata_filename
+        with metadata_path.open('w') as f:
+            json.dump(metadata.to_dict(), f, indent=2)
 
-            logger.info(f"Model saved successfully: {model_path}")
-            return str(model_path)
-
-        except Exception as e:
-            raise ModelError(f"Failed to save model: {str(e)}") from e
+        return str(model_path)
 
     def load_model(self, 
-                  model_class: Type[torch.nn.Module],
-                  path: str,
-                  device: Optional[torch.device] = None) -> Tuple[torch.nn.Module, ModelMetadata]:
+                  model_class: Optional[Type[torch.nn.Module]] = None,
+                  path: str = "",
+                  device: Optional[torch.device] = None) -> Tuple[Any, Any]:
         """
         Load model and metadata from path.
-        
+        Supports both PyTorch (.pth) and scikit-learn (.joblib) models.
+
         Args:
-            model_class: Model class for instantiation
+            model_class: Model class for PyTorch models (ignored for scikit-learn)
             path: Path to model file
-            device: Target device for model
-            
+            device: Target device for PyTorch model
+
         Returns:
             Tuple of (loaded_model, metadata)
-            
-        Raises:
-            ModelNotFoundError: If model file doesn't exist
-            ModelError: If loading fails
         """
         try:
             path = Path(path)
             if not path.exists():
                 raise ModelNotFoundError(f"Model file not found: {path}")
 
-            device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            
-            # Load checkpoint
-            checkpoint = torch.load(path, map_location=device)
-            
-            # Initialize and load model
-            model = model_class()
-            model.load_state_dict(checkpoint['state_dict'])
-            model.to(device)
-            model.eval()
+            if path.suffix == ".joblib":
+                # Load scikit-learn model
+                model = joblib.load(path)
+                # Load metadata
+                metadata_path = path.with_suffix('.json')
+                if metadata_path.exists():
+                    with metadata_path.open() as f:
+                        metadata = json.load(f)
+                else:
+                    metadata = {}
+                logger.info(f"Scikit-learn model loaded successfully from {path}")
+                return model, metadata
 
-            # Load metadata
-            metadata = ModelMetadata.from_dict(checkpoint['metadata'])
-            
-            logger.info(f"Model loaded successfully from {path}")
-            return model, metadata
+            elif path.suffix == ".pth":
+                # Load PyTorch model
+                device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                checkpoint = torch.load(path, map_location=device)
+                if model_class is None:
+                    raise ValueError("model_class must be provided for PyTorch models")
+                model = model_class()
+                model.load_state_dict(checkpoint['state_dict'])
+                model.to(device)
+                model.eval()
+                metadata = ModelMetadata.from_dict(checkpoint['metadata'])
+                logger.info(f"PyTorch model loaded successfully from {path}")
+                return model, metadata
+
+            else:
+                raise ModelError(f"Unsupported model file extension: {path.suffix}")
 
         except Exception as e:
             raise ModelError(f"Failed to load model: {str(e)}") from e
