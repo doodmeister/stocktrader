@@ -27,7 +27,7 @@ class TrainingConfig:
     batch_size: int = 32
     validation_split: float = 0.2
     early_stopping_patience: int = 5
-    min_patterns: int = 100            # Minimum total patterns needed
+    min_patterns: int = 20  # or even lower, e.g., 10 for testing
     max_samples_per_symbol: int = 10000  # Per-symbol sample cap
 
 class PatternModelTrainer:
