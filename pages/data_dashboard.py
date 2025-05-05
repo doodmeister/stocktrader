@@ -254,7 +254,13 @@ class DataDashboard:
         for symbol, df in data_dict.items():
             file_path = self.config.DATA_DIR / f"{symbol}_{self.interval}.csv"
             try:
-                df.to_csv(file_path, index=True)
+                # Ensure 'timestamp' column exists for compatibility
+                if isinstance(df.index, pd.DatetimeIndex):
+                    df = df.reset_index().rename(columns={df.index.name or "index": "timestamp"})
+                elif "date" in df.columns:
+                    df = df.rename(columns={"date": "timestamp"})
+                # Save to CSV
+                df.to_csv(file_path, index=False)
                 self.saved_paths.append(file_path)
                 successful += 1
                 logger.info(f"Data for {symbol} saved to {file_path}")
@@ -266,19 +272,22 @@ class DataDashboard:
         if successful > 0:
             st.session_state["data_fetched"] = True
             st.session_state["last_fetch_time"] = datetime.now()
-            st.session_state["fetch_count"] += 1
+            st.session_state["fetch_count"] = st.session_state.get("fetch_count", 0) + 1
             st.success(f"✅ Downloaded data for {successful} symbol(s).")
         for symbol, df in data_dict.items():
             self._display_symbol_data(symbol, df)
         return successful
 
     def _display_symbol_data(self, symbol: str, df: pd.DataFrame):
-        """Display the downloaded data for a given symbol in the Streamlit app."""
         st.subheader(f"Data Preview: {symbol}")
         tab1, tab2 = st.tabs(["📋 Recent Data", "📈 Chart"])
         with tab1:
-            st.write(df.tail(10))
-            st.caption(f"{len(df)} records from {df.index.min().date()} to {df.index.max().date()}")
+            if "timestamp" in df.columns:
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                st.write(df.tail(10))
+                st.caption(f"{len(df)} records from {df['timestamp'].min().date()} to {df['timestamp'].max().date()}")
+            else:
+                st.write(df.tail(10))
         with tab2:
             try:
                 st.line_chart(df['close'])
@@ -311,7 +320,7 @@ class DataDashboard:
                     for path in self.saved_paths:
                         symbol = path.name.split('_')[0]
                         try:
-                            df = pd.read_csv(path, index_col=0, parse_dates=True)
+                            df = pd.read_csv(path, parse_dates=["timestamp"])
                         except Exception as e:
                             logger.error(f"Failed to read cached data for {symbol}: {e}")
                             continue

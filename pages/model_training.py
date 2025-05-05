@@ -90,6 +90,9 @@ def get_model_manager() -> ModelManager:
 
 def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
     try:
+        logger.info("Starting data validation step")
+        st.info("Validating data...")
+
         missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
         if missing_cols:
             return DataValidationResult(False, f"Missing required columns: {', '.join(missing_cols)}", None)
@@ -120,6 +123,10 @@ def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
             "mean_volume": df['volume'].mean(),
             "price_range": f"{df['low'].min():.2f} - {df['high'].max():.2f}"
         }
+
+        logger.info("Data validation step completed")
+        st.info("Data validated successfully.")
+
         return DataValidationResult(True, None, stats)
     except Exception as e:
         logger.exception("Data validation error")
@@ -142,6 +149,9 @@ def train_model_deep_learning(
         selected_symbols = [available_tickers[0]]
     client = ETradeClient(sandbox=True)
     # Delegate all training logic to train_pattern_model
+    logger.info("Starting model training step")
+    st.info("Training model...")
+
     model, metrics = train_pattern_model(
         client=client,
         symbols=selected_symbols,
@@ -151,6 +161,10 @@ def train_model_deep_learning(
         learning_rate=learning_rate,
         # Add other parameters as needed
     )
+
+    logger.info("Model training step completed")
+    st.info("Model training completed.")
+
     return model, metrics
 
 def train_model_classic_ml(
@@ -183,6 +197,9 @@ def save_trained_model(
     backend: str
 ) -> Tuple[bool, Optional[str]]:
     try:
+        logger.info("Starting model saving step")
+        st.info("Saving trained model...")
+
         model_manager = get_model_manager()
         metadata = ModelMetadata(
             version=datetime.now().strftime("%Y%m%d_%H%M%S"),
@@ -193,6 +210,15 @@ def save_trained_model(
         save_path = model_manager.save_model(model, metadata=metadata)
         model_manager.cleanup_old_models(keep_versions=5)
         logger.info(f"Model saved successfully: {save_path}")
+
+        model_path = Path(save_path)
+        metadata_path = model_path.with_suffix('.json')
+        logger.info(f"Model file exists after save: {model_path.exists()}")
+        logger.info(f"Metadata file exists after save: {metadata_path.exists()}")
+
+        logger.info("Model saving step completed")
+        st.info("Model saved successfully.")
+
         return True, None
     except Exception as e:
         logger.exception("Failed to save model")
@@ -212,7 +238,14 @@ def display_signal_analysis(config: MLConfig, model_trainer: ModelTrainer) -> No
         st.info("Upload a CSV file to analyze signals.")
         return
 
+    logger.info("Starting data loading step")
+    st.info("Loading data...")
+
     data = pd.read_csv(uploaded_data)
+
+    logger.info("Data loading step completed")
+    st.info("Data loaded successfully.")
+
     validation_result = validate_training_data(data)
     if not validation_result.is_valid:
         st.error(validation_result.error_message)
@@ -254,6 +287,7 @@ def render_training_page():
     if use_synthetic:
         add_to_model_training_ui()
 
+    # Place the file uploader outside the form so it's available immediately
     uploaded_file = st.file_uploader(
         "Upload Training Data (CSV)" if not use_synthetic else "Or upload your own data (CSV)", 
         type="csv",
@@ -261,7 +295,7 @@ def render_training_page():
     )
 
     # Always show the form
-    with st.form("training_config"):
+    with st.form("training_form"):  # renamed to avoid st.session_state["training_config"] conflict
         st.subheader("Training Configuration")
         config = st.session_state.training_config
 
@@ -292,26 +326,45 @@ def render_training_page():
 
     # Only process after form is submitted
     if submitted:
+        logger.info("Train Model button clicked")
+        st.info("Starting training process...")
         if not is_valid:
+            logger.error(f"Invalid config: {error_msg}")
             st.error(error_msg)
             return
 
         # Data loading and validation
         try:
             if use_synthetic:
+                logger.info("Generating synthetic data for training")
+                st.info("Generating synthetic data...")
                 data = generate_synthetic_data()
             else:
                 if not uploaded_file:
+                    logger.error("No training data file uploaded")
                     st.error("Please upload a training data file to begin.")
                     return
                 file_size_mb = uploaded_file.size / (1024 * 1024)
+                logger.info(f"Uploaded file size: {file_size_mb:.2f} MB")
                 if file_size_mb > MAX_FILE_SIZE_MB:
+                    logger.error("Uploaded file too large")
                     st.error(f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB")
                     return
+                logger.info("Starting data loading step")
+                st.info("Loading data...")
                 data = pd.read_csv(uploaded_file)
+                logger.info("Data loading step completed")
+                st.info("Data loaded successfully.")
 
-            validation_result = validate_training_data(data)
+            if "timestamp" in data.columns:
+                data["timestamp"] = pd.to_datetime(data["timestamp"])
+                data = data.set_index("timestamp")
+
+            logger.info("Validating training data")
+            st.info("Validating training data...")
+            validation_result = validate_training_data(data.reset_index() if "timestamp" in data.index.names else data)
             if not validation_result.is_valid:
+                logger.error(f"Data validation failed: {validation_result.error_message}")
                 st.error(validation_result.error_message)
                 return
 
@@ -321,6 +374,7 @@ def render_training_page():
                 st.subheader("Dataset Statistics")
                 st.json(validation_result.stats)
 
+            logger.info(f"Starting model training with backend: {backend}")
             with st.spinner("Training model..."):
                 if backend == "Deep Learning (PatternNN)":
                     model, metrics = train_model_deep_learning(
@@ -337,13 +391,17 @@ def render_training_page():
                         min_samples_split=config.min_samples_split,
                         cv_folds=config.cv_folds
                     )
+            logger.info("Training completed")
             st.success("Training completed!")
             st.json(metrics)
             if st.button("Save Trained Model"):
+                logger.info("Save Trained Model button clicked")
                 success, error = save_trained_model(model, config, metrics, backend)
                 if success:
+                    logger.info("Model saved successfully")
                     st.success("Model saved successfully")
                 else:
+                    logger.error(f"Failed to save model: {error}")
                     st.error(f"Failed to save model: {error}")
         except Exception as e:
             logger.exception("Training error")

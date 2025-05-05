@@ -91,7 +91,7 @@ def generate_synthetic_data(
     
     # Create the DataFrame
     df = pd.DataFrame({
-        'date': dates,
+        'timestamp': dates,  # <-- change from 'date': dates
         'open': opens,
         'high': highs,
         'low': lows,
@@ -130,7 +130,7 @@ def display_in_streamlit(df: pd.DataFrame):
     st.subheader("Data Statistics")
     stats = {
         "Total Rows": len(df),
-        "Date Range": f"{df['date'].min()} to {df['date'].max()}",
+        "Date Range": f"{df['timestamp'].min()} to {df['timestamp'].max()}",
         "Price Range": f"${df['low'].min():.2f} - ${df['high'].max():.2f}",
         "Avg. Volume": f"{df['volume'].mean():.0f}",
         "Target Range": f"{df['target'].min():.2%} to {df['target'].max():.2%}"
