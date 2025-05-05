@@ -16,13 +16,14 @@ from utils.model_manager import ModelManager, ModelMetadata
 from utils.patterns_nn import PatternNN
 from utils.performance_utils import st_error_boundary, generate_combined_signals
 from utils.synthetic_trading_data import add_to_model_training_ui, generate_synthetic_data
-from utils.etrade_candlestick_bot import ETradeClient
 from data.ml_config import MLConfig
 from utils.stock_validation import get_valid_tickers
 from train.deeplearning_trainer import train_pattern_model
 
 # Classic ML pipeline
 from data.tradml_model_trainer import ModelTrainer, TrainingParams
+
+from patterns import CandlestickPatterns
 
 # Configure structured logging
 logging.basicConfig(
@@ -136,29 +137,42 @@ def train_model_deep_learning(
     data: pd.DataFrame,
     epochs: int = 10,
     batch_size: int = 32,
-    learning_rate: float = 0.001
+    learning_rate: float = 0.001,
+    selected_patterns: List[str] = []
 ) -> Tuple[Any, Dict[str, float]]:
-    available_tickers = get_valid_tickers()
+    available_tickers = list(data['symbol'].unique()) if 'symbol' in data.columns else []
     selected_symbols = st.multiselect(
         "Select stocks to include (Deep Learning)",
         options=available_tickers,
         default=available_tickers[:min(3, len(available_tickers))]
-    )
-    if not selected_symbols:
+    ) if available_tickers else []
+
+    if not selected_symbols and available_tickers:
         st.warning("Please select at least one stock ticker")
         selected_symbols = [available_tickers[0]]
-    client = ETradeClient(sandbox=True)
-    # Delegate all training logic to train_pattern_model
+
+    # Filter data for selected symbols if applicable
+    if selected_symbols and 'symbol' in data.columns:
+        data = data[data['symbol'].isin(selected_symbols)]
+
+    available_patterns = CandlestickPatterns.get_pattern_names()
+    selected_patterns = st.multiselect(
+        "Select candlestick patterns to use for training",
+        options=available_patterns,
+        default=available_patterns  # or a sensible default subset
+    )
+
     logger.info("Starting model training step")
     st.info("Training model...")
 
+    # No client argument
     model, metrics = train_pattern_model(
-        client=client,
         symbols=selected_symbols,
         data=data,
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        selected_patterns=selected_patterns,
         # Add other parameters as needed
     )
 
@@ -207,7 +221,9 @@ def save_trained_model(
             params=config.__dict__ if hasattr(config, "__dict__") else dict(config),
             backend=backend
         )
-        save_path = model_manager.save_model(model, metadata=metadata)
+        logger.info(f"Saving model with backend: {backend}")
+        save_path = model_manager.save_model(model, metadata=metadata, backend=backend)
+        logger.info(f"Model saved to: {save_path}")
         model_manager.cleanup_old_models(keep_versions=5)
         logger.info(f"Model saved successfully: {save_path}")
 
@@ -227,7 +243,7 @@ def save_trained_model(
 def display_signal_analysis(config: MLConfig, model_trainer: ModelTrainer) -> None:
     st.header("Signal Analysis")
     model_manager = get_model_manager()
-    model_files = model_manager.list_models()
+    model_files = model_manager.list_models(pattern="*.*")
     if not model_files:
         st.warning("No trained models found. Train and save a model first.")
         return
@@ -396,7 +412,48 @@ def render_training_page():
                     )
             logger.info("Training completed")
             st.success("Training completed!")
-            st.json(metrics)
+
+            # Add a description
+            st.markdown("""
+            ### Model Evaluation Metrics
+
+            - **Mean/Std**: These are the average and standard deviation of metrics (recall, accuracy, f1, precision) across cross-validation folds.
+            - **Final Metrics**: These are the metrics computed on the final validation/test set.
+            - **Confusion Matrix**: Shows the number of correct and incorrect predictions for each class.
+            - **Classification Report**: Detailed precision, recall, f1-score, and support for each class.
+            """)
+
+            # Show mean/std/final metrics
+            metrics_dict = metrics  # Assuming 'metrics' is the dictionary returned from training
+            cv_metrics = metrics_dict.get("metrics", {})
+            mean_metrics = cv_metrics.get("mean", {})
+            std_metrics = cv_metrics.get("std", {})
+            final_metrics = cv_metrics.get("final_metrics", {})
+
+            st.subheader("Cross-Validation Metrics (Mean ± Std)")
+            for key in ["recall", "accuracy", "f1", "precision"]:
+                mean = mean_metrics.get(key, None)
+                std = std_metrics.get(key, None)
+                if mean is not None and std is not None:
+                    st.write(f"**{key.capitalize()}**: {mean:.3f} ± {std:.3f}")
+
+            st.subheader("Final Validation Metrics")
+            for key, value in final_metrics.items():
+                st.write(f"**{key.capitalize()}**: {value:.3f}")
+
+            # Show confusion matrix
+            confusion_matrix = metrics_dict.get("confusion_matrix", None)
+            if confusion_matrix is not None:
+                st.subheader("Confusion Matrix")
+                st.write("Rows = Actual, Columns = Predicted")
+                st.dataframe(confusion_matrix)
+
+            # Show classification report
+            classification_report = metrics_dict.get("classification_report", None)
+            if classification_report is not None:
+                st.subheader("Classification Report")
+                st.text(classification_report)
+
             if st.button("Save Trained Model"):
                 logger.info("Save Trained Model button clicked")
                 success, error = save_trained_model(model, config, metrics, backend)

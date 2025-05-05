@@ -222,12 +222,12 @@ class ModelManager:
         except Exception as e:
             raise ModelError(f"Failed to cleanup old models: {str(e)}") from e
 
-    def list_models(self, pattern: str = "pattern_nn_v*.pth") -> list:
+    def list_models(self, pattern: str = "*.*") -> list:
         """
         List all saved model files in the model directory.
 
         Args:
-            pattern: Glob pattern for model files (default: "pattern_nn_v*.pth")
+            pattern: Glob pattern for model files (default: "*.*")
 
         Returns:
             List of model file paths as strings.

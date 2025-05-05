@@ -4,13 +4,13 @@ from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime
 
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from train.config import TrainingConfig
 from utils.patterns_nn import PatternNN
-from utils.etrade_candlestick_bot import ETradeClient
 from patterns import CandlestickPatterns
 from utils.model_manager import ModelManager
 
@@ -35,22 +35,14 @@ class PatternModelTrainer:
 
     def __init__(
         self,
-        client: ETradeClient,
         model_manager: ModelManager,
-        config: TrainingConfig
+        config: TrainingConfig,
+        selected_patterns: List[str]
     ):
-        self.client = client
         self.model_manager = model_manager
         self.config = config
-        self._validate_dependencies()
-        # Validate config values
+        self.selected_patterns = selected_patterns
         self._validate_training_params()
-
-    def _validate_dependencies(self) -> None:
-        if not isinstance(self.client, ETradeClient):
-            raise ValueError("Invalid ETradeClient instance")
-        if not isinstance(self.model_manager, ModelManager):
-            raise ValueError("Invalid ModelManager instance")
 
     def _validate_training_params(self) -> None:
         from utils.validation import validate_training_params
@@ -58,27 +50,21 @@ class PatternModelTrainer:
 
     def prepare_training_data(
         self,
-        symbols: List[str]
+        data: pd.DataFrame
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Collect and prepare training data from historical candlesticks.
+        Collect and prepare training data from provided candlestick data.
         """
         X, y = [], []
 
-        for symbol in tqdm(symbols, desc="Collecting training data"):
-            try:
-                features, labels = self._process_symbol(symbol)
-                # Enforce per-symbol cap
-                if len(features) > self.config.max_samples_per_symbol:
-                    features = features[: self.config.max_samples_per_symbol]
-                    labels = labels[: self.config.max_samples_per_symbol]
+        try:
+            features, labels = self._process_data(data)
+            X.extend(features)
+            y.extend(labels)
 
-                X.extend(features)
-                y.extend(labels)
-
-            except Exception as e:
-                logger.error(f"Error processing {symbol}: {e}", exc_info=True)
-                continue
+        except Exception as e:
+            logger.error(f"Error processing data: {e}", exc_info=True)
+            raise ValueError("Error in preparing training data")
 
         if len(X) < self.config.min_patterns:
             raise ValueError(
@@ -88,67 +74,75 @@ class PatternModelTrainer:
 
         return np.array(X), np.array(y)
 
-    def _process_symbol(
+    def _process_data(
         self,
-        symbol: str
+        data: pd.DataFrame
     ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
         """
-        Process individual symbol data into training sequences.
+        Process provided data into training sequences.
         """
-        df = self.client.get_candles(symbol, interval="5min", days=30)
-        if df.empty:
-            raise ValueError(f"No data available for {symbol}")
-
         features, labels = [], []
-        for i in range(len(df) - self.config.seq_len):
+        for i in range(len(data) - self.config.seq_len):
             # Extract and normalize sequence
-            window = df.iloc[i : i + self.config.seq_len][["open", "high", "low", "close"]].values
+            window = data.iloc[i : i + self.config.seq_len][["open", "high", "low", "close"]].values
             seq = (window - window[0]) / window[0]
 
             # Detect patterns in this window
             patterns = CandlestickPatterns.detect_patterns(
-                df.iloc[i : i + self.config.seq_len]
+                data.iloc[i : i + self.config.seq_len]
             )
 
             if patterns:
                 features.append(seq)
-                labels.append(self._encode_patterns(patterns))
+                labels.append(self._encode_patterns(patterns, self.selected_patterns))
 
         return features, labels
 
     def _encode_patterns(
         self,
-        patterns: List[str]
+        patterns: List[str],
+        selected_patterns: List[str]
     ) -> np.ndarray:
         """One-hot encode detected patterns."""
-        label = np.zeros(len(PatternNN.PATTERN_CLASSES), dtype=float)
-        for pat in patterns:
-            if pat in PatternNN.PATTERN_CLASSES:
-                idx = PatternNN.PATTERN_CLASSES.index(pat)
-                label[idx] = 1.0
+        label = np.zeros(len(selected_patterns), dtype=float)
+        for i, pattern in enumerate(selected_patterns):
+            if pattern in patterns:
+                label[i] = 1
         return label
 
     def train_model(
         self,
-        symbols: List[str],
+        data: pd.DataFrame,
         model: Optional[PatternNN] = None,
         metadata: Optional[Dict[str, Any]] = None
-    ) -> PatternNN:
+    ) -> Tuple[PatternNN, Dict[str, float]]:
         """
-        Train a pattern recognition model on historical data.
+        Train a pattern recognition model on provided data.
         """
-        logger.info(f"Starting model training with {len(symbols)} symbols")
+        logger.info("Starting model training")
 
         # Device selection
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
             # Prepare data
-            X, y = self.prepare_training_data(symbols)
+            if data.empty:
+                raise ValueError("Provided data is empty and cannot be used for training.")
+            X, y = self.prepare_training_data(data)
+            # Ensure sufficient data for splitting
+            if len(X) < self.config.batch_size or len(X) * self.config.validation_split < 1:
+                raise ValueError(
+                    f"Insufficient data for splitting: {len(X)} samples. "
+                    f"Ensure dataset size is greater than batch size ({self.config.batch_size}) "
+                    f"and validation split requirements."
+                )
             X_train, X_val, y_train, y_val = self._train_test_split(X, y)
 
             # Initialize or fine-tune model
-            model = model or PatternNN()
+            model = model or PatternNN(
+                input_size=X.shape[1], 
+                output_size=len(self.selected_patterns)
+            )
             model.to(device)
 
             # Data loaders
@@ -156,7 +150,7 @@ class PatternModelTrainer:
             val_loader = self._create_data_loader(X_val, y_val)
 
             # Fit the model (ensure PatternNN has a fit method)
-            model.fit(
+            metrics = model.fit(
                 train_loader=train_loader,
                 val_loader=val_loader,
                 epochs=self.config.epochs,
@@ -167,7 +161,7 @@ class PatternModelTrainer:
 
             # Persist the trained model
             self._save_model(model, metadata)
-            return model
+            return model, metrics
 
         except Exception as e:
             logger.error("Training failed", exc_info=True)
@@ -216,29 +210,23 @@ class PatternModelTrainer:
         self.model_manager.save_model(model=model, metadata=meta)
 
 def train_pattern_model(
-    client,
-    symbols,
-    model=None,
-    epochs: int = 10,
-    seq_len: int = 10,
-    learning_rate: float = 0.001
-):
-    """
-    Convenience wrapper that mirrors the old signature:
-    train_pattern_model(client, symbols, model, epochs, seq_len, learning_rate)
-    """
-    # Build the config and manager
+    symbols: List[str],
+    data: pd.DataFrame,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    selected_patterns: List[str],
+    # ...other params...
+) -> Tuple[Any, Dict[str, float]]:
     config = TrainingConfig(
         epochs=epochs,
-        seq_len=seq_len,
+        batch_size=batch_size,
         learning_rate=learning_rate
     )
     manager = ModelManager()
-
-    # Instantiate and run the trainer
     trainer = PatternModelTrainer(
-        client=client,
         model_manager=manager,
-        config=config
+        config=config,
+        selected_patterns=selected_patterns
     )
-    return trainer.train_model(symbols=symbols, model=model)
+    return trainer.train_model(data=data)
