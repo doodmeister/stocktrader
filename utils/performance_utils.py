@@ -14,7 +14,7 @@ import plotly.graph_objs as go
 from utils.etrade_candlestick_bot import ETradeClient
 from patterns import CandlestickPatterns
 from utils.patterns_nn import PatternNN
-from train.trainer import train_pattern_model
+from train.deeplearning_trainer import train_pattern_model
 from data.tradml_model_trainer import ModelTrainer
 from pathlib import Path
 from contextlib import contextmanager

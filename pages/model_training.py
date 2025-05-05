@@ -3,9 +3,10 @@ import pandas as pd
 import numpy as np
 import logging
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any, NamedTuple
+from typing import Optional, Tuple, Dict, Any, NamedTuple, List
 from datetime import datetime
 from dataclasses import dataclass, asdict
+from pydantic import BaseModel
 
 import torch
 
@@ -18,6 +19,7 @@ from utils.synthetic_trading_data import add_to_model_training_ui, generate_synt
 from utils.etrade_candlestick_bot import ETradeClient
 from data.ml_config import MLConfig
 from utils.stock_validation import get_valid_tickers
+from train.deeplearning_trainer import train_pattern_model
 
 # Classic ML pipeline
 from data.tradml_model_trainer import ModelTrainer, TrainingParams
@@ -70,6 +72,10 @@ class DataValidationResult(NamedTuple):
     is_valid: bool
     error_message: Optional[str]
     stats: Optional[Dict[str, Any]] = None
+
+class MLConfig(BaseModel):
+    # ...fields...
+    symbols: List[str]
 
 REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume", "timestamp"]
 MAX_FILE_SIZE_MB = 5
@@ -124,7 +130,7 @@ def train_model_deep_learning(
     epochs: int = 10,
     batch_size: int = 32,
     learning_rate: float = 0.001
-) -> Tuple[PatternNN, Dict[str, float]]:
+) -> Tuple[Any, Dict[str, float]]:
     available_tickers = get_valid_tickers()
     selected_symbols = st.multiselect(
         "Select stocks to include (Deep Learning)",
@@ -134,27 +140,17 @@ def train_model_deep_learning(
     if not selected_symbols:
         st.warning("Please select at least one stock ticker")
         selected_symbols = [available_tickers[0]]
-    config = MLConfig(
-        seq_len=10,
+    client = ETradeClient(sandbox=True)
+    # Delegate all training logic to train_pattern_model
+    model, metrics = train_pattern_model(
+        client=client,
+        symbols=selected_symbols,
+        data=data,
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
-        test_size=0.2,
-        random_state=42,
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        model_dir=MODELS_DIR,
-        symbols=selected_symbols
+        # Add other parameters as needed
     )
-    client = ETradeClient(sandbox=True)
-    pipeline = MLPipeline(client, config)
-    model = PatternNN()
-    progress_bar = st.progress(0)
-    metrics = {}
-    for i in range(epochs):
-        # Simulate epoch training
-        metrics = pipeline.train_and_evaluate(model, epochs=1)
-        progress_bar.progress((i + 1) / epochs)
-    progress_bar.empty()
     return model, metrics
 
 def train_model_classic_ml(
@@ -264,98 +260,94 @@ def render_training_page():
         help=f"CSV file with {', '.join(REQUIRED_COLUMNS)} columns"
     )
 
-    if not uploaded_file and not use_synthetic:
-        st.info("Please upload a training data file to begin.")
-        return
+    # Always show the form
+    with st.form("training_config"):
+        st.subheader("Training Configuration")
+        config = st.session_state.training_config
 
-    if uploaded_file:
-        file_size_mb = uploaded_file.size / (1024 * 1024)
-        if file_size_mb > MAX_FILE_SIZE_MB:
-            st.error(f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB")
-            return
-
-    try:
-        if use_synthetic:
-            data = generate_synthetic_data()
+        if backend.startswith("Deep"):
+            col1, col2 = st.columns(2)
+            with col1:
+                config.epochs = st.slider("Epochs", 1, 100, config.epochs)
+                config.batch_size = st.slider("Batch Size", 16, 256, config.batch_size, step=16)
+            with col2:
+                config.learning_rate = st.number_input(
+                    "Learning Rate",
+                    min_value=0.00001,
+                    max_value=0.1,
+                    value=config.learning_rate,
+                    format="%.5f"
+                )
         else:
-            data = pd.read_csv(uploaded_file)
+            col1, col2 = st.columns(2)
+            with col1:
+                config.n_estimators = st.slider("n_estimators", 10, 500, config.n_estimators, step=10)
+                config.max_depth = st.slider("max_depth", 1, 50, config.max_depth)
+            with col2:
+                config.min_samples_split = st.slider("min_samples_split", 2, 50, config.min_samples_split)
+                config.cv_folds = st.slider("cv_folds", 2, 10, config.cv_folds)
 
-        validation_result = validate_training_data(data)
-        if not validation_result.is_valid:
-            st.error(validation_result.error_message)
+        is_valid, error_msg = config.validate()
+        submitted = st.form_submit_button("Train Model")
+
+    # Only process after form is submitted
+    if submitted:
+        if not is_valid:
+            st.error(error_msg)
             return
 
-        st.subheader("Data Preview")
-        st.dataframe(data.head())
-        if validation_result.stats:
-            st.subheader("Dataset Statistics")
-            st.json(validation_result.stats)
-
-        with st.form("training_config"):
-            st.subheader("Training Configuration")
-            config = st.session_state.training_config
-
-            if backend.startswith("Deep"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    config.epochs = st.slider("Epochs", 1, 100, config.epochs)
-                    config.batch_size = st.slider("Batch Size", 16, 256, config.batch_size, step=16)
-                with col2:
-                    config.learning_rate = st.number_input(
-                        "Learning Rate",
-                        min_value=0.00001,
-                        max_value=0.1,
-                        value=config.learning_rate,
-                        format="%.5f"
-                    )
+        # Data loading and validation
+        try:
+            if use_synthetic:
+                data = generate_synthetic_data()
             else:
-                col1, col2 = st.columns(2)
-                with col1:
-                    config.n_estimators = st.slider("n_estimators", 10, 500, config.n_estimators, step=10)
-                    config.max_depth = st.slider("max_depth", 1, 50, config.max_depth)
-                with col2:
-                    config.min_samples_split = st.slider("min_samples_split", 2, 50, config.min_samples_split)
-                    config.cv_folds = st.slider("cv_folds", 2, 10, config.cv_folds)
+                if not uploaded_file:
+                    st.error("Please upload a training data file to begin.")
+                    return
+                file_size_mb = uploaded_file.size / (1024 * 1024)
+                if file_size_mb > MAX_FILE_SIZE_MB:
+                    st.error(f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB")
+                    return
+                data = pd.read_csv(uploaded_file)
 
-            is_valid, error_msg = config.validate()
-            if not is_valid:
-                st.error(error_msg)
+            validation_result = validate_training_data(data)
+            if not validation_result.is_valid:
+                st.error(validation_result.error_message)
                 return
 
-            submitted = st.form_submit_button("Train Model")
-            if submitted:
-                st.session_state.training_config = config
-                try:
-                    with st.spinner("Training model..."):
-                        if backend == "Deep Learning (PatternNN)":
-                            model, metrics = train_model_deep_learning(
-                                data,
-                                epochs=config.epochs,
-                                batch_size=config.batch_size,
-                                learning_rate=config.learning_rate
-                            )
-                        else:
-                            model, metrics = train_model_classic_ml(
-                                data,
-                                n_estimators=config.n_estimators,
-                                max_depth=config.max_depth,
-                                min_samples_split=config.min_samples_split,
-                                cv_folds=config.cv_folds
-                            )
-                    st.success("Training completed!")
-                    st.json(metrics)
-                    if st.button("Save Trained Model"):
-                        success, error = save_trained_model(model, config, metrics, backend)
-                        if success:
-                            st.success("Model saved successfully")
-                        else:
-                            st.error(f"Failed to save model: {error}")
-                except Exception as e:
-                    logger.exception("Training error")
-                    st.error(f"Training failed: {str(e)}")
-    except Exception as e:
-        logger.exception("Error processing uploaded file")
-        st.error(f"Error processing file: {str(e)}")
+            st.subheader("Data Preview")
+            st.dataframe(data.head())
+            if validation_result.stats:
+                st.subheader("Dataset Statistics")
+                st.json(validation_result.stats)
+
+            with st.spinner("Training model..."):
+                if backend == "Deep Learning (PatternNN)":
+                    model, metrics = train_model_deep_learning(
+                        data,
+                        epochs=config.epochs,
+                        batch_size=config.batch_size,
+                        learning_rate=config.learning_rate
+                    )
+                else:
+                    model, metrics = train_model_classic_ml(
+                        data,
+                        n_estimators=config.n_estimators,
+                        max_depth=config.max_depth,
+                        min_samples_split=config.min_samples_split,
+                        cv_folds=config.cv_folds
+                    )
+            st.success("Training completed!")
+            st.json(metrics)
+            if st.button("Save Trained Model"):
+                success, error = save_trained_model(model, config, metrics, backend)
+                if success:
+                    st.success("Model saved successfully")
+                else:
+                    st.error(f"Failed to save model: {error}")
+        except Exception as e:
+            logger.exception("Training error")
+            st.error(f"Training failed: {str(e)}")
 
 if __name__ == "__main__":
     with st_error_boundary():
@@ -368,9 +360,11 @@ if __name__ == "__main__":
             random_state=42,
             device="cuda" if torch.cuda.is_available() else "cpu",
             model_dir=MODELS_DIR,
-            symbols=[]
+            symbols=["AAPL"]  # <-- Use a valid list of symbols
         )
         model_trainer = ModelTrainer({'MODEL_DIR': str(MODELS_DIR)})
+        model_manager = get_model_manager()
+        model_files = model_manager.list_models()
         tab1, tab2 = st.tabs(["Model Training", "Signal Analysis"])
         with tab1:
             render_training_page()

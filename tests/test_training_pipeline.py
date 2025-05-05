@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from train.training_pipeline import (
+from train.ml_training_pipeline import (
     validate_dataframe,
     feature_engineering,
     train_model,

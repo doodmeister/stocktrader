@@ -8,7 +8,7 @@ import time
 import logging
 from typing import Callable, Any, Optional, TypeVar, List, Dict
 from functools import wraps
-from train.trainer import TrainingConfig
+from train.deeplearning_trainer import TrainingConfig
 from train.config import TrainingConfig
 
 logger = logging.getLogger(__name__)

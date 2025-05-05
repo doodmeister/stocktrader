@@ -226,6 +226,19 @@ class ModelManager:
         except Exception as e:
             raise ModelError(f"Failed to cleanup old models: {str(e)}") from e
 
+    def list_models(self, pattern: str = "pattern_nn_v*.pth") -> list:
+        """
+        List all saved model files in the model directory.
+
+        Args:
+            pattern: Glob pattern for model files (default: "pattern_nn_v*.pth")
+
+        Returns:
+            List of model file paths as strings.
+        """
+        model_files = sorted(self.base_directory.glob(pattern), key=lambda x: x.stat().st_mtime, reverse=True)
+        return [str(f) for f in model_files]
+
 def load_latest_model(model_class, base_directory: str = "models/"):
     """
     Load the most recent model from the model directory.

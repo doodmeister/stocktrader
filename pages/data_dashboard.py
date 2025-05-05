@@ -9,7 +9,7 @@ import streamlit as st
 from data.config import DashboardConfig
 from data.data_validator import DataValidator
 from utils.notifier import Notifier
-from data.data_loader import (
+from data.data_downloader import (
     download_stock_data,
     clear_cache
 )
