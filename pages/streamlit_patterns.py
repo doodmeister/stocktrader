@@ -363,7 +363,15 @@ def render_visualizer(patterns: List[str]):
     if not uploaded or not pattern:
         return
 
-    df = pd.read_csv(uploaded, parse_dates=["date"])
+    df = pd.read_csv(uploaded)
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"])
+    elif "timestamp" in df.columns:
+        df["date"] = pd.to_datetime(df["timestamp"])
+    else:
+        st.error("CSV must have a 'date' or 'timestamp' column.")
+        return
+
     method = get_pattern_method(pattern)
     df["signal"] = df.apply(lambda row: method(row), axis=1)
 
