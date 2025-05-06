@@ -84,31 +84,40 @@ class ModelManager:
         Returns:
             Path to saved model file
         """
+        logger.info(f"Saving model to directory: {self.base_directory.resolve()}")
         version = metadata.version if hasattr(metadata, "version") else datetime.now().strftime("%Y%m%d_%H%M%S")
         if backend is None and hasattr(metadata, "backend"):
             backend = metadata.backend
 
-        if backend and backend.startswith("Classic"):
-            # Save scikit-learn model
-            model_filename = f"classic_ml_{version}.joblib"
-            model_path = self.base_directory / model_filename
-            joblib.dump(model, model_path)
-        else:
-            # Save PyTorch model
-            model_filename = f"pattern_nn_{version}.pth"
-            model_path = self.base_directory / model_filename
-            torch.save({
-                'state_dict': model.state_dict(),
-                'metadata': metadata.to_dict()
-            }, model_path)
+        try:
+            if backend and backend.startswith("Classic"):
+                # Save scikit-learn model
+                model_filename = f"classic_ml_{version}.joblib"
+                model_path = self.base_directory / model_filename
+                logger.info(f"Saving classic ML model to: {model_path}")
+                joblib.dump(model, model_path)
+            else:
+                # Save PyTorch model
+                model_filename = f"pattern_nn_{version}.pth"
+                model_path = self.base_directory / model_filename
+                logger.info(f"Saving PyTorch model to: {model_path}")
+                torch.save({
+                    'state_dict': model.state_dict(),
+                    'metadata': metadata.to_dict()
+                }, model_path)
 
-        # Save metadata as JSON
-        metadata_filename = model_filename.replace(".pth", ".json").replace(".joblib", ".json")
-        metadata_path = self.base_directory / metadata_filename
-        with metadata_path.open('w') as f:
-            json.dump(metadata.to_dict(), f, indent=2)
+            # Save metadata as JSON
+            metadata_filename = model_filename.replace(".pth", ".json").replace(".joblib", ".json")
+            metadata_path = self.base_directory / metadata_filename
+            logger.info(f"Saving metadata to: {metadata_path}")
+            with metadata_path.open('w') as f:
+                json.dump(metadata.to_dict(), f, indent=2)
 
-        return str(model_path)
+            logger.info(f"Model and metadata saved successfully.")
+            return str(model_path)
+        except Exception as e:
+            logger.error(f"Exception during model save: {e}")
+            raise
 
     def load_model(self, 
                   model_class: Optional[Type[torch.nn.Module]] = None,

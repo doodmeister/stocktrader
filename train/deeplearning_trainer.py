@@ -78,24 +78,16 @@ class PatternModelTrainer:
         self,
         data: pd.DataFrame
     ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
-        """
-        Process provided data into training sequences.
-        """
         features, labels = [], []
         for i in range(len(data) - self.config.seq_len):
-            # Extract and normalize sequence
             window = data.iloc[i : i + self.config.seq_len][["open", "high", "low", "close"]].values
             seq = (window - window[0]) / window[0]
-
-            # Detect patterns in this window
             patterns = CandlestickPatterns.detect_patterns(
                 data.iloc[i : i + self.config.seq_len]
             )
-
             if patterns:
-                features.append(seq)
+                features.append(seq.flatten())  # Only append if label will be appended
                 labels.append(self._encode_patterns(patterns, self.selected_patterns))
-
         return features, labels
 
     def _encode_patterns(
@@ -218,6 +210,7 @@ def train_pattern_model(
     selected_patterns: List[str],
     # ...other params...
 ) -> Tuple[Any, Dict[str, float]]:
+    # Prepare data, model, loss function, and optimizer
     config = TrainingConfig(
         epochs=epochs,
         batch_size=batch_size,
@@ -229,4 +222,25 @@ def train_pattern_model(
         config=config,
         selected_patterns=selected_patterns
     )
-    return trainer.train_model(data=data)
+
+    X, y = trainer.prepare_training_data(data)
+    train_loader = trainer._create_data_loader(X, y)
+
+    model = PatternNN(input_size=X.shape[1], output_size=len(selected_patterns))
+    model.train()
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    loss_fn = torch.nn.CrossEntropyLoss()
+
+    metrics = {}
+    for epoch in range(epochs):
+        for batch_X, batch_y in train_loader:
+            optimizer.zero_grad()
+            outputs = model(batch_X)
+            loss = loss_fn(outputs, batch_y)
+            loss.backward()
+            optimizer.step()
+        # Optionally: log metrics, loss, etc.
+
+    # Optionally: evaluate on validation set, compute metrics
+
+    return model, metrics

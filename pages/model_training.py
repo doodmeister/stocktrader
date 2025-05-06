@@ -217,9 +217,10 @@ def save_trained_model(
         model_manager = get_model_manager()
         metadata = ModelMetadata(
             version=datetime.now().strftime("%Y%m%d_%H%M%S"),
-            metrics=metrics,
-            params=config.__dict__ if hasattr(config, "__dict__") else dict(config),
-            backend=backend
+            saved_at=datetime.now().isoformat(),
+            accuracy=metrics.get("accuracy") if metrics else None,
+            parameters=config.__dict__ if hasattr(config, "__dict__") else dict(config)
+            # framework_version is set by default
         )
         logger.info(f"Saving model with backend: {backend}")
         save_path = model_manager.save_model(model, metadata=metadata, backend=backend)
@@ -238,6 +239,7 @@ def save_trained_model(
         return True, None
     except Exception as e:
         logger.exception("Failed to save model")
+        st.error(f"Failed to save model: {e}")
         return False, str(e)
 
 def display_signal_analysis(config: MLConfig, model_trainer: ModelTrainer) -> None:
@@ -456,13 +458,17 @@ def render_training_page():
 
             if st.button("Save Trained Model"):
                 logger.info("Save Trained Model button clicked")
-                success, error = save_trained_model(model, config, metrics, backend)
-                if success:
-                    logger.info("Model saved successfully")
-                    st.success("Model saved successfully")
-                else:
-                    logger.error(f"Failed to save model: {error}")
-                    st.error(f"Failed to save model: {error}")
+                try:
+                    success, error = save_trained_model(model, config, metrics, backend)
+                    if success:
+                        logger.info("Model saved successfully")
+                        st.success("Model saved successfully")
+                    else:
+                        logger.error(f"Failed to save model: {error}")
+                        st.error(f"Failed to save model: {error}")
+                except Exception as e:
+                    logger.exception("Exception during model save")
+                    st.error(f"Exception during model save: {e}")
         except Exception as e:
             logger.exception("Training error")
             st.error(f"Training failed: {str(e)}")
