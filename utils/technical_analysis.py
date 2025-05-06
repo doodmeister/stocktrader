@@ -154,3 +154,21 @@ class TechnicalAnalysis:
         except Exception as e:
             print(f"Error calculating price target: {e}")
             return current_price * 1.20
+
+    def main():
+        # Example usage of the TechnicalAnalysis class
+        sample_data = pd.DataFrame({
+            'close': [100, 102, 104, 103, 105],
+            'high': [101, 103, 105, 104, 106],
+            'low': [99, 101, 103, 102, 104],
+            'volume': [1000, 1100, 1200, 1150, 1300]
+        })
+        ta = TechnicalAnalysis(sample_data)
+        print("RSI:", ta.rsi())
+        print("MACD:", ta.macd())
+        print("Bollinger Bands:", ta.bollinger_bands())
+        print("ATR:", ta.atr())
+        print("Composite Signal:", ta.evaluate())
+    
+    if __name__ == "__main__":
+        main()

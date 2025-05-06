@@ -40,23 +40,47 @@ def validate_dataframe(df: pd.DataFrame) -> bool:
     return True
 
 def plot_technical_indicators(df: pd.DataFrame, ta: TechnicalAnalysis, rsi_period: int, macd_fast: int, macd_slow: int, bb_period: int, bb_std: int):
-    """Plot RSI, MACD, and Bollinger Bands."""
-    st.subheader("Technical Indicator Analysis")
+    """Plot RSI, MACD, and Bollinger Bands with explanations."""
+    st.markdown("""
+    ### 📈 Technical Indicator Analysis
+
+    **Technical indicators** are mathematical calculations based on price, volume, or open interest. They help traders and analysts understand market trends, momentum, and volatility.
+
+    - **RSI (Relative Strength Index):**  
+      Measures the speed and change of price movements. RSI values above 70 typically indicate an overbought condition (potential reversal down), while values below 30 indicate oversold (potential reversal up).
+
+    - **MACD (Moving Average Convergence Divergence):**  
+      Shows the relationship between two moving averages of a security’s price. When the MACD line crosses above the signal line, it may indicate a bullish trend; below, a bearish trend.
+
+    - **Bollinger Bands:**  
+      Consist of a moving average and two standard deviation lines (upper and lower bands). When price touches the upper band, the asset may be overbought; the lower band may indicate oversold.
+    """)
 
     # RSI
     rsi = ta.rsi(period=rsi_period)
     st.line_chart(rsi, height=150, use_container_width=True)
-    st.caption(f"RSI (last value: {rsi.iloc[-1]:.2f})" if not rsi.isna().all() else "RSI not available.")
+    st.caption(
+        f"**RSI (last value: {rsi.iloc[-1]:.2f})** — Above 70: Overbought, Below 30: Oversold. "
+        "RSI helps identify potential reversal points."
+        if not rsi.isna().all() else "RSI not available."
+    )
 
     # MACD
     macd_line, signal_line = ta.macd(fast_period=macd_fast, slow_period=macd_slow)
     st.line_chart(pd.DataFrame({'MACD': macd_line, 'Signal': signal_line}), height=150, use_container_width=True)
-    st.caption(f"MACD (last diff: {(macd_line.iloc[-1] - signal_line.iloc[-1]):.2f})")
+    st.caption(
+        f"**MACD (last diff: {(macd_line.iloc[-1] - signal_line.iloc[-1]):.2f})** — "
+        "When MACD crosses above the signal line, it may indicate a bullish trend; below, a bearish trend."
+    )
 
     # Bollinger Bands
     upper_band, lower_band = ta.bollinger_bands(period=bb_period, std_dev=bb_std)
     bb_df = pd.DataFrame({'Close': df['close'], 'Upper Band': upper_band, 'Lower Band': lower_band})
     st.line_chart(bb_df, height=200, use_container_width=True)
+    st.caption(
+        "Bollinger Bands help visualize price volatility. "
+        "Price near the upper band may be overbought; near the lower band, oversold."
+    )
 
     return rsi, macd_line, signal_line, upper_band, lower_band
 
@@ -76,7 +100,16 @@ def detect_patterns(df: pd.DataFrame, selected_patterns: List[str]) -> List[Dict
     return pattern_results
 
 def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[str, Any]]):
-    """Plot a candlestick chart with pattern markers."""
+    """Plot a candlestick chart with pattern markers and explanation."""
+    st.markdown("""
+    ### 🕯️ Candlestick Chart with Pattern Markers
+
+    This chart shows the price action as candlesticks.  
+    **Markers** indicate where selected candlestick patterns were detected.
+
+    - **Candlestick patterns** are visual signals that may indicate trend reversals or continuations.
+    - Hover over markers to see the detected pattern.
+    """)
     fig = go.Figure(data=[go.Candlestick(
         x=df.index if df.index.name else range(len(df)),
         open=df['open'], high=df['high'], low=df['low'], close=df['close'],
@@ -92,6 +125,16 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
 
 def main():
     st.title("📊 Technical Analysis Dashboard")
+    st.markdown("""
+    Welcome! This dashboard lets you upload historical price data and perform advanced technical analysis.
+
+    **How to use:**
+    1. Upload a CSV file with columns: `open`, `high`, `low`, `close`, `volume`.
+    2. Explore technical indicators and candlestick patterns.
+    3. Download processed data for further research.
+
+    ---
+    """)
 
     uploaded_file = st.file_uploader("Upload CSV Data for Analysis", type="csv")
     if not uploaded_file:
@@ -107,6 +150,13 @@ def main():
 
     st.subheader("Basic Statistics")
     st.write(df.describe())
+
+    st.markdown("""
+    ---
+    ## ⚙️ Indicator Settings
+
+    Adjust the parameters below to see how different settings affect the analysis.
+    """)
 
     # User controls for indicator periods
     col1, col2, col3 = st.columns(3)
@@ -126,17 +176,41 @@ def main():
         df, ta, rsi_period, macd_fast, macd_slow, bb_period, bb_std
     )
 
-    # Combined Signal
+    st.markdown("""
+    ---
+    ## 🧮 Combined Technical Signal
+
+    This metric combines RSI, MACD, and Bollinger Bands into a single value between -1 (bearish) and 1 (bullish).
+
+    - **Interpretation:**  
+      Values near 1 suggest bullish conditions; near -1, bearish.
+    - **Note:**  
+      This is a composite signal for research, not a trading recommendation.
+    """)
     signal = ta.evaluate(df)
     st.metric("Combined Technical Signal", f"{signal:.3f}" if signal is not None else "N/A", help="Range: -1 (bearish) to 1 (bullish)")
 
-    # ATR and Price Target
+    st.markdown("""
+    ---
+    ## 📏 Volatility & Price Target
+
+    - **ATR (Average True Range):**  
+      Measures market volatility. Higher ATR means more price movement.
+    - **Price Target:**  
+      A calculated projection based on trend, volatility, and momentum.
+    """)
     atr = ta.calculate_atr(symbol=None)
     price_target = ta.calculate_price_target(symbol=None)
     st.write(f"**ATR (period=3):** {atr:.3f}" if atr is not None else "ATR not available.")
     st.write(f"**Price Target:** {price_target:.3f}" if price_target is not None else "Price target not available.")
 
-    # Pattern detection
+    st.markdown("""
+    ---
+    ## 🔎 Candlestick Pattern Detection
+
+    Select patterns to scan for. Detected patterns may signal trend reversals or continuations.
+    """)
+
     pattern_names = CandlestickPatterns.get_pattern_names()
     selected_patterns = st.multiselect("Patterns to scan for", pattern_names, default=pattern_names[:3])
     pattern_results = detect_patterns(df, selected_patterns)
@@ -144,14 +218,24 @@ def main():
     if pattern_results:
         st.subheader("Detected Patterns")
         st.dataframe(pd.DataFrame(pattern_results))
+        st.markdown("""
+        **How to read:**  
+        - Each row shows the index/date and the detected pattern.
+        - Use this to spot potential trade setups or validate your strategy.
+        """)
     else:
         st.info("No selected patterns detected in this data.")
 
     # Candlestick chart with pattern markers
     plot_candlestick_with_patterns(df, pattern_results)
 
-    # Optionally, allow download of processed data
-    st.subheader("Download Processed Data")
+    st.markdown("""
+    ---
+    ## 💾 Download Processed Data
+
+    Download the data with all computed indicators for further analysis.
+    """)
+
     df['RSI'] = rsi
     df['MACD'] = macd_line
     df['MACD_Signal'] = signal_line
