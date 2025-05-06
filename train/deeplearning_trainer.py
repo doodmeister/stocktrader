@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
+from sklearn.metrics import confusion_matrix, classification_report
 
 from train.config import TrainingConfig
 from utils.patterns_nn import PatternNN
@@ -241,6 +242,33 @@ def train_pattern_model(
             optimizer.step()
         # Optionally: log metrics, loss, etc.
 
-    # Optionally: evaluate on validation set, compute metrics
+    # Evaluate on training data (or use a validation set if available)
+    model.eval()
+    y_true = []
+    y_pred = []
+    with torch.no_grad():
+        for batch_X, batch_y in train_loader:
+            outputs = model(batch_X)
+            _, predicted = torch.max(outputs, 1)
+            _, labels = torch.max(batch_y, 1)
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(predicted.cpu().numpy())
 
+    acc = np.mean(np.array(y_true) == np.array(y_pred))
+    cm = confusion_matrix(y_true, y_pred)
+    report = classification_report(y_true, y_pred, output_dict=False)
+
+    metrics = {
+        "metrics": {
+            "mean": {"accuracy": acc},  # Add more if you compute them
+            "std": {},
+            "final_metrics": {"accuracy": acc}
+        },
+        "confusion_matrix": cm.tolist(),
+        "classification_report": report
+    }
     return model, metrics
+
+if __name__ == "__main__":
+    # Example usage or placeholder for main logic
+    print("Please define the main function or provide script usage logic.")
