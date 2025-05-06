@@ -24,6 +24,7 @@ from train.deeplearning_trainer import train_pattern_model
 from data.tradml_model_trainer import ModelTrainer, TrainingParams
 
 from patterns import CandlestickPatterns
+from sklearn.base import BaseEstimator
 
 # Configure structured logging
 logging.basicConfig(
@@ -197,8 +198,28 @@ def train_model_classic_ml(
         cv_folds=cv_folds,
         random_state=42
     )
-    model, metrics, cm, report = trainer.train_model(data, params=params)
-    return model, {
+    model_result, metrics, cm, report = trainer.train_model(data, params=params)
+    
+    logger.info(f"Type of model returned: {type(model_result)}")
+    st.write(f"Type of model returned: {type(model_result)}")
+    st.write(f"Model result: {model_result}")
+
+    # If model_result is a custom class with an estimator attribute, extract it
+    if hasattr(model_result, 'estimator') and isinstance(model_result.estimator, BaseEstimator):
+        actual_model = model_result.estimator
+    elif hasattr(model_result, 'model') and isinstance(model_result.model, BaseEstimator):
+        actual_model = model_result.model
+    elif isinstance(model_result, BaseEstimator):
+        actual_model = model_result
+    else:
+        logger.error(f"Cannot extract scikit-learn estimator from {type(model_result)}")
+        st.error(f"Model is not a scikit-learn estimator or doesn't contain one: {type(model_result)}")
+        raise ValueError(f"Model is not a scikit-learn estimator or doesn't contain one: {type(model_result)}")
+        
+    logger.info(f"Extracted model type: {type(actual_model)}")
+    st.write(f"Extracted model type: {type(actual_model)}")
+    
+    return actual_model, {
         "metrics": metrics,
         "confusion_matrix": cm.tolist() if hasattr(cm, "tolist") else cm,
         "classification_report": report
@@ -213,6 +234,8 @@ def save_trained_model(
     try:
         logger.info("Starting model saving step")
         st.info("Saving trained model...")
+        st.write(f"Model type being saved: {type(model)}")
+        logger.info(f"Model type being saved: {type(model)}")
 
         model_manager = get_model_manager()
         metadata = ModelMetadata(
@@ -220,11 +243,12 @@ def save_trained_model(
             saved_at=datetime.now().isoformat(),
             accuracy=metrics.get("accuracy") if metrics else None,
             parameters=config.__dict__ if hasattr(config, "__dict__") else dict(config)
-            # framework_version is set by default
         )
         logger.info(f"Saving model with backend: {backend}")
+        st.write(f"Saving model with backend: {backend}")
         save_path = model_manager.save_model(model, metadata=metadata, backend=backend)
-        logger.info(f"Model saved to: {save_path}")
+        logger.info(f"Model saved to: {save_path} (absolute: {Path(save_path).resolve()})")
+        st.write(f"Model saved to: {save_path} (absolute: {Path(save_path).resolve()})")
         model_manager.cleanup_old_models(keep_versions=5)
         logger.info(f"Model saved successfully: {save_path}")
 
@@ -232,6 +256,13 @@ def save_trained_model(
         metadata_path = model_path.with_suffix('.json')
         logger.info(f"Model file exists after save: {model_path.exists()}")
         logger.info(f"Metadata file exists after save: {metadata_path.exists()}")
+
+        try:
+            loaded_model, loaded_metadata = model_manager.load_model(type(model), str(model_path))
+            logger.info("Model loaded successfully after save.")
+        except Exception as e:
+            logger.error(f"Failed to load model after save: {e}")
+            st.error(f"Failed to load model after save: {e}")
 
         logger.info("Model saving step completed")
         st.info("Model saved successfully.")

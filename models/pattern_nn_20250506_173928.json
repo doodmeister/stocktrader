@@ -1,0 +1,16 @@
+{
+  "version": "20250506_173928",
+  "saved_at": "2025-05-06T17:39:28.001030",
+  "accuracy": 0.0,
+  "parameters": {
+    "epochs": 30,
+    "seq_len": 10,
+    "learning_rate": 0.001,
+    "batch_size": 32,
+    "validation_split": 0.2,
+    "early_stopping_patience": 5,
+    "min_patterns": 20,
+    "max_samples_per_symbol": 10000
+  },
+  "framework_version": "2.0.1+cpu"
+}

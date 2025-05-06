@@ -12,9 +12,15 @@ from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from enum import Enum
+from sklearn.base import BaseEstimator
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    filename="models/app.log",  # or an absolute path if you prefer
+    filemode="a",               # append mode
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 class ModelError(Exception):
@@ -90,12 +96,19 @@ class ModelManager:
             backend = metadata.backend
 
         try:
+            logger.info(f"[DEBUG] backend={backend}, model type={type(model)}")
+            logger.info(f"Backend for saving: {backend}")
             if backend and backend.startswith("Classic"):
-                # Save scikit-learn model
+                if not isinstance(model, BaseEstimator):
+                    logger.error("Model is not a scikit-learn estimator!")
+                    raise ValueError("Model is not a scikit-learn estimator!")
+                else:
+                    logger.info("Model is a valid scikit-learn estimator.")
                 model_filename = f"classic_ml_{version}.joblib"
                 model_path = self.base_directory / model_filename
                 logger.info(f"Saving classic ML model to: {model_path}")
                 joblib.dump(model, model_path)
+                logger.info(f"Classic ML model saved: {model_path.resolve()} (exists: {model_path.exists()})")
             else:
                 # Save PyTorch model
                 model_filename = f"pattern_nn_{version}.pth"
@@ -114,6 +127,22 @@ class ModelManager:
                 json.dump(metadata.to_dict(), f, indent=2)
 
             logger.info(f"Model and metadata saved successfully.")
+            logger.info(f"Model file absolute path: {model_path.resolve()}")
+            logger.info(f"Metadata file absolute path: {metadata_path.resolve()}")
+            logger.info(f"Model file exists after save: {model_path.exists()}")
+            logger.info(f"[DEBUG] Model file exists after save: {model_path.exists()}")
+            logger.info(f"Metadata file exists after save: {metadata_path.exists()}")
+
+            # Verify model can be loaded after save
+            try:
+                if backend and backend.startswith("Classic"):
+                    loaded_model = joblib.load(model_path)
+                else:
+                    checkpoint = torch.load(model_path)
+                logger.info("Model loaded successfully after save.")
+            except Exception as e:
+                logger.error(f"Failed to load model after save: {e}")
+
             return str(model_path)
         except Exception as e:
             logger.error(f"Exception during model save: {e}")
