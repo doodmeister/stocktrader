@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 import logging
 from typing import List, Dict, Any, Optional
+import os
 
 from patterns import CandlestickPatterns
 from utils.indicators import add_technical_indicators
@@ -137,6 +138,14 @@ def main():
     """)
 
     uploaded_file = st.file_uploader("Upload CSV Data for Analysis", type="csv")
+    if uploaded_file is not None:
+        filename = uploaded_file.name
+        stock_ticker = filename.split('_')[0].upper() if '_' in filename else os.path.splitext(filename)[0].upper()
+    else:
+        stock_ticker = "UNKNOWN"
+
+    st.markdown(f"### Stock Ticker: `{stock_ticker}`")
+
     if not uploaded_file:
         st.info("Please upload a CSV file to begin.")
         return
@@ -228,6 +237,39 @@ def main():
 
     # Candlestick chart with pattern markers
     plot_candlestick_with_patterns(df, pattern_results)
+
+    # --- Detailed Analysis Summary Box ---
+    st.markdown("""
+    ---
+    ## 📋 Detailed Analysis Summary
+
+    Copy the summary below and paste it into ChatGPT or another LLM for further insights.
+    """)
+
+    # Compose the summary
+    summary_lines = [
+        f"Technical Analysis Summary for {stock_ticker}:",
+        f"CSV File: {filename}",
+        "",
+        f"Latest Close: {df['close'].iloc[-1]:.2f}",
+        f"RSI (period={rsi_period}): {rsi.iloc[-1]:.2f}" if not rsi.isna().all() else "RSI: N/A",
+        f"MACD (fast={macd_fast}, slow={macd_slow}): {macd_line.iloc[-1]:.2f}",
+        f"MACD Signal: {signal_line.iloc[-1]:.2f}",
+        f"Bollinger Bands (period={bb_period}, std={bb_std}): Upper={upper_band.iloc[-1]:.2f}, Lower={lower_band.iloc[-1]:.2f}",
+        f"ATR (period=3): {atr:.3f}" if atr is not None else "ATR: N/A",
+        f"Price Target: {price_target:.3f}" if price_target is not None else "Price Target: N/A",
+        f"Combined Technical Signal: {signal:.3f}" if signal is not None else "Combined Technical Signal: N/A",
+        "",
+        "Detected Patterns (last 10):"
+    ]
+    if pattern_results:
+        for p in pattern_results[-10:]:
+            summary_lines.append(f"- Index {p['index']}, Date {p['date']}: {p['pattern']}")
+    else:
+        summary_lines.append("None detected.")
+
+    summary_text = "\n".join(summary_lines)
+    st.text_area("Copyable Analysis Summary", summary_text, height=300)
 
     st.markdown("""
     ---
