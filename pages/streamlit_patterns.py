@@ -213,6 +213,9 @@ def detect_pattern_in_example(pattern_name: str, df: pd.DataFrame) -> Tuple[bool
 
 def render_pattern_chart(pattern_name: str, df: pd.DataFrame) -> go.Figure:
     """Create a candlestick chart with pattern highlighting"""
+    # Standardize columns to lower-case for pattern detection
+    df.columns = [col.lower() for col in df.columns]
+
     # Find where the pattern occurs
     found, pattern_idx = detect_pattern_in_example(pattern_name, df)
     
@@ -372,8 +375,16 @@ def render_visualizer(patterns: List[str]):
         st.error("CSV must have a 'date' or 'timestamp' column.")
         return
 
+    # Standardize columns to lower-case for pattern detection
+    df.columns = [col.lower() for col in df.columns]
+
     method = get_pattern_method(pattern)
     df["signal"] = df.apply(lambda row: method(row), axis=1)
+
+    # For plotting, Plotly expects capitalized column names
+    df_plot = df.rename(columns={
+        "open": "Open", "high": "High", "low": "Low", "close": "Close", "date": "date"
+    })
 
     if not df["signal"].any():
         st.info("No instances of this pattern detected.")
@@ -382,12 +393,12 @@ def render_visualizer(patterns: List[str]):
     # Plotly chart
     fig = go.Figure(data=[
         go.Candlestick(
-            x=df["date"], open=df["Open"], high=df["High"],
-            low=df["Low"], close=df["Close"], name="Price"
+            x=df_plot["date"], open=df_plot["Open"], high=df_plot["High"],
+            low=df_plot["Low"], close=df_plot["Close"], name="Price"
         ),
         go.Scatter(
-            x=df.loc[df["signal"], "date"],
-            y=df.loc[df["signal"], "High"] * 1.01,
+            x=df_plot.loc[df["signal"], "date"],
+            y=df_plot.loc[df["signal"], "High"] * 1.01,
             mode="markers",
             marker=dict(symbol="triangle-up", size=12),
             name="Signal"
