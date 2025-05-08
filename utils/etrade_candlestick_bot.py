@@ -10,6 +10,7 @@ Pattern detection is separated into a 'patterns_nn.py' module.
 import os
 import time
 from utils.logger import setup_logger
+from utils.security import get_api_credentials
 import datetime as dt
 import pandas as pd
 import requests
@@ -21,7 +22,7 @@ import signal
 import sys
 
 from patterns.patterns_nn import PatternNN
-from utils.notifier import Notifier as CoreNotifier
+from utils.notifier import Notifier
 
 # Configure logging to both file and console for traceability
 logger = setup_logger(__name__)
@@ -236,69 +237,6 @@ class PerformanceTracker:
             )
         }
 
-class Notifier:
-    """
-    Wrapper for core notification system that integrates with trading bot configuration.
-    """
-    def __init__(self, config):
-        self.config = config
-        self.enabled = config.enable_notifications
-        # Only initialize the underlying notifier if notifications are enabled
-        self.core_notifier = CoreNotifier() if self.enabled else None
-        
-    def send_trade_notification(self, symbol: str, action: str, quantity: int, price: float):
-        if not self.enabled:
-            return
-            
-        # Format order data in the structure expected by core notifier
-        order_result = {
-            'symbol': symbol,
-            'side': action,
-            'quantity': quantity,
-            'filled_price': price,
-            'timestamp': dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        # Log locally
-        logger.info(f"NOTIFICATION: TRADE ALERT: {action} {quantity} shares of {symbol} at ${price:.2f}")
-        
-        # Send through notification system
-        try:
-            self.core_notifier.send_order_notification(order_result)
-        except Exception as e:
-            logger.error(f"Failed to send notification: {e}")
-    
-    def send_daily_summary(self, metrics: Dict):
-        if not self.enabled:
-            return
-            
-        summary = (
-            f"DAILY SUMMARY:\n" + 
-            f"Win Rate: {metrics.get('win_rate', 0):.1%}\n" + 
-            f"P&L: ${metrics.get('daily_pl', 0):.2f}\n" +
-            f"Total Trades: {metrics.get('total_trades', 0)}\n" +
-            f"Profit Factor: {metrics.get('profit_factor', 0):.2f}"
-        )
-        
-        # Log locally
-        logger.info(f"NOTIFICATION: {summary}")
-        
-        # Format as an "order" to use existing notification infrastructure
-        # This is a workaround to use the existing notification system
-        summary_data = {
-            'symbol': 'SUMMARY',
-            'side': 'INFO',
-            'quantity': 0,
-            'filled_price': 0.0,
-            'timestamp': dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'message': summary
-        }
-        
-        try:
-            self.core_notifier.send_order_notification(summary_data)
-        except Exception as e:
-            logger.error(f"Failed to send summary notification: {e}")
-
 class StrategyEngine:
     """
     Main trading strategy engine. Monitors symbols, detects patterns, manages positions, and enforces risk controls.
@@ -312,7 +250,7 @@ class StrategyEngine:
         self.running = True
         self.pattern_model = PatternNN()
         self.performance_tracker = PerformanceTracker()
-        self.notifier = Notifier(config)
+        self.notifier = Notifier()  # Instantiate directly, no config needed
         self._setup_signal_handlers()
 
     def _setup_signal_handlers(self):
@@ -453,7 +391,13 @@ class StrategyEngine:
                 'pattern': patterns
             }
             logger.info(f"Entered position in {symbol} due to pattern(s): {', '.join(patterns)}")
-            self.notifier.send_trade_notification(symbol, "BUY", quantity, df['close'].iloc[-1])
+            self.notifier.send_order_notification({
+                'symbol': symbol,
+                'side': "BUY",
+                'quantity': quantity,
+                'filled_price': df['close'].iloc[-1],
+                'timestamp': dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
         except Exception as e:
             logger.error(f"Failed to enter position in {symbol}: {e}")
 
@@ -487,10 +431,33 @@ class StrategyEngine:
             position = self.positions[symbol]
             self.client.place_market_order(symbol, position['quantity'], instruction="SELL")
             logger.info(f"Exited position in {symbol} due to {reason}.")
-            self.notifier.send_trade_notification(symbol, "SELL", position['quantity'], position['entry_price'])
+            self.notifier.send_order_notification({
+                'symbol': symbol,
+                'side': "SELL",
+                'quantity': position['quantity'],
+                'filled_price': position['entry_price'],
+                'timestamp': dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
             del self.positions[symbol]
         except Exception as e:
             logger.error(f"Failed to exit position in {symbol}: {e}")
+
+    def send_daily_summary(self, metrics: Dict):
+        summary = (
+            f"DAILY SUMMARY:\n"
+            f"Win Rate: {metrics.get('win_rate', 0):.1%}\n"
+            f"P&L: ${metrics.get('daily_pl', 0):.2f}\n"
+            f"Total Trades: {metrics.get('total_trades', 0)}\n"
+            f"Profit Factor: {metrics.get('profit_factor', 0):.2f}"
+        )
+        self.notifier.send_order_notification({
+            'symbol': 'SUMMARY',
+            'side': 'INFO',
+            'quantity': 0,
+            'filled_price': 0.0,
+            'timestamp': dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'message': summary
+        })
 
 def main():
     try:
@@ -503,13 +470,15 @@ def main():
             polling_interval=int(os.getenv('POLLING_INTERVAL', '300'))
         )
 
+        creds = get_api_credentials()  # <-- Use the helper function
+
         client = ETradeClient(
-            consumer_key=os.getenv('ETRADE_CONSUMER_KEY'),
-            consumer_secret=os.getenv('ETRADE_CONSUMER_SECRET'),
-            oauth_token=os.getenv('ETRADE_OAUTH_TOKEN'),
-            oauth_token_secret=os.getenv('ETRADE_OAUTH_TOKEN_SECRET'),
-            account_id=os.getenv('ETRADE_ACCOUNT_ID'),
-            sandbox=os.getenv('ETRADE_USE_SANDBOX', 'true').lower() == 'true'
+            consumer_key=creds['consumer_key'],
+            consumer_secret=creds['consumer_secret'],
+            oauth_token=creds['oauth_token'],
+            oauth_token_secret=creds['oauth_token_secret'],
+            account_id=creds['account_id'],
+            sandbox=creds['use_sandbox'].lower() == 'true'
         )
 
         symbols = os.getenv('SYMBOLS', 'AAPL,MSFT,GOOG').split(',')

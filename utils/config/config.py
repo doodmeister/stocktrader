@@ -18,6 +18,6 @@ class DashboardConfig:
     DATA_DIR: Path = Path("data")
     MODEL_DIR: Path = Path("models")
     CACHE_TTL: int = 3600
-    LOG_FILE: str = "dashboard.log"
+    LOG_FILE: str = str(Path("logs") / "dashboard.log")  # Updated to use logs folder
     LOG_MAX_SIZE: int = 1024 * 1024  # 1MB
     LOG_BACKUP_COUNT: int = 5

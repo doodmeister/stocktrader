@@ -1,9 +1,9 @@
 {
-  "version": "20250506_173928",
-  "saved_at": "2025-05-06T17:39:28.001030",
+  "version": "20250508_164640",
+  "saved_at": "2025-05-08T16:46:40.098810",
   "accuracy": 0.0,
   "parameters": {
-    "epochs": 30,
+    "epochs": 10,
     "seq_len": 10,
     "learning_rate": 0.001,
     "batch_size": 32,

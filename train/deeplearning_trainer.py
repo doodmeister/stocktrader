@@ -270,7 +270,7 @@ class PatternModelTrainer:
         model: PatternNN,
         metadata: Optional[ModelMetadata] = None
     ) -> None:
-        self.model_manager.save_model(model=model, metadata=metadata)
+        self.model_manager.save_model(model=model, metadata=metadata, backend="Deep Learning (PatternNN)")
 
 def train_pattern_model(
     symbols: List[str],

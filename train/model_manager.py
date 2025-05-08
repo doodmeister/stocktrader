@@ -75,12 +75,12 @@ class ModelManager:
     def save_model(self, model, metadata, backend=None):
         """
         Save model with metadata and optional backend support.
-        
+
         Args:
             model: Model to save (PyTorch or scikit-learn)
             metadata: Metadata object
             backend: Optional backend identifier (e.g., "ClassicML")
-            
+
         Returns:
             Path to saved model file
         """
@@ -89,20 +89,40 @@ class ModelManager:
         if backend is None and hasattr(metadata, "backend"):
             backend = metadata.backend
 
+        # --- Backend string check ---
+        if not backend or (not backend.startswith("Classic") and not backend.startswith("Deep")):
+            logger.error(f"Invalid or missing backend string: '{backend}'. Must start with 'Classic' or 'Deep'.")
+            raise ValueError("Backend string must start with 'Classic' or 'Deep'.")
+
         try:
             logger.info(f"[DEBUG] backend={backend}, model type={type(model)}")
             logger.info(f"Backend for saving: {backend}")
-            if backend and backend.startswith("Classic"):
+
+            if backend.startswith("Classic"):
+                # --- Model type check ---
                 if not isinstance(model, BaseEstimator):
-                    logger.error("Model is not a scikit-learn estimator!")
-                    raise ValueError("Model is not a scikit-learn estimator!")
+                    # Try to extract underlying estimator if possible
+                    underlying = getattr(model, "estimator_", None) or getattr(model, "model", None)
+                    if underlying and isinstance(underlying, BaseEstimator):
+                        logger.warning("Model is a wrapper. Using underlying estimator for saving.")
+                        model = underlying
+                    else:
+                        logger.error("Model is not a scikit-learn estimator and no underlying estimator found!")
+                        raise ValueError("Model must be a scikit-learn BaseEstimator or contain one as 'estimator_' or 'model'.")
                 else:
                     logger.info("Model is a valid scikit-learn estimator.")
+
                 model_filename = f"classic_ml_{version}.joblib"
                 model_path = self.base_directory / model_filename
                 logger.info(f"Saving classic ML model to: {model_path}")
                 joblib.dump(model, model_path)
                 logger.info(f"Classic ML model saved: {model_path.resolve()} (exists: {model_path.exists()})")
+                print(f"Classic ML model saved at: {model_path.resolve()} (exists: {model_path.exists()})")  # For console
+                try:
+                    import streamlit as st
+                    st.write(f"Classic ML model saved at: {model_path.resolve()} (exists: {model_path.exists()})")
+                except ImportError:
+                    pass
             else:
                 # Save PyTorch model
                 model_filename = f"pattern_nn_{version}.pth"
@@ -129,7 +149,7 @@ class ModelManager:
 
             # Verify model can be loaded after save
             try:
-                if backend and backend.startswith("Classic"):
+                if backend.startswith("Classic"):
                     loaded_model = joblib.load(model_path)
                 else:
                     checkpoint = torch.load(model_path)

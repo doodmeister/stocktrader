@@ -22,6 +22,7 @@ from sklearn.metrics import (
     precision_recall_fscore_support
 )
 from sklearn.preprocessing import StandardScaler
+from train.model_manager import ModelManager, ModelMetadata
 
 logger = setup_logger(__name__)
 
@@ -217,6 +218,35 @@ class ModelTrainer:
         except Exception as e:
             logger.exception(f"Error saving pipeline: {e}")
             raise ModelError(f"Failed to save pipeline: {e}") from e
+
+    def save_model_with_manager(
+        self,
+        pipeline: Pipeline,
+        symbol: str,
+        interval: str,
+        metrics: dict = None,
+        backend: str = "Classic ML (RandomForest)"
+    ) -> str:
+        """
+        Save the sklearn Pipeline using ModelManager for unified model handling.
+        """
+        model_manager = ModelManager(base_directory=str(self.config.MODEL_DIR))
+        version = datetime.now().strftime("%Y%m%d_%H%M%S")
+        metadata = ModelMetadata(
+            version=version,
+            saved_at=datetime.now().isoformat(),
+            accuracy=metrics.get("accuracy") if metrics else None,
+            parameters={"symbol": symbol, "interval": interval},
+            framework_version="sklearn"
+        )
+        logger.info(f"Saving model with backend: {backend}")
+        save_path = model_manager.save_model(
+            model=pipeline,
+            metadata=metadata,
+            backend=backend
+        )
+        logger.info(f"Model saved to: {save_path}")
+        return save_path
 
     def load_model(self, model_path: Path) -> Pipeline:
         """

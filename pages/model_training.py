@@ -28,7 +28,7 @@ from sklearn.base import BaseEstimator
 
 from utils.dashboard_utils import initialize_dashboard_session_state
 
-# Configure structured logging
+# Use the new logger from utils/logger.py
 logger = setup_logger(__name__)
 
 @dataclass
@@ -91,9 +91,11 @@ def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
 
         missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
         if missing_cols:
+            logger.warning(f"Missing required columns: {missing_cols}")
             return DataValidationResult(False, f"Missing required columns: {', '.join(missing_cols)}", None)
         null_counts = df.isnull().sum()
         if null_counts.any():
+            logger.warning(f"Dataset contains null values: {dict(null_counts[null_counts > 0])}")
             return DataValidationResult(
                 False,
                 f"Dataset contains null values: {dict(null_counts[null_counts > 0])}",
@@ -102,16 +104,22 @@ def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
         numeric_cols = ['open', 'high', 'low', 'close', 'volume']
         for col in numeric_cols:
             if not pd.api.types.is_numeric_dtype(df[col]):
+                logger.warning(f"Column {col} must be numeric")
                 return DataValidationResult(False, f"Column {col} must be numeric", None)
             if (df[col] < 0).any():
+                logger.warning(f"Negative values found in {col}")
                 return DataValidationResult(False, f"Negative values found in {col}", None)
         if not (df['high'] >= df['low']).all():
+            logger.warning("High prices must be >= low prices")
             return DataValidationResult(False, "High prices must be >= low prices", None)
         if not ((df['high'] >= df['open']) & (df['high'] >= df['close'])).all():
+            logger.warning("High price must be >= open and close prices")
             return DataValidationResult(False, "High price must be >= open and close prices", None)
         if not ((df['low'] <= df['open']) & (df['low'] <= df['close'])).all():
+            logger.warning("Low price must be <= open and close prices")
             return DataValidationResult(False, "Low price must be <= open and close prices", None)
         if len(df) < MIN_SAMPLES:
+            logger.warning(f"Dataset too small (minimum {MIN_SAMPLES} samples required)")
             return DataValidationResult(False, f"Dataset too small (minimum {MIN_SAMPLES} samples required)", None)
         stats = {
             "samples": len(df),
@@ -160,7 +168,6 @@ def train_model_deep_learning(
     logger.info("Starting model training step")
     st.info("Training model...")
 
-    # No client argument
     model, metrics = train_pattern_model(
         symbols=selected_symbols,
         data=data,
@@ -168,7 +175,6 @@ def train_model_deep_learning(
         batch_size=batch_size,
         learning_rate=learning_rate,
         selected_patterns=selected_patterns,
-        # Add other parameters as needed
     )
 
     logger.info("Model training step completed")
@@ -198,7 +204,6 @@ def train_model_classic_ml(
     st.write(f"Type of model returned: {type(model_result)}")
     st.write(f"Model result: {model_result}")
 
-    # If model_result is a custom class with an estimator attribute, extract it
     if hasattr(model_result, 'estimator') and isinstance(model_result.estimator, BaseEstimator):
         actual_model = model_result.estimator
     elif hasattr(model_result, 'model') and isinstance(model_result.model, BaseEstimator):
@@ -228,6 +233,7 @@ def save_trained_model(
     try:
         logger.info("Starting model saving step")
         st.info("Saving trained model...")
+        logger.debug(f"Model object: {repr(model)}")
         st.write(f"Model type being saved: {type(model)}")
         logger.info(f"Model type being saved: {type(model)}")
 
@@ -248,8 +254,8 @@ def save_trained_model(
 
         model_path = Path(save_path)
         metadata_path = model_path.with_suffix('.json')
-        logger.info(f"Model file exists after save: {model_path.exists()}")
-        logger.info(f"Metadata file exists after save: {metadata_path.exists()}")
+        logger.debug(f"Checking if model file exists after save: {model_path.exists()}")
+        logger.debug(f"Checking if metadata file exists after save: {metadata_path.exists()}")
 
         try:
             loaded_model, loaded_metadata = model_manager.load_model(type(model), str(model_path))
@@ -440,6 +446,12 @@ def render_training_page():
             logger.info("Training completed")
             st.success("Training completed!")
 
+            # After training
+            st.session_state.trained_model = model
+            st.session_state.training_metrics = metrics
+            st.session_state.training_config = config
+            st.session_state.training_backend = backend
+
             # Add a description
             st.markdown("""
             ### Model Evaluation Metrics
@@ -484,12 +496,12 @@ def render_training_page():
             if st.button("Save Trained Model"):
                 logger.info("Save Trained Model button clicked")
                 try:
+                    backend = st.session_state.get("training_backend")
+                    logger.info(f"Backend being sent to save_trained_model: {backend}")  # <-- Log backend before saving
                     success, error = save_trained_model(model, config, metrics, backend)
                     if success:
-                        logger.info("Model saved successfully")
                         st.success("Model saved successfully")
                     else:
-                        logger.error(f"Failed to save model: {error}")
                         st.error(f"Failed to save model: {error}")
                 except Exception as e:
                     logger.exception("Exception during model save")
