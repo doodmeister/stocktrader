@@ -12,7 +12,7 @@ import pandas as pd
 import torch
 import plotly.graph_objs as go
 from utils.etrade_candlestick_bot import ETradeClient
-from patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns
 from patterns.patterns_nn import PatternNN
 from train.deeplearning_trainer import train_pattern_model
 from train.ml_trainer import ModelTrainer

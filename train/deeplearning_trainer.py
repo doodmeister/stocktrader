@@ -12,7 +12,7 @@ from sklearn.metrics import confusion_matrix, classification_report, precision_s
 
 from train.deeplearning_config import TrainingConfig
 from patterns.patterns_nn import PatternNN
-from patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns
 from train.model_manager import ModelManager, ModelMetadata
 
 logger = logging.getLogger(__name__)

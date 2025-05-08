@@ -6,7 +6,7 @@ import logging
 from typing import List, Dict, Any, Optional
 import os
 
-from patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns
 from utils.technicals.indicators import add_technical_indicators
 from utils.technicals.performance_utils import PatternDetector
 from utils.technicals.technical_analysis import TechnicalAnalysis

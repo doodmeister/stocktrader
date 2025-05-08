@@ -19,12 +19,12 @@ import pandas as pd
 import plotly.graph_objs as go
 
 from utils.etrade_candlestick_bot import ETradeClient
-from patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns
 from patterns.patterns_nn import PatternNN
 from train.deeplearning_trainer import train_pattern_model
-from utils.risk_manager import RiskManager
+from utils.technicals.risk_manager import RiskManager
 from utils.notifier import Notifier
-from utils.indicators import TechnicalIndicators
+from utils.technicals.indicators import TechnicalIndicators
 from utils.etrade_client_factory import create_etrade_client
 from utils.dashboard_utils import initialize_dashboard_session_state
 
