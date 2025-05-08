@@ -6,13 +6,14 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import streamlit as st
 
-from data.config import DashboardConfig
-from data.data_validator import DataValidator
+from utils.config.config import DashboardConfig
+from utils.data_validator import DataValidator
 from utils.notifier import Notifier
-from data.data_downloader import (
+from utils.data_downloader import (
     download_stock_data,
     clear_cache
 )
+from utils.dashboard_utils import initialize_dashboard_session_state
 
 # Configure logging for the dashboard module
 logging.basicConfig(
@@ -331,6 +332,10 @@ class DataDashboard:
             st.header("Signal Analysis")
             st.info("Signal analysis has moved to the Model Training page.")
 
-if __name__ == "__main__" or st._is_running_with_streamlit:
+def main():
+    initialize_dashboard_session_state()
     dashboard = DataDashboard()
     dashboard.run()
+
+if __name__ == "__main__" or st._is_running_with_streamlit:
+    main()

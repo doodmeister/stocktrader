@@ -25,6 +25,8 @@ from train.deeplearning_trainer import train_pattern_model
 from utils.risk_manager import RiskManager
 from utils.notifier import Notifier
 from utils.indicators import TechnicalIndicators
+from utils.etrade_client_factory import create_etrade_client
+from utils.dashboard_utils import initialize_dashboard_session_state
 
 import os
 from pathlib import Path
@@ -771,13 +773,17 @@ class Dashboard:
                     logger.error(f"Failed to send SMS alert: {e}")
 
     def run(self):
+        initialize_dashboard_session_state()
         creds = self.render_sidebar()
         if not creds:
             st.info("Enter your E*Trade credentials and confirm environment above to begin.")
             return
 
         try:
-            self.client = ETradeClient(**creds)
+            self.client = create_etrade_client(creds)
+            if not self.client:
+                st.error("Failed to initialize E*Trade client. Check credentials and try again.")
+                return
             self.render_main_content()
         except Exception as e:
             logger.error(f"Failed to initialize dashboard: {e}")

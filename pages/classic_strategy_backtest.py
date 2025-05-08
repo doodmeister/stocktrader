@@ -3,6 +3,7 @@ import pandas as pd
 import logging
 from datetime import datetime
 from utils.backtester import run_backtest  # Ensure this function is properly defined in backtester.py
+from utils.dashboard_utils import initialize_dashboard_session_state
 
 # Configure logging
 logging.basicConfig(
@@ -17,6 +18,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Initialize session state
+initialize_dashboard_session_state()
 
 # Sidebar inputs
 st.sidebar.header("Backtest Configuration")

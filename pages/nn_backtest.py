@@ -7,6 +7,7 @@ import torch
 from utils.backtester import run_backtest_wrapper
 from train.model_manager import load_latest_model
 from patterns.patterns_nn import PatternNN  # <-- Import your model class (adjust if needed)
+from utils.dashboard_utils import initialize_dashboard_session_state
 
 @st.cache_resource
 def load_model_once():
@@ -52,41 +53,47 @@ def sma_crossover_strategy(df: pd.DataFrame, fast_period: int = 10, slow_period:
 
 # --- Streamlit App ---
 
-st.title("🧪 Strategy Backtesting")
+def main():
+    initialize_dashboard_session_state()
 
-st.subheader("Backtest Configuration")
-with st.form("backtest_form"):
-    symbol = st.text_input("Stock Symbol", value="AAPL")
-    start_date = st.date_input("Start Date")
-    end_date = st.date_input("End Date")
-    strategy = st.selectbox("Select Strategy", ["SMA Crossover", "Pattern NN"])
-    fast_period = st.number_input("Fast Period (for SMA)", min_value=1, max_value=100, value=10)
-    slow_period = st.number_input("Slow Period (for SMA)", min_value=10, max_value=200, value=30)
-    initial_capital = st.number_input("Initial Capital ($)", min_value=1000, value=100000)
-    risk_per_trade = st.number_input("Risk Per Trade (%)", min_value=0.1, max_value=100.0, value=1.0)
-    run_button = st.form_submit_button("Run Backtest")
+    st.title("🧪 Strategy Backtesting")
 
-if run_button:
-    st.info(f"Running {strategy} backtest for {symbol}...")
+    st.subheader("Backtest Configuration")
+    with st.form("backtest_form"):
+        symbol = st.text_input("Stock Symbol", value="AAPL")
+        start_date = st.date_input("Start Date")
+        end_date = st.date_input("End Date")
+        strategy = st.selectbox("Select Strategy", ["SMA Crossover", "Pattern NN"])
+        fast_period = st.number_input("Fast Period (for SMA)", min_value=1, max_value=100, value=10)
+        slow_period = st.number_input("Slow Period (for SMA)", min_value=10, max_value=200, value=30)
+        initial_capital = st.number_input("Initial Capital ($)", min_value=1000, value=100000)
+        risk_per_trade = st.number_input("Risk Per Trade (%)", min_value=0.1, max_value=100.0, value=1.0)
+        run_button = st.form_submit_button("Run Backtest")
 
-    results = run_backtest_wrapper(symbol, start_date, end_date, strategy, initial_capital, risk_per_trade)
+    if run_button:
+        st.info(f"Running {strategy} backtest for {symbol}...")
 
-    if "metrics" in results and results["metrics"]["num_trades"] == 0:
-        st.warning("⚠️ No trades executed—try broadening your date range or strategy parameters")
+        results = run_backtest_wrapper(symbol, start_date, end_date, strategy, initial_capital, risk_per_trade)
 
-    st.success("Backtest Completed!")
+        if "metrics" in results and results["metrics"]["num_trades"] == 0:
+            st.warning("⚠️ No trades executed—try broadening your date range or strategy parameters")
 
-    # Metrics
-    st.metric("Total Return", f"{results['metrics']['total_return']:.2f}%")
-    st.metric("Sharpe Ratio", f"{results['metrics']['sharpe_ratio']:.2f}")
-    st.metric("Max Drawdown", f"{results['metrics']['max_drawdown']:.2f}%")
+        st.success("Backtest Completed!")
 
-    # Equity Curve
-    st.subheader("Equity Curve")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=results['equity_curve']['date'], y=results['equity_curve']['equity'], mode='lines'))
-    st.plotly_chart(fig, use_container_width=True)
+        # Metrics
+        st.metric("Total Return", f"{results['metrics']['total_return']:.2f}%")
+        st.metric("Sharpe Ratio", f"{results['metrics']['sharpe_ratio']:.2f}")
+        st.metric("Max Drawdown", f"{results['metrics']['max_drawdown']:.2f}%")
 
-    # Trades
-    st.subheader("Executed Trades")
-    st.dataframe(results['trades'])
+        # Equity Curve
+        st.subheader("Equity Curve")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=results['equity_curve']['date'], y=results['equity_curve']['equity'], mode='lines'))
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Trades
+        st.subheader("Executed Trades")
+        st.dataframe(results['trades'])
+
+if __name__ == "__main__":
+    main()

@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from pattern_utils import (
+from patterns.pattern_utils import (
     read_patterns_file,
     write_patterns_file,
     get_pattern_names,
@@ -18,6 +18,7 @@ from pattern_utils import (
     validate_python_code
 )
 from patterns import PatternDetectionError, CandlestickPatterns
+from utils.dashboard_utils import initialize_dashboard_session_state
 
 # ─── Logging Setup ─────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
@@ -423,6 +424,7 @@ def render_sidebar():
 # ─── MAIN ────────────────────────────────────────────────────────────────────
 
 def main():
+    initialize_dashboard_session_state()
     try:
         render_title_and_header()
         patterns = load_pattern_names()

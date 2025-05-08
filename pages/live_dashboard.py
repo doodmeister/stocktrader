@@ -19,10 +19,12 @@ from pydantic import BaseModel, Field, validator
 
 # Local imports
 from utils.etrade_candlestick_bot import ETradeClient
-from utils.indicators import add_technical_indicators
+from utils.technicals.indicators import add_technical_indicators
 from train.model_manager import ModelManager
 from utils.config.validation import validate_symbol, safe_request
 from utils.security import get_api_credentials
+from utils.etrade_client_factory import create_etrade_client
+from utils.dashboard_utils import initialize_dashboard_session_state
 
 # Configure logger with proper format
 logger = logging.getLogger(__name__)
@@ -374,41 +376,6 @@ def render_last_update_info() -> None:
         st.warning(f"Experienced {st.session_state.error_count} data fetch errors since dashboard startup.")
 
 
-def initialize_etrade_client() -> Optional[ETradeClient]:
-    """
-    Initialize the E*Trade API client securely.
-    
-    Returns:
-        Initialized client or None if initialization failed
-    """
-    try:
-        # Get credentials from secure storage
-        credentials = get_api_credentials()
-        
-        # Initialize the client with correct parameter names
-        client = ETradeClient(
-            consumer_key=credentials.get('api_key', ''),
-            consumer_secret=credentials.get('api_secret', ''),
-            oauth_token=credentials.get('oauth_token', ''),
-            oauth_token_secret=credentials.get('oauth_token_secret', ''),
-            account_id=credentials.get('account_id', ''),
-            sandbox=(credentials.get('use_sandbox', 'true').lower() == 'true')
-        )
-        
-        logger.info("E*Trade client initialized successfully")
-        return client
-        
-    except ImportError:
-        st.error("Could not import E*Trade client library. Check your installation.")
-        logger.exception("E*Trade client import failed")
-        return None
-        
-    except Exception as e:
-        st.error(f"Failed to initialize E*Trade client: {str(e)}")
-        logger.exception(f"E*Trade client initialization failed: {str(e)}")
-        return None
-
-
 def main():
     """Main entry point for the dashboard application."""
     st.set_page_config(
@@ -420,10 +387,10 @@ def main():
     st.title("📊 Live Trading Dashboard")
     
     # Initialize session state
-    initialize_session_state()
+    initialize_dashboard_session_state()
     
     # Initialize the E*Trade client
-    client = initialize_etrade_client()
+    client = create_etrade_client()
     if client is None:
         st.error("Failed to initialize trading client. Check logs for details.")
         st.stop()

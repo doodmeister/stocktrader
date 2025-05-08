@@ -7,9 +7,10 @@ from typing import List, Dict, Any, Optional
 import os
 
 from patterns import CandlestickPatterns
-from utils.indicators import add_technical_indicators
-from utils.performance_utils import PatternDetector
-from utils.technical_analysis import TechnicalAnalysis
+from utils.technicals.indicators import add_technical_indicators
+from utils.technicals.performance_utils import PatternDetector
+from utils.technicals.technical_analysis import TechnicalAnalysis
+from utils.dashboard_utils import initialize_dashboard_session_state
 
 # Configure logging
 logger = logging.getLogger("data_analysis")
@@ -125,6 +126,7 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
     st.plotly_chart(fig, use_container_width=True)
 
 def main():
+    initialize_dashboard_session_state()
     st.title("📊 Technical Analysis Dashboard")
     st.markdown("""
     Welcome! This dashboard lets you upload historical price data and perform advanced technical analysis.

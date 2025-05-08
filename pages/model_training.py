@@ -14,17 +14,19 @@ import torch
 from train.model_training_pipeline import MLPipeline
 from train.model_manager import ModelManager, ModelMetadata
 from patterns.patterns_nn import PatternNN
-from utils.performance_utils import st_error_boundary, generate_combined_signals
+from utils.technicals.performance_utils import st_error_boundary, generate_combined_signals
 from utils.synthetic_trading_data import add_to_model_training_ui, generate_synthetic_data
-from data.ml_config import MLConfig
+from train.ml_config import MLConfig
 from utils.config.stockticker_yahoo_validation import get_valid_tickers
 from train.deeplearning_trainer import train_pattern_model
 
 # Classic ML pipeline
-from train.ml_model_trainer import ModelTrainer, TrainingParams
+from train.ml_trainer import ModelTrainer, TrainingParams
 
 from patterns import CandlestickPatterns
 from sklearn.base import BaseEstimator
+
+from utils.dashboard_utils import initialize_dashboard_session_state
 
 # Configure structured logging
 logging.basicConfig(
@@ -504,7 +506,8 @@ def render_training_page():
             logger.exception("Training error")
             st.error(f"Training failed: {str(e)}")
 
-if __name__ == "__main__":
+def main():
+    initialize_dashboard_session_state()
     with st_error_boundary():
         config = MLConfig(
             seq_len=10,
@@ -525,3 +528,6 @@ if __name__ == "__main__":
             render_training_page()
         with tab2:
             display_signal_analysis(config, model_trainer)
+
+if __name__ == "__main__":
+    main()
