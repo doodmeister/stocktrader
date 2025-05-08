@@ -5,7 +5,7 @@ import inspect
 from pathlib import Path
 from typing import List, Optional, Tuple, Callable
 
-from patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns
 
 # Path to your patterns module
 PATTERNS_PATH = Path(__file__).resolve().parent / "patterns.py"

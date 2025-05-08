@@ -23,7 +23,7 @@ from train.deeplearning_trainer import train_pattern_model
 # Classic ML pipeline
 from train.ml_trainer import ModelTrainer, TrainingParams
 
-from patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns
 from sklearn.base import BaseEstimator
 
 from utils.dashboard_utils import initialize_dashboard_session_state

@@ -14,12 +14,10 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 import json
 from utils.etrade_candlestick_bot import ETradeClient
 from patterns.patterns_nn import PatternNN
-
-from utils.performance_utils import get_candles_cached
 from train.model_manager import ModelManager
-from data.ml_config import MLConfig
+from train.ml_config import MLConfig
 from utils.notifier import Notifier
-from utils.performance_utils import get_candles_cached
+from utils.technicals.performance_utils import get_candles_cached
 
 # Configure logging
 logging.basicConfig(
