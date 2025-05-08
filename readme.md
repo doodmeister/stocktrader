@@ -117,46 +117,52 @@ An enterprise-grade trading platform that combines classic technical analysis wi
 
 ```
 stocktrader/
-├── streamlit_dashboard.py       # Web dashboard entry point
-├── backtester.py                # Strategy backtesting
-├── ml_pipeline.py               # ML training & inference
-│
+├── streamlit_dashboard.py            # Main Streamlit dashboard entry point
 ├── utils/
-│   ├── etrade_candlestick_bot.py   # Trading logic & E*TRADE API
-│   ├── indicators.py               # Technical indicators
-│   ├── model_manager.py            # Model persistence/versioning
-│   ├── performance_utils.py        # Dashboard state & pattern detection
-│   ├── validate_config.py          # Config validation
-│   ├── validation.py               # Input validation helpers
-│   ├── risk_manager.py             # Position sizing & risk controls
-│   └── getuservar.py               # E*TRADE OAuth helper
-│
-├── core/
-│   └── notifier.py                 # Notification system
-│
-├── data/
-│   ├── data_loader.py              # Data download (Yahoo Finance)
-│   ├── io.py                       # I/O utilities
-│   ├── model_trainer.py            # Model training pipeline
-│   └── data_dashboard.py           # Data visualization dashboard
-│
+│   ├── etrade_candlestick_bot.py     # E*TRADE API trading logic
+│   ├── etrade_client_factory.py      # E*TRADE client initialization
+│   ├── indicators.py                 # Technical indicators
+│   ├── model_manager.py              # Model persistence/versioning
+│   ├── technials/
+│   │   ├── performance_utils.py      # Pattern detection, dashboard state
+│   │   ├── risk_manager.py           # Position sizing & risk controls
+│   │   └── indicators.py             # Technical indicators
+│   ├── notifier.py                   # Notification system
+│   ├── data_validator.py             # Input validation helpers
+│   ├── data_downloader.py            # Data download utilities
+│   ├── dashboard_utils.py            # Shared dashboard/session state logic
+│   └── security.py                   # Credential management
+├── patterns/
+│   ├── patterns.py                   # Candlestick pattern detection
+│   ├── patterns_nn.py                # PatternNN model definition
+│   └── pattern_utils.py              # Pattern utilities
 ├── train/
-│   ├── training_pipeline.py        # ML training pipeline
-│   └── trainer.py                  # PatternNN model training
-│
-├── models/
-│   └── patterns_nn.py              # PatternNN model definition
-│
-├── patterns.py                     # Candlestick pattern detection
-│
-├── pages/                          # Streamlit multi-page app
-│   ├── live_dashboard.py           # Real-time monitoring
-│   ├── backtest.py                 # Backtesting UI
-│   ├── model_training.py           # ML pipeline UI
-│   └── settings.py                 # System configuration UI
-│
-├── tests/                          # Unit & integration tests
-└── .github/workflows/              # CI/CD pipelines
+│   ├── model_training_pipeline.py    # ML training pipeline
+│   ├── model_manager.py              # Model persistence/versioning
+│   ├── ml_trainer.py                 # Classic ML training
+│   ├── ml_config.py                  # ML config
+│   └── deeplearning_trainer.py       # Candlestick pattern deep learning model training
+├── pages/                            # Streamlit multi-page app
+│   ├── live_dashboard.py             # Real-time monitoring
+│   ├── data_dashboard.py             # Data visualization dashboard
+│   ├── data_analysis.py              # Data analysis tools
+│   ├── model_training.py             # ML pipeline UI
+│   ├── nn_backtest.py                # Neural net backtesting
+│   ├── classic_strategy_backtest.py  # Classic strategy backtesting
+│   ├── patterns.py                   # Pattern editor UI
+│   └── settings.py                   # System configuration UI
+├── data/                             # Data storage and loaders
+│   ├── data_loader.py
+│   ├── io.py
+│   └── model_trainer.py
+├── models/                           # Saved models
+│   └── patterns_nn.py
+├── tests/                            # Unit & integration tests
+├── Dockerfile                        # Docker build file
+├── docker-compose.yml                # Docker Compose for deployment
+├── requirements.txt                  # Python dependencies
+├── requirements-dev.txt              # Dev dependencies
+└── env.example                       # Example environment config
 ```
 
 ---
@@ -230,43 +236,19 @@ _This provides a full workflow: raw OHLCV → feature engineering → model trai
 - **Parallelized Training & Metrics Computation**  
 - **Persistent Model Saving & Versioning**  
 
-#### Example Usage
-```python
-from training.model_trainer import ModelTrainer, TrainingParams
 
-params = TrainingParams(n_estimators=100, max_depth=5, n_splits=5)
-trainer = ModelTrainer(params)
-metrics = trainer.train_and_evaluate('data/AAPL.csv')
-```
-
----
 
 ## Testing
 
 - **Unit Tests:**  
-  ```bash
-  pytest tests/unit
-  ```
-- **Integration Tests:**  
-  ```bash
-  pytest tests/integration
-  ```
-- **Coverage Report:**  
-  ```bash
-  pytest --cov=stocktrader
-  ```
+pytest tests/
 
----
+
 
 ## Documentation
 
 - **Docstrings:** All modules & functions are documented with Google-style docstrings.  
-- **Auto-Generated HTML:**  
-  ```bash
-  pdoc --html stocktrader --output-dir docs
-  ```
 
----
 
 ## Contributing
 
@@ -293,10 +275,16 @@ For issues or questions, please open a GitHub Issue or contact the maintainers a
 ---
 
 ## Further Improvement Suggestions
+Split the manual into separate docs for user, developer, and API reference.
+Add more code samples and usage scenarios for each dashboard page.
+Include architecture and data flow diagrams for clarity.
+Link to E*Trade API and Streamlit documentation for onboarding.
+Add a FAQ and troubleshooting section for common deployment issues.
 
-- Integrate reinforcement learning for dynamic strategy adaptation  
-- Add more advanced indicators (e.g., Elliott Waves, Ichimoku Cloud)  
-- Implement a mobile-friendly web dashboard  
-- Enhance risk management with VAR and Monte Carlo simulations  
-- Expand backtesting to multi-asset portfolios  
-- Add real-time paper-trading mode before live execution
+## Substantive Changes Highlighted
+Fixed all import paths to reflect actual module locations (e.g., from patterns.patterns import CandlestickPatterns).
+Clarified Docker Compose usage and ensured .env is referenced.
+Unified session state initialization instructions for all dashboards.
+Updated project structure to match the actual codebase, including all major subfolders and files.
+Added troubleshooting section for common errors.
+Corrected and expanded usage instructions for all major workflows.

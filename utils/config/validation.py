@@ -5,12 +5,12 @@ Provides functions for validating user inputs and API responses.
 
 import re
 import time
-import logging
+from utils.logger import setup_logger
 from typing import Callable, Any, Optional, TypeVar, List, Dict
 from functools import wraps
 from train.deeplearning_trainer import TrainingConfig
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 # Common stock market symbols regex (basic validation)
 SYMBOL_PATTERN = re.compile(r'^[A-Z0-9.]{1,10}$')

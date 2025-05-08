@@ -7,11 +7,11 @@ Production-grade candlestick pattern detection module.
 - Designed for integration with ML and rule-based pipelines.
 """
 
-import logging
+from utils.logger import setup_logger
 from typing import List, Callable, Tuple
 import pandas as pd
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 class PatternDetectionError(Exception):
     """Custom exception for pattern detection errors."""

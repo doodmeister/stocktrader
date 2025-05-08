@@ -6,7 +6,7 @@ Features candlestick charting, technical indicators, and trade execution.
 
 Part of the StockTrader application suite.
 """
-import logging
+from utils.logger import setup_logger
 import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
@@ -27,13 +27,7 @@ from utils.etrade_client_factory import create_etrade_client
 from utils.dashboard_utils import initialize_dashboard_session_state
 
 # Configure logger with proper format
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+logger = setup_logger(__name__)
 
 # Constants
 DEFAULT_SYMBOL = "AAPL"

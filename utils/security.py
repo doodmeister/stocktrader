@@ -3,11 +3,11 @@ Security utilities for the Stock Trader application.
 Handles credential management and secure access to API keys.
 """
 import os
-import logging
+from utils.logger import setup_logger
 from typing import Dict, Any
 from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()

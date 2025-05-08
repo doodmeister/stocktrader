@@ -5,7 +5,7 @@ for stock market prediction using a standardized pipeline approach with robust
 validation, error handling, and performance optimizations.
 """
 
-import logging
+from utils.logger import setup_logger
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -23,7 +23,7 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import StandardScaler
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 class ModelError(Exception):
     pass

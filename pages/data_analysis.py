@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import logging
+from utils.logger import setup_logger
 from typing import List, Dict, Any, Optional
 import os
 
@@ -13,9 +13,7 @@ from utils.technicals.technical_analysis import TechnicalAnalysis
 from utils.dashboard_utils import initialize_dashboard_session_state
 
 # Configure logging
-logger = logging.getLogger("data_analysis")
-if not logger.hasHandlers():
-    logging.basicConfig(level=logging.INFO)
+logger = setup_logger(__name__)
 
 def load_csv(uploaded_file) -> Optional[pd.DataFrame]:
     """Safely load a CSV file into a DataFrame."""

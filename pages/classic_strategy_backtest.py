@@ -1,16 +1,12 @@
 import streamlit as st
 import pandas as pd
-import logging
 from datetime import datetime
 from utils.backtester import run_backtest  # Ensure this function is properly defined in backtester.py
 from utils.dashboard_utils import initialize_dashboard_session_state
+from utils.logger import setup_logger
 
 # Configure logging
-logging.basicConfig(
-    filename='logs/dashboard.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s:%(message)s'
-)
+logger = setup_logger(__name__)
 
 # Set Streamlit page configuration
 st.set_page_config(
@@ -42,6 +38,10 @@ if start_date >= end_date:
 # Main content
 st.title("📈 Trading Strategy Backtester")
 
+def some_func():
+    logger.info("Starting dashboard")
+    logger.warning("Something might be wrong")
+
 if st.sidebar.button("Run Backtest"):
     try:
         # Run backtest
@@ -66,4 +66,4 @@ if st.sidebar.button("Run Backtest"):
 
     except Exception as e:
         st.error(f"An error occurred during backtesting: {e}")
-        logging.error(f"Backtest error for {symbol} from {start_date} to {end_date}: {e}")
+        logger.error(f"Backtest error for {symbol} from {start_date} to {end_date}: {e}")

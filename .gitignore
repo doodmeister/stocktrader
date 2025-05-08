@@ -8,6 +8,7 @@ __pycache__/
 
 # Junk
 source/
+logs/
 
 # Distribution / packaging
 .Python

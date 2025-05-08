@@ -2,13 +2,13 @@
 Stock validation utility for verifying ticker symbols and providing common stock options.
 This module intentionally avoids importing torch or other ML libraries to prevent circular imports.
 """
-import logging
+from utils.logger import setup_logger
 import time
 from typing import Dict, List, Optional, Set, Tuple
 from functools import lru_cache
 
 # Configure module logger
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 # Cache for validated tickers with timestamp to enable expiry
 _TICKER_CACHE: Dict[str, Tuple[bool, float]] = {}

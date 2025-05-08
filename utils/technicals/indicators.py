@@ -6,7 +6,7 @@ Technical indicators module for financial analysis.
 Provides wrapper functions around technical analysis libraries with fallback implementations.
 Handles input validation, error cases, and proper typing.
 """
-import logging
+from utils.logger import setup_logger
 from typing import Optional, Union, List, Any, Dict
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ except ImportError:
     logging.warning("pandas_ta not found - using fallback implementations for indicators")
 
 # Configure logging
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 class IndicatorError(Exception):
     """Custom exception for indicator calculation errors."""

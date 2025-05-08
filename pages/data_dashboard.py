@@ -1,4 +1,4 @@
-import logging
+from utils.logger import setup_logger
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -16,11 +16,7 @@ from utils.data_downloader import (
 from utils.dashboard_utils import initialize_dashboard_session_state
 
 # Configure logging for the dashboard module
-logging.basicConfig(
-    format="%(asctime)s %(levelname)s [DataDashboard]: %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 def handle_streamlit_exception(method):
     """

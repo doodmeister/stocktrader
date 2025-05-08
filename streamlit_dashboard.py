@@ -11,7 +11,7 @@ PROJECT_ROOT = Path('/app') if in_docker() else Path(__file__).resolve().parent
 # add it so `import stocktrader…` works
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import logging
+from utils.logger import setup_logger
 from typing import List, Optional, Dict
 from datetime import datetime
 import streamlit as st
@@ -55,18 +55,7 @@ SESSION_KEYS = {
 }
 
 # --- Logging Configuration ---
-LOG_FILE = PROJECT_ROOT / 'trading.log'
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
+logger = setup_logger(__name__)
 
 # --- Utility: Cached Pattern Detection ---
 @st.cache_data(show_spinner=False, ttl=300)

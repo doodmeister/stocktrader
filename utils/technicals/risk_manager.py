@@ -1,12 +1,12 @@
-import logging
 from dataclasses import dataclass
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator  # For Pydantic v2
 import pandas as pd
 import math
+from utils.logger import setup_logger
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Configure logger
+logger = setup_logger(__name__)
 
 class RiskParameters(BaseModel):
     """

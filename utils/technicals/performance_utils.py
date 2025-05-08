@@ -2,7 +2,6 @@
 E*Trade Candlestick Trading Dashboard utility module.
 Handles data visualization, pattern detection, and order execution.
 """
-import logging
 import functools
 from typing import Dict, List, Optional, Tuple, Union
 import asyncio
@@ -18,6 +17,9 @@ from train.deeplearning_trainer import train_pattern_model
 from train.ml_trainer import ModelTrainer
 from pathlib import Path
 from contextlib import contextmanager
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 @contextmanager
 def st_error_boundary():
@@ -47,13 +49,6 @@ def get_candles_cached(
     """
     client = ETradeClient()   # reads creds from .env
     return client.get_candles(symbol, interval=interval, days=days)
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 class DashboardState:
     """Manages dashboard session state and configuration."""

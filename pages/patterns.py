@@ -1,6 +1,6 @@
 # stocktrader/streamlit_patterns.py
 
-import logging
+from utils.logger import setup_logger
 from pathlib import Path
 from typing import List, Dict, Tuple
 import numpy as np
@@ -21,7 +21,7 @@ from patterns.patterns import PatternDetectionError, CandlestickPatterns
 from utils.dashboard_utils import initialize_dashboard_session_state
 
 # ─── Logging Setup ─────────────────────────────────────────────────────────────
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 # ─── Streamlit Page Config ────────────────────────────────────────────────────
 st.set_page_config(

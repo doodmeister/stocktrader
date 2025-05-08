@@ -1,8 +1,8 @@
-import logging
+from utils.logger import setup_logger
 from typing import Optional
 from utils.etrade_candlestick_bot import ETradeClient
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 def create_etrade_client(creds: dict) -> Optional[ETradeClient]:
     """

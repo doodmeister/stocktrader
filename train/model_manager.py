@@ -2,7 +2,7 @@
 Model management utilities for saving, loading, and versioning PyTorch models.
 Provides a robust interface for model persistence with versioning and metadata handling.
 """
-import logging
+from utils.logger import setup_logger
 import os
 import torch
 import json
@@ -15,13 +15,7 @@ from enum import Enum
 from sklearn.base import BaseEstimator
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    filename="models/app.log",  # or an absolute path if you prefer
-    filemode="a",               # append mode
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 class ModelError(Exception):
     """Base exception for model management errors."""

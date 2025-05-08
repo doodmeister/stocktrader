@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import logging
+from utils.logger import setup_logger
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, NamedTuple, List
 from datetime import datetime
@@ -29,15 +29,7 @@ from sklearn.base import BaseEstimator
 from utils.dashboard_utils import initialize_dashboard_session_state
 
 # Configure structured logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('model_training.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 @dataclass
 class TrainingConfigUnified:

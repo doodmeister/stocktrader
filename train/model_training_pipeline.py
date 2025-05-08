@@ -2,7 +2,7 @@
 """
 Machine Learning Pipeline for Candlestick Pattern Recognition
 """
-import logging
+from utils.logger import setup_logger
 import os
 import torch
 import numpy as np
@@ -20,15 +20,7 @@ from utils.notifier import Notifier
 from utils.technicals.performance_utils import get_candles_cached
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('ml_pipeline.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 class MLPipeline:
     def __init__(

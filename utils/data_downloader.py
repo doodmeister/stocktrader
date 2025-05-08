@@ -4,7 +4,7 @@ Module to fetch OHLCV data from Yahoo Finance and save it to CSV.
 """
 import os
 import time
-import logging
+from utils.logger import setup_logger
 from typing import Dict, List, Optional
 from datetime import date, timedelta, datetime
 from pathlib import Path
@@ -15,9 +15,7 @@ import pandas as pd
 from utils.config.validation import sanitize_input, validate_symbol, safe_request
 
 # Set up basic + debug logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger = setup_logger(__name__)
 
 
 def fetch_daily_ohlcv(symbol: str, start: str, end: str) -> pd.DataFrame:

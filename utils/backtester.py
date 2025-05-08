@@ -5,7 +5,7 @@ This module provides a robust framework for backtesting trading strategies
 against historical market data, with comprehensive performance metrics and
 risk analysis capabilities.
 """
-import logging
+from utils.logger import setup_logger
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -16,11 +16,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 def empty_backtest_result(initial_capital: float) -> Tuple[Dict[str, Any], pd.DataFrame, pd.DataFrame]:
     """

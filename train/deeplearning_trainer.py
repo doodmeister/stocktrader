@@ -1,4 +1,4 @@
-import logging
+from utils.logger import setup_logger
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime
@@ -15,7 +15,7 @@ from patterns.patterns_nn import PatternNN
 from patterns.patterns import CandlestickPatterns
 from train.model_manager import ModelManager, ModelMetadata
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 @dataclass
 class TrainingConfig:

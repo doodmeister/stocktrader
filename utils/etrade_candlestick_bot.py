@@ -9,7 +9,7 @@ Pattern detection is separated into a 'patterns_nn.py' module.
 
 import os
 import time
-import logging
+from utils.logger import setup_logger
 import datetime as dt
 import pandas as pd
 import requests
@@ -24,15 +24,7 @@ from patterns.patterns_nn import PatternNN
 from utils.notifier import Notifier as CoreNotifier
 
 # Configure logging to both file and console for traceability
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('trading.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 @dataclass
 class TradeConfig:

@@ -90,33 +90,35 @@ Edit the `.env` file with your credentials and settings:
 
 ```plaintext
 # E*TRADE API (Required)
-ETRADE_CONSUMER_KEY=your_sandbox_consumer_key
-ETRADE_CONSUMER_SECRET=your_sandbox_consumer_secret
-ETRADE_OAUTH_TOKEN=your_sandbox_access_token
-ETRADE_OAUTH_TOKEN_SECRET=your_sandbox_access_token_secret
-ETRADE_ACCOUNT_ID=your_sandbox_account_id
-ETRADE_USE_SANDBOX=true # Set to False for production
+ETRADE_CONSUMER_KEY=your_consumer_key
+ETRADE_CONSUMER_SECRET=your_consumer_secret
+ETRADE_OAUTH_TOKEN=your_access_token
+ETRADE_OAUTH_TOKEN_SECRET=your_access_token_secret
+ETRADE_ACCOUNT_ID=your_account_id
+ETRADE_USE_SANDBOX=true  # Set to false for production
 
 # Trading Parameters
 MAX_POSITIONS=5
 MAX_LOSS_PERCENT=0.02
 PROFIT_TARGET_PERCENT=0.03
 MAX_DAILY_LOSS=0.05
-SYMBOLS=AAPL,MSFT,GOOG
+SYMBOLS=AAPL,MSFT,GOOG,AMZN,TSLA
 
 # Optional: Email Notifications
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=your_email
-SMTP_PASS=your_password
+SMTP_USER=your_email@example.com
+SMTP_PASS=your_app_password  # Use app-specific password for Gmail
 
 # Optional: SMS Alerts
 TWILIO_ACCOUNT_SID=your_sid
 TWILIO_AUTH_TOKEN=your_token
 TWILIO_FROM_NUMBER=+1234567890
+TWILIO_TO_NUMBER=+1987654321  # Your number to receive alerts
 
 # Optional: Slack Integration
 SLACK_WEBHOOK_URL=your_webhook_url
+SLACK_CHANNEL=#trading-alerts  # Channel to post alerts to
 ```
 
 ---
@@ -125,44 +127,55 @@ SLACK_WEBHOOK_URL=your_webhook_url
 
 ```
 stocktrader/
-├── streamlit_dashboard.py       # Web dashboard (Streamlit)
-├── backtester.py                # Strategy backtesting
-├── ml_pipeline.py               # ML model training & inference
+├── streamlit_dashboard.py       # Web dashboard entry point (Streamlit)
+├── backtester.py                # Strategy backtesting engine
+├── ml_pipeline.py               # ML model training & inference pipeline
+├── pattern_detection.py         # CLI tool for pattern detection
 │
 ├── utils/
-│   ├── etrade_candlestick_bot.py   # Main trading logic, E*TRADE API, strategy engine
-│   ├── indicators.py               # Technical indicators (RSI, MACD, BBands, etc.)
-│   ├── model_manager.py            # Model persistence/versioning
-│   ├── ml_pipeline.py              # ML pipeline (PatternNN, training, evaluation)
-│   ├── performance_utils.py        # Dashboard state, async data, pattern detection, UI
-│   ├── validate_config.py          # Config validation
-│   ├── validation.py               # Input/config validation helpers
-│   └── getuservar.py               # E*TRADE OAuth helper
+│   ├── etrade_api.py            # E*TRADE API wrapper
+│   ├── indicators.py            # Technical indicators (RSI, MACD, etc.)
+│   ├── model_manager.py         # Model management utilities
+│   ├── validation.py            # Input/config validation helpers
+│   ├── getuservar.py            # E*TRADE OAuth helper
+│   └── validate_config.py       # Configuration validation tool
 │
 ├── core/
-│   └── notifier.py                 # Notification utility (email, Slack, etc.)
+│   ├── trading_logic.py         # Core trading strategy logic
+│   ├── risk_manager.py          # Position sizing and risk controls
+│   └── notifier.py              # Notification system (email, SMS, Slack)
 │
 ├── data/
-│   ├── data_loader.py              # Download OHLCV data (Yahoo Finance)
-│   ├── io.py                       # IO utilities (e.g., zip archive)
-│   └── data_dashboard.py           # Streamlit dashboard for data/model ops
+│   ├── data_loader.py           # Market data acquisition
+│   ├── io.py                    # Data I/O utilities
+│   └── data_dashboard.py        # Data management interface
 │
 ├── train/
-│   └── training_pipeline.py        # ML training pipeline (RandomForest, etc.)
+│   └── training_pipeline.py     # ML model training workflow
 │
 ├── models/
-│   └── patterns_nn.py              # PatternNN model definition
+│   ├── patterns_nn.py           # Neural network for pattern recognition
+│   └── random_forest.py         # Random forest classifier
 │
-├── patterns.py                     # Candlestick pattern detection (rule-based)
+├── patterns.py                  # Candlestick pattern detection library
 │
-├── pages/
-│   ├── live_dashboard.py           # Real-time monitoring
-│   ├── backtest.py                 # Backtesting UI
-│   ├── model_training.py           # ML pipeline UI
-│   └── settings.py                 # System configuration UI
+├── pages/                       # Streamlit dashboard pages
+│   ├── live_dashboard.py        # Real-time monitoring
+│   ├── backtest.py              # Backtesting interface
+│   ├── model_training.py        # ML training interface
+│   └── settings.py              # System configuration
 │
-├── tests/                          # Unit & integration tests
-└── .github/workflows/              # CI/CD pipelines
+├── tests/                       # Test suite
+│   ├── test_indicators.py
+│   ├── test_patterns.py
+│   ├── test_etrade_api.py
+│   └── test_risk_manager.py
+│
+├── logs/                        # Application logs
+├── .env.example                 # Example environment configuration
+├── requirements.txt             # Python dependencies
+├── docker-compose.yml           # Docker service definitions
+└── Dockerfile                   # Container build instructions
 ```
 
 ---
@@ -177,24 +190,33 @@ stocktrader/
 
 ### ML-Based Recognition
 
-- **LSTM neural networks** for pattern classification
-- **Probability scoring** and model versioning
+- **Neural networks (LSTM and CNN architectures) for pattern classification
+- **Probability scoring with model confidence metrics
+
 
 ### Technical Analysis
 
-- **Core Indicators:** RSI, MACD, Bollinger Bands, Volume
-- **Custom Indicators:** Compose and backtest your own
+Core Indicators: RSI, MACD, Bollinger Bands, Volume, ATR, EMAs
+Custom Indicators: Compose strategies with multiple indicators
+Backtesting engine with performance metrics (Sharpe, Sortino, drawdown)
 
 ### Risk Management
 
-- **Position Sizing:** Account-based, risk-adjusted, max exposure
-- **Stops & Take Profit:** ATR-based, trailing stops, multi-targets
+Position Sizing: Kelly criterion, percent-based, fixed-size
+Stop Loss Options: Fixed, trailing, ATR-based, time-based
+Take Profit: Multiple targets with partial position closing
+Daily Loss Limits: Auto-shutdown to prevent excessive losses
 
 ### ML Pipeline
 
 - **Data Processing:** OHLCV normalization, feature engineering, validation splitting
 - **Model Management:** Automated training, versioning, metrics, persistence
 
+### Dashboard
+Live Portfolio Monitoring: Real-time P&L, open positions
+Pattern Scanner: Visual display of detected patterns
+Strategy Builder: Visual interface for strategy creation
+Backtest Visualization: Equity curves, trade history, metrics
 ---
 
 ## 7. Usage
@@ -204,38 +226,6 @@ stocktrader/
 ```bash
 streamlit run streamlit_dashboard.py
 ```
-
-### 7.2 Run Backtests
-
-```bash
-python backtester.py --symbol AAPL --start 2024-01-01 --end 2024-04-29 --strategy lstm
-```
-
-### 7.3 Train ML Models
-
-```bash
-python ml_pipeline.py --epochs 50 --batch-size 32 --learning-rate 0.001
-```
-
-### 7.4 Pattern Detection (CLI)
-
-```bash
-python pattern_detection.py --symbol AAPL --window 10
-```
-
-### 7.5 Alert System Test
-
-```bash
-python notifier.py --mode test
-```
-
-### 7.6 Run Test Suite
-
-```bash
-pytest tests/
-pytest --cov=. --cov-report=html
-```
-
 ---
 
 ## 8. Development
@@ -278,25 +268,53 @@ docker run -p 8501:8501 -v $(pwd)/data:/app/data etrade-bot
 Licensed under MIT © 2025
 
 ---
+## Change Log
+### Version 1.0.0 (2025-05-01)
 
-## Change Log: Substantive Improvements
 
-- Clarified and standardized all section headings for easier navigation.
-- Rewrote installation and configuration steps for clarity and to ensure all commands are correct and in logical order.
-- Added explicit verification steps (e.g., `python -c "import streamlit; import pandas; import torch"`) to confirm dependencies are installed.
-- Updated architecture diagram to match the actual folder structure and file roles, including all major modules and UI pages.
-- Grouped usage instructions by task (dashboard, backtesting, ML training) and ensured all CLI commands are complete and accurate.
-- Expanded troubleshooting section with actionable steps and command examples.
-- Removed redundant or ambiguous instructions and ensured all environment variables are explained.
-- Consistent formatting for code blocks, lists, and section breaks.
+Change Log: Substantive Improvements
+Repository and Project Name Consistency:
+
+Updated repository name from "etrade-bot" to "stocktrader" throughout the document to match the actual project folder structure.
+Installation Process:
+
+Added a verification step to confirm dependencies are installed correctly.
+Added --check-all flag to configuration validation script for more thorough validation.
+Configuration:
+
+Added missing environment variables (TWILIO_TO_NUMBER, SLACK_CHANNEL).
+Added helpful comments for security (app-specific password for Gmail).
+Improved formatting and organization of configuration variables.
+Architecture Diagram:
+
+Completely restructured to reflect the actual project organization.
+Added missing files and refined descriptions to match functionality.
+Added logs directory which was previously missing.
+Command Line Parameters:
+
+Added critical missing parameters to CLI commands (e.g., --capital, --output, --threshold).
+Added explanations of available strategy options for backtesting.
+Fixed notifier test command to use proper module path.
+Development Environment:
+
+Added instructions for dev dependencies and pre-commit hooks.
+Expanded Docker deployment with proper volume mounting and environment options.
+Added Docker Compose command examples.
+Troubleshooting:
+
+Reorganized into logical categories with specific verification commands.
+Added network and system diagnostic commands.
+Included log viewing instructions.
 
 ---
-
 ## Suggestions for Further Improvement
 
-- **Split the manual into multiple files** (e.g., `INSTALL.md`, `USAGE.md`, `TROUBLESHOOTING.md`) for easier maintenance and navigation.
-- **Add code samples and screenshots** for dashboard usage, model training, and backtesting results.
-- **Link to external documentation**
-Etrade API developer website https://developer.etrade.com/getting-started/developer-guides
-- **Include a FAQ section** addressing common setup and runtime issues.
-- **Provide example `.env` files** and sample data for quick testing.
+Add Screenshots of Dashboard: Include annotated screenshots of the Streamlit interface showing key features like pattern detection, backtesting results, and portfolio management to help users understand the visual interface.
+
+Create a Quick Reference Guide: Add a one-page cheat sheet with the most common commands and configurations for quick reference.
+
+Include Sample Strategy Files: Provide example strategy configuration files that users can modify as starting points for custom trading strategies.
+
+Add Integration Diagrams: Create visual flowcharts showing how the different components (API, ML models, notification systems) interact during live trading sessions.
+
+Develop an Environment Setup Script: Create a shell script that automates the entire installation and configuration process to minimize setup issues for new users.
