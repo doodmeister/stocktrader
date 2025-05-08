@@ -120,6 +120,43 @@ def render_sidebar() -> DashboardConfig:
     )
 
 
+def render_credentials_sidebar() -> Optional[Dict[str, str]]:
+    st.sidebar.header("🔑 API Credentials")
+    env_creds = get_api_credentials()
+
+    # Pre-populate fields with values from .env, allow user to override
+    consumer_key = st.sidebar.text_input("Consumer Key", value=env_creds.get('consumer_key', ''), type="password")
+    consumer_secret = st.sidebar.text_input("Consumer Secret", value=env_creds.get('consumer_secret', ''), type="password")
+    oauth_token = st.sidebar.text_input("OAuth Token", value=env_creds.get('oauth_token', ''), type="password")
+    oauth_token_secret = st.sidebar.text_input("OAuth Token Secret", value=env_creds.get('oauth_token_secret', ''), type="password")
+    account_id = st.sidebar.text_input("Account ID", value=env_creds.get('account_id', ''))
+
+    # Environment selection
+    env = st.sidebar.radio("Environment", ["Sandbox", "Live"], index=0)
+    use_sandbox = (env == "Sandbox")
+
+    # Confirm live trading
+    live_ok = True
+    if not use_sandbox:
+        live_ok = st.sidebar.checkbox("I understand this is LIVE trading (real money)")
+
+    creds = {
+        'consumer_key': consumer_key,
+        'consumer_secret': consumer_secret,
+        'oauth_token': oauth_token,
+        'oauth_token_secret': oauth_token_secret,
+        'account_id': account_id,
+        'use_sandbox': str(use_sandbox).lower()
+    }
+
+    if all([consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id]) and (use_sandbox or live_ok):
+        st.sidebar.success("✅ Credentials ready")
+        return creds
+    else:
+        st.sidebar.info("Enter all credentials to enable trading features.")
+        return None
+
+
 def load_price_data(client: ETradeClient, symbol: str) -> Optional[pd.DataFrame]:
     """
     Load real-time price data for the given symbol with robust error handling.
@@ -371,35 +408,32 @@ def render_last_update_info() -> None:
 
 
 def main():
-    """Main entry point for the dashboard application."""
     st.set_page_config(
         page_title="Live Trading Dashboard - StockTrader",
         page_icon="📊",
         layout="wide"
     )
-    
+
     st.title("📊 Live Trading Dashboard")
-    
+
     # Initialize session state
     initialize_dashboard_session_state()
-    
-    # Initialize the E*Trade client
-    client = create_etrade_client()
-    if client is None:
-        st.error("Failed to initialize trading client. Check logs for details.")
-        st.stop()
-    
+
+    # Try to get credentials and initialize the E*Trade client
+    creds = render_credentials_sidebar()
+    client = create_etrade_client(creds) if creds else None
+
     # Render sidebar and get configuration
     config = render_sidebar()
-    
+
     # Auto-refresh container
     data_container = st.empty()
-    
+
     # Add manual refresh button
     col1, col2 = st.columns([1, 5])
     with col1:
         refresh_clicked = st.button("🔄 Refresh")
-    
+
     # Check if it's time to refresh the data
     time_to_refresh = False
     if st.session_state.last_update_time is None:
@@ -407,42 +441,48 @@ def main():
     else:
         elapsed = (datetime.now() - st.session_state.last_update_time).total_seconds()
         time_to_refresh = elapsed >= config.refresh_interval
-    
+
     # Load data if it's time to refresh or if refresh was clicked
     if time_to_refresh or refresh_clicked:
         with st.spinner(f"Loading data for {config.symbol}..."):
-            data = load_price_data(client, config.symbol)
-            
+            if client:
+                data = load_price_data(client, config.symbol)
+            else:
+                data = None  # Or load demo data if you have it
+
             if data is not None:
                 st.session_state.data_cache = data
                 st.session_state.last_update_time = datetime.now()
-    
+
     # Show last update time
     render_last_update_info()
-    
+
     # If we have data, render the dashboard components
     if st.session_state.data_cache is not None:
         with data_container:
             # Render price chart
             render_price_chart(st.session_state.data_cache, config.symbol, config)
-            
+
             # Render key metrics
             render_metrics(st.session_state.data_cache)
-            
-            # Render trade controls
-            render_trade_controls(client, config.symbol)
+
+            # Render trade controls only if client is available
+            if client:
+                render_trade_controls(client, config.symbol)
+            else:
+                st.info("Trading controls are disabled in demo mode (no credentials provided).")
     else:
         with data_container:
             st.warning(f"No data available for {config.symbol}. Please check that the symbol is valid.")
-    
+
     # Set up auto-refresh
     if not refresh_clicked and st.session_state.last_update_time:
         elapsed = (datetime.now() - st.session_state.last_update_time).total_seconds()
         time_to_next_refresh = max(1, config.refresh_interval - int(elapsed))
-        
+
         with st.empty():
             st.caption(f"Next refresh in approximately {time_to_next_refresh} seconds")
-        
+
         # Schedule a rerun after the refresh interval
         time.sleep(1)  # Small delay to prevent UI freezing
         st.experimental_rerun()

@@ -3,7 +3,7 @@
 import logging
 import os
 from logging.handlers import RotatingFileHandler
-from .config import DashboardConfig
+from utils.config.config import DashboardConfig
 
 _DEFAULT_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 _DEFAULT_LEVEL = os.environ.get("STOCKTRADER_LOG_LEVEL", "INFO").upper()

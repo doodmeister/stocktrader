@@ -12,15 +12,15 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
+# Configure logging
+logger = setup_logger(__name__)
+
 try:
     import pandas_ta as ta
     TA_AVAILABLE = True
 except ImportError:
     TA_AVAILABLE = False
     logging.warning("pandas_ta not found - using fallback implementations for indicators")
-
-# Configure logging
-logger = setup_logger(__name__)
 
 class IndicatorError(Exception):
     """Custom exception for indicator calculation errors."""
