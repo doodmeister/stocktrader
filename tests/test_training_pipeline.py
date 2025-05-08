@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from train.ml_training_pipeline import (
+from utils.deprecated.ml_training_pipeline_deprecated import (
     validate_dataframe,
     feature_engineering,
     train_model,

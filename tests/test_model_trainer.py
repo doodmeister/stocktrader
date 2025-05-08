@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 from sklearn.ensemble import RandomForestClassifier
 import joblib
 
-from data.tradml_model_trainer import (
+from train.ml_model_trainer import (
     ModelTrainer, 
     FeatureConfig,
     TrainingParams,

@@ -10,10 +10,10 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, classification_report, precision_score, recall_score, f1_score
 
-from train.config import TrainingConfig
-from utils.patterns_nn import PatternNN
+from train.deeplearning_config import TrainingConfig
+from patterns.patterns_nn import PatternNN
 from patterns import CandlestickPatterns
-from utils.model_manager import ModelManager, ModelMetadata
+from train.model_manager import ModelManager, ModelMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class PatternModelTrainer:
         self._validate_training_params()
 
     def _validate_training_params(self) -> None:
-        from utils.validation import validate_training_params
+        from utils.config.validation import validate_training_params
         validate_training_params(self.config)
 
     def prepare_training_data(

@@ -13,10 +13,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
 import json
 from utils.etrade_candlestick_bot import ETradeClient
-from utils.patterns_nn import PatternNN
+from patterns.patterns_nn import PatternNN
 
 from utils.performance_utils import get_candles_cached
-from utils.model_manager import ModelManager
+from train.model_manager import ModelManager
 from data.ml_config import MLConfig
 from utils.notifier import Notifier
 from utils.performance_utils import get_candles_cached

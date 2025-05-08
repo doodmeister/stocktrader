@@ -11,17 +11,17 @@ from pydantic import BaseModel
 import torch
 
 # Deep learning pipeline
-from utils.ml_pipeline import MLPipeline
-from utils.model_manager import ModelManager, ModelMetadata
-from utils.patterns_nn import PatternNN
+from train.model_training_pipeline import MLPipeline
+from train.model_manager import ModelManager, ModelMetadata
+from patterns.patterns_nn import PatternNN
 from utils.performance_utils import st_error_boundary, generate_combined_signals
 from utils.synthetic_trading_data import add_to_model_training_ui, generate_synthetic_data
 from data.ml_config import MLConfig
-from utils.stock_validation import get_valid_tickers
+from utils.config.stockticker_yahoo_validation import get_valid_tickers
 from train.deeplearning_trainer import train_pattern_model
 
 # Classic ML pipeline
-from data.tradml_model_trainer import ModelTrainer, TrainingParams
+from train.ml_model_trainer import ModelTrainer, TrainingParams
 
 from patterns import CandlestickPatterns
 from sklearn.base import BaseEstimator

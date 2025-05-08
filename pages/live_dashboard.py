@@ -20,8 +20,8 @@ from pydantic import BaseModel, Field, validator
 # Local imports
 from utils.etrade_candlestick_bot import ETradeClient
 from utils.indicators import add_technical_indicators
-from utils.model_manager import ModelManager
-from utils.validation import validate_symbol, safe_request
+from train.model_manager import ModelManager
+from utils.config.validation import validate_symbol, safe_request
 from utils.security import get_api_credentials
 
 # Configure logger with proper format

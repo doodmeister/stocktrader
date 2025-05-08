@@ -20,7 +20,7 @@ import plotly.graph_objs as go
 
 from utils.etrade_candlestick_bot import ETradeClient
 from patterns import CandlestickPatterns
-from utils.patterns_nn import PatternNN
+from patterns.patterns_nn import PatternNN
 from train.deeplearning_trainer import train_pattern_model
 from utils.risk_manager import RiskManager
 from utils.notifier import Notifier
@@ -187,7 +187,7 @@ class Dashboard:
         st.sidebar.markdown("### 🏷️ Symbols")
         
         # Import validation functions from utils.validation
-        from utils.validation import validate_symbol, sanitize_input
+        from utils.config.validation import validate_symbol, sanitize_input
         
         symbols_str = ",".join(self.state.symbols)
         input_str = st.sidebar.text_input("Symbols (comma-separated)", value=symbols_str)

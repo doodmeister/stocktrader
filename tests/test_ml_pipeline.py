@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from unittest.mock import Mock, patch
 
-from utils.ml_pipeline import MLPipeline
+from train.model_training_pipeline import MLPipeline
 from config import MLConfig
 from utils.etrade_candlestick_bot import ETradeClient, PatternNN
 

@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 import signal
 import sys
 
-from utils.patterns_nn import PatternNN
+from patterns.patterns_nn import PatternNN
 from utils.notifier import Notifier as CoreNotifier
 
 # Configure logging to both file and console for traceability
