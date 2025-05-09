@@ -42,6 +42,7 @@ class ModelMetadata:
     accuracy: Optional[float] = None
     parameters: Dict[str, Any] = None
     framework_version: str = torch.__version__
+    backend: Optional[str] = None
     
     def __post_init__(self):
         """Validate metadata fields."""
@@ -75,21 +76,12 @@ class ModelManager:
     def save_model(self, model, metadata, backend=None):
         """
         Save model with metadata and optional backend support.
-
-        Args:
-            model: Model to save (PyTorch or scikit-learn)
-            metadata: Metadata object
-            backend: Optional backend identifier (e.g., "ClassicML")
-
-        Returns:
-            Path to saved model file
         """
         logger.info(f"Saving model to directory: {self.base_directory.resolve()}")
         version = metadata.version if hasattr(metadata, "version") else datetime.now().strftime("%Y%m%d_%H%M%S")
         if backend is None and hasattr(metadata, "backend"):
             backend = metadata.backend
 
-        # --- Backend string check ---
         if not backend or (not backend.startswith("Classic") and not backend.startswith("Deep")):
             logger.error(f"Invalid or missing backend string: '{backend}'. Must start with 'Classic' or 'Deep'.")
             raise ValueError("Backend string must start with 'Classic' or 'Deep'.")
@@ -99,32 +91,21 @@ class ModelManager:
             logger.info(f"Backend for saving: {backend}")
 
             if backend.startswith("Classic"):
-                # --- Model type check ---
-                if not isinstance(model, BaseEstimator):
-                    # Try to extract underlying estimator if possible
-                    underlying = getattr(model, "estimator_", None) or getattr(model, "model", None)
-                    if underlying and isinstance(underlying, BaseEstimator):
-                        logger.warning("Model is a wrapper. Using underlying estimator for saving.")
-                        model = underlying
-                    else:
-                        logger.error("Model is not a scikit-learn estimator and no underlying estimator found!")
-                        raise ValueError("Model must be a scikit-learn BaseEstimator or contain one as 'estimator_' or 'model'.")
-                else:
-                    logger.info("Model is a valid scikit-learn estimator.")
-
+                # ...existing classic ML save logic...
                 model_filename = f"classic_ml_{version}.joblib"
                 model_path = self.base_directory / model_filename
-                logger.info(f"Saving classic ML model to: {model_path}")
                 joblib.dump(model, model_path)
-                logger.info(f"Classic ML model saved: {model_path.resolve()} (exists: {model_path.exists()})")
-                print(f"Classic ML model saved at: {model_path.resolve()} (exists: {model_path.exists()})")  # For console
-                try:
-                    import streamlit as st
-                    st.write(f"Classic ML model saved at: {model_path.resolve()} (exists: {model_path.exists()})")
-                except ImportError:
-                    pass
             else:
-                # Save PyTorch model
+                # --- Extract architecture parameters from model instance ---
+                arch_params = {}
+                for param in ["input_size", "hidden_size", "num_layers", "output_size", "dropout"]:
+                    if hasattr(model, param):
+                        arch_params[param] = getattr(model, param)
+                # Merge with any training params in metadata
+                if hasattr(metadata, "parameters") and isinstance(metadata.parameters, dict):
+                    arch_params.update({k: v for k, v in metadata.parameters.items() if k not in arch_params})
+                metadata.parameters = arch_params
+
                 model_filename = f"pattern_nn_{version}.pth"
                 model_path = self.base_directory / model_filename
                 logger.info(f"Saving PyTorch model to: {model_path}")
@@ -144,15 +125,14 @@ class ModelManager:
             logger.info(f"Model file absolute path: {model_path.resolve()}")
             logger.info(f"Metadata file absolute path: {metadata_path.resolve()}")
             logger.info(f"Model file exists after save: {model_path.exists()}")
-            logger.info(f"[DEBUG] Model file exists after save: {model_path.exists()}")
             logger.info(f"Metadata file exists after save: {metadata_path.exists()}")
 
-            # Verify model can be loaded after save
+            # Optional: Try loading to validate
             try:
                 if backend.startswith("Classic"):
-                    loaded_model = joblib.load(model_path)
+                    joblib.load(model_path)
                 else:
-                    checkpoint = torch.load(model_path)
+                    torch.load(model_path)
                 logger.info("Model loaded successfully after save.")
             except Exception as e:
                 logger.error(f"Failed to load model after save: {e}")
@@ -162,21 +142,9 @@ class ModelManager:
             logger.error(f"Exception during model save: {e}")
             raise
 
-    def load_model(self, 
-                  model_class: Optional[Type[torch.nn.Module]] = None,
-                  path: str = "",
-                  device: Optional[torch.device] = None) -> Tuple[Any, Any]:
+    def load_model(self, model_class: Optional[Type[torch.nn.Module]] = None, path: str = "", device: Optional[torch.device] = None) -> Tuple[Any, Any]:
         """
         Load model and metadata from path.
-        Supports both PyTorch (.pth) and scikit-learn (.joblib) models.
-
-        Args:
-            model_class: Model class for PyTorch models (ignored for scikit-learn)
-            path: Path to model file
-            device: Target device for PyTorch model
-
-        Returns:
-            Tuple of (loaded_model, metadata)
         """
         try:
             path = Path(path)
@@ -184,9 +152,7 @@ class ModelManager:
                 raise ModelNotFoundError(f"Model file not found: {path}")
 
             if path.suffix == ".joblib":
-                # Load scikit-learn model
                 model = joblib.load(path)
-                # Load metadata
                 metadata_path = path.with_suffix('.json')
                 if metadata_path.exists():
                     with metadata_path.open() as f:
@@ -197,16 +163,38 @@ class ModelManager:
                 return model, metadata
 
             elif path.suffix == ".pth":
-                # Load PyTorch model
                 device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
                 checkpoint = torch.load(path, map_location=device)
                 if model_class is None:
                     raise ValueError("model_class must be provided for PyTorch models")
-                model = model_class()
+                # --- Read parameters from metadata ---
+                if 'metadata' in checkpoint:
+                    metadata_dict = checkpoint['metadata']
+                else:
+                    metadata_path = path.with_suffix('.json')
+                    if metadata_path.exists():
+                        with metadata_path.open() as f:
+                            metadata_dict = json.load(f)
+                    else:
+                        raise ModelError("No metadata found for model.")
+                params = metadata_dict.get("parameters", {})
+                # --- Validate required architecture params ---
+                required = ["input_size", "hidden_size", "num_layers", "output_size", "dropout"]
+                for param in required:
+                    if param not in params:
+                        raise ModelError(f"Missing required parameter '{param}' in metadata for model loading.")
+                # Instantiate model with correct parameters
+                model = model_class(
+                    input_size=params["input_size"],
+                    hidden_size=params["hidden_size"],
+                    num_layers=params["num_layers"],
+                    output_size=params["output_size"],
+                    dropout=params["dropout"]
+                )
                 model.load_state_dict(checkpoint['state_dict'])
                 model.to(device)
                 model.eval()
-                metadata = ModelMetadata.from_dict(checkpoint['metadata'])
+                metadata = ModelMetadata.from_dict(metadata_dict)
                 logger.info(f"PyTorch model loaded successfully from {path}")
                 return model, metadata
 

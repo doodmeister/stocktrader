@@ -86,7 +86,7 @@ Thumbs.db
 model_training.log
 
 # Models
-models/*.pth
+models/
 
 # Data files / large artifacts
 data/

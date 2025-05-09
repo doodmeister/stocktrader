@@ -9,6 +9,7 @@ from dataclasses import dataclass, asdict
 from pydantic import BaseModel
 
 import torch
+import json
 
 # Deep learning pipeline
 from train.model_training_pipeline import MLPipeline
@@ -238,12 +239,28 @@ def save_trained_model(
         logger.info(f"Model type being saved: {type(model)}")
 
         model_manager = get_model_manager()
+
+        # Before saving, extract architecture params from the model
+        if backend.startswith("Deep"):
+            parameters = {
+                "input_size": model.input_size,
+                "hidden_size": model.hidden_size,
+                "num_layers": model.num_layers,
+                "output_size": model.output_size,
+                "dropout": model.dropout,
+                # ... other params ...
+            }
+        else:
+            parameters = config.__dict__ if hasattr(config, "__dict__") else dict(config)
+
         metadata = ModelMetadata(
             version=datetime.now().strftime("%Y%m%d_%H%M%S"),
             saved_at=datetime.now().isoformat(),
             accuracy=metrics.get("accuracy") if metrics else None,
-            parameters=config.__dict__ if hasattr(config, "__dict__") else dict(config)
+            parameters=parameters,
+            backend=backend
         )
+
         logger.info(f"Saving model with backend: {backend}")
         st.write(f"Saving model with backend: {backend}")
         save_path = model_manager.save_model(model, metadata=metadata, backend=backend)
@@ -252,13 +269,33 @@ def save_trained_model(
         model_manager.cleanup_old_models(keep_versions=5)
         logger.info(f"Model saved successfully: {save_path}")
 
-        model_path = Path(save_path)
-        metadata_path = model_path.with_suffix('.json')
-        logger.debug(f"Checking if model file exists after save: {model_path.exists()}")
-        logger.debug(f"Checking if metadata file exists after save: {metadata_path.exists()}")
-
         try:
-            loaded_model, loaded_metadata = model_manager.load_model(type(model), str(model_path))
+            # --- Load metadata from JSON ---
+            model_path = Path(save_path)
+            metadata_path = model_path.with_suffix('.json')
+            if metadata_path.exists():
+                with metadata_path.open() as f:
+                    loaded_metadata = json.load(f)
+                params = loaded_metadata.get("parameters", {})
+                # Only for Deep Learning models
+                if backend.startswith("Deep"):
+                    from patterns.patterns_nn import PatternNN  # Import your model class
+                    loaded_model = PatternNN(
+                        input_size=params.get("input_size", 10),
+                        hidden_size=params.get("hidden_size", 64),
+                        num_layers=params.get("num_layers", 2),
+                        output_size=params.get("output_size", 3),
+                        dropout=params.get("dropout", 0.2)
+                    )
+                    import torch
+                    checkpoint = torch.load(model_path, map_location="cpu")
+                    loaded_model.load_state_dict(checkpoint["state_dict"])
+                    # Now loaded_model matches the saved architecture!
+                else:
+                    # Classic ML
+                    loaded_model, loaded_metadata = model_manager.load_model(type(model), str(model_path))
+            else:
+                loaded_model, loaded_metadata = model_manager.load_model(type(model), str(model_path))
             logger.info("Model loaded successfully after save.")
         except Exception as e:
             logger.error(f"Failed to load model after save: {e}")
@@ -492,23 +529,37 @@ def render_training_page():
             if classification_report is not None:
                 st.subheader("Classification Report")
                 st.text(classification_report)
-
-            if st.button("Save Trained Model"):
-                logger.info("Save Trained Model button clicked")
-                try:
-                    backend = st.session_state.get("training_backend")
-                    logger.info(f"Backend being sent to save_trained_model: {backend}")  # <-- Log backend before saving
-                    success, error = save_trained_model(model, config, metrics, backend)
-                    if success:
-                        st.success("Model saved successfully")
-                    else:
-                        st.error(f"Failed to save model: {error}")
-                except Exception as e:
-                    logger.exception("Exception during model save")
-                    st.error(f"Exception during model save: {e}")
         except Exception as e:
             logger.exception("Training error")
             st.error(f"Training failed: {str(e)}")
+
+
+
+    # ✅ Independent Save Block (always visible if model is present)
+    if "trained_model" in st.session_state:
+        st.subheader("Save Trained Model")
+        if st.button("Save Trained Model"):
+            logger.info("Save Trained Model button clicked")
+            try:
+                model = st.session_state.get("trained_model")
+                metrics = st.session_state.get("training_metrics")
+                config = st.session_state.get("training_config")
+                backend = st.session_state.get("training_backend")
+
+                st.write("Model in session:", type(model))  # Confirm session content
+
+                if model is None:
+                    st.error("Model missing from session. Please train again.")
+                    return
+
+                success, error = save_trained_model(model, config, metrics, backend)
+                if success:
+                    st.success("Model saved successfully.")
+                else:
+                    st.error(f"Model save failed: {error}")
+            except Exception as e:
+                logger.exception("Exception during model save")
+                st.error(f"Exception during model save: {e}")
 
 def main():
     initialize_dashboard_session_state()

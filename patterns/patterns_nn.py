@@ -22,7 +22,7 @@ class PatternNN(nn.Module):
         output_size (int): Number of output classes (default: 3 for HOLD/BUY/SELL)
         dropout (float): Dropout rate (default: 0.2)
     """
-    def __init__(self, input_size=10, hidden_size=64, num_layers=2, output_size=3, dropout=0.2):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout):
         """
         Args:
             input_size (int): Number of input features.
@@ -31,8 +31,13 @@ class PatternNN(nn.Module):
             output_size (int): Number of pattern classes.
             dropout (float): Dropout rate for regularization.
         """
-        super(PatternNN, self).__init__()
-        
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.output_size = output_size
+        self.dropout = dropout
+
         layers = []
         # Input layer
         layers.extend([

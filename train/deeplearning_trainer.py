@@ -230,7 +230,6 @@ class PatternModelTrainer:
                 parameters=self.config.__dict__,
                 framework_version=torch.__version__
             )
-            self._save_model(model, model_metadata)
             logger.info("Model training and saving completed.")
             return model, metrics
 
