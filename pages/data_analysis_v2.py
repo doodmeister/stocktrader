@@ -23,11 +23,24 @@ def load_df(uploaded_file) -> pd.DataFrame:
 def get_chatgpt_insight(summary: str) -> str:
     """Send the technical summary to ChatGPT and return its analysis."""
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.chat.completions.create(
             model="gpt-4",  # or "gpt-4-turbo"
             messages=[
-                {"role": "system", "content": "You are a professional financial analyst."},
-                {"role": "user", "content": f"Analyze this technical summary:\n{summary}"}
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a professional financial analyst who specializes in technical analysis. "
+                        "You provide clear, structured insights on stock charts using indicators like RSI, MACD, Bollinger Bands, and candlestick patterns. "
+                        "Your tone is professional and insightful, but easy for traders and investors to understand."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Based on the following technical analysis summary, provide a short-term and medium-term outlook for the stock. "
+                        f"Explain what the indicators suggest, highlight any important patterns or signals, and include any cautionary notes:\n\n{summary}"
+                    )
+                }
             ],
             temperature=0.7
         )

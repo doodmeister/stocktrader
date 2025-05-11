@@ -380,7 +380,18 @@ def render_visualizer(patterns: List[str]):
     df.columns = [col.lower() for col in df.columns]
 
     method = get_pattern_method(pattern)
-    df["signal"] = df.apply(lambda row: method(row), axis=1)
+
+    # Prepare a signal column with False by default
+    df["signal"] = False
+
+    window_size = 3  # Or the correct window size for your patterns
+    for i in range(len(df)):
+        window = df.iloc[max(0, i - window_size + 1):i + 1]
+        try:
+            if method(window):
+                df.at[df.index[i], "signal"] = True
+        except Exception:
+            pass
 
     # For plotting, Plotly expects capitalized column names
     df_plot = df.rename(columns={
