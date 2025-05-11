@@ -123,6 +123,91 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
         ))
     st.plotly_chart(fig, use_container_width=True)
 
+def display_stock_statistics(df: pd.DataFrame):
+    """Display comprehensive stock statistics with explanations."""
+    st.subheader("📊 Stock Data Statistics")
+    
+    try:
+        # Use a copy of the DataFrame to avoid side effects
+        df_stats = df.copy()
+        
+        # Calculate basic price statistics
+        price_stats = pd.DataFrame({
+            "Open": [df['open'].min(), df['open'].max(), df['open'].mean(), df['open'].std()],
+            "High": [df['high'].min(), df['high'].max(), df['high'].mean(), df['high'].std()],
+            "Low": [df['low'].min(), df['low'].max(), df['low'].mean(), df['low'].std()],
+            "Close": [df['close'].min(), df['close'].max(), df['close'].mean(), df['close'].std()],
+        }, index=["Min", "Max", "Mean", "Std"])
+        
+        # Calculate daily returns without modifying original df
+        daily_returns = df['close'].pct_change() * 100
+        
+        # Display price statistics
+        st.markdown("### 📈 Price Statistics")
+        st.dataframe(price_stats.round(2), use_container_width=True)
+        
+        # Create metrics for better layout - split into multiple rows
+        st.markdown("### 📉 Key Metrics")
+        
+        # Row 1
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Bars", len(df))
+        with col2:
+            date_range = f"{df.index[0]} to {df.index[-1]}" if hasattr(df.index, 'name') and df.index.name else f"First {len(df)} records"
+            st.metric("Date Range", date_range)
+        with col3:
+            price_range = f"${df['low'].min():.2f} - ${df['high'].max():.2f}"
+            st.metric("Price Range", price_range)
+        
+        # Row 2
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            avg_daily_range = ((df['high'] - df['low']) / df['low'] * 100).mean().round(2)
+            st.metric("Avg Daily Range %", avg_daily_range)
+        with col2:
+            avg_volume = f"{int(df['volume'].mean()):,}"
+            st.metric("Avg Volume", avg_volume)
+        with col3:
+            max_volume = f"{int(df['volume'].max()):,}"
+            st.metric("Max Volume", max_volume)
+        
+        # Row 3
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            annualized_vol = (daily_returns.std() * (252 ** 0.5)).round(2)
+            st.metric("Annualized Volatility", annualized_vol)
+        
+        # Returns analysis
+        st.markdown("### 🔄 Returns Analysis")
+        
+        # Handle potential NaN values safely
+        return_stats = pd.DataFrame({
+            "Daily Returns (%)": [
+                daily_returns.min().round(2),
+                daily_returns.quantile(0.25).round(2),
+                daily_returns.median().round(2),
+                daily_returns.quantile(0.75).round(2),
+                daily_returns.max().round(2),
+                daily_returns.mean().round(2),
+                daily_returns.std().round(2)
+            ]
+        }, index=["Min", "25%", "Median", "75%", "Max", "Mean", "Std"])
+        st.dataframe(return_stats, use_container_width=True)
+        
+        # Add helpful context
+        st.caption("""
+        **Understanding these statistics:**
+        - **Price Range**: The min and max prices observed in the data
+        - **Avg Daily Range %**: Average percentage difference between high and low prices
+        - **Annualized Volatility**: Estimated yearly price volatility based on daily returns
+        - **Returns Analysis**: Distribution of daily percentage price changes
+        """)
+    
+    except Exception as e:
+        st.error(f"Error calculating statistics: {str(e)}")
+        logger.exception("Error in display_stock_statistics")
+
 def main():
     initialize_dashboard_session_state()
     st.title("📊 Technical Analysis Dashboard")
@@ -157,8 +242,7 @@ def main():
     st.subheader("Data Preview")
     st.dataframe(df.head())
 
-    st.subheader("Basic Statistics")
-    st.write(df.describe())
+    display_stock_statistics(df)
 
     st.markdown("""
     ---
@@ -221,7 +305,7 @@ def main():
     """)
 
     pattern_names = CandlestickPatterns.get_pattern_names()
-    selected_patterns = st.multiselect("Patterns to scan for", pattern_names, default=pattern_names[:3])
+    selected_patterns = st.multiselect("Patterns to scan for", pattern_names, default=pattern_names[:6])
     pattern_results = detect_patterns(df, selected_patterns)
 
     if pattern_results:

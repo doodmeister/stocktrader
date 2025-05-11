@@ -63,7 +63,6 @@ class DataDashboard:
         self.end_date: date = date.today()
         self.interval: str = "1d"
         self.clean_old: bool = True
-        self.auto_refresh: bool = False
 
         logger.info("Initialized DataDashboard with default state variables.")
         self._init_session_state()
@@ -130,19 +129,13 @@ class DataDashboard:
         # Date range selection with validation
         self._render_date_inputs()
 
-        # Options: clean old data files and auto-refresh
-        col1, col2 = st.columns(2)
+        # Options: clean old data files
+        col1, _ = st.columns(2)
         with col1:
             self.clean_old = st.checkbox(
                 "Clean old CSVs before fetching?",
                 value=self.clean_old,
                 help="Delete previously saved CSV files for these symbols before downloading new data."
-            )
-        with col2:
-            self.auto_refresh = st.checkbox(
-                "Auto-refresh every 5 minutes?",
-                value=self.auto_refresh,
-                help="Automatically refresh data every 5 minutes (for live data monitoring)."
             )
         st.divider()
 
@@ -291,17 +284,6 @@ class DataDashboard:
             except Exception as e:
                 st.write("Unable to plot chart:", e)
 
-    def _handle_auto_refresh(self):
-        """Automatically refresh data if the auto_refresh flag is True and interval elapsed."""
-        if self.auto_refresh and st.session_state.get("data_fetched"):
-            last_fetch = st.session_state.get("last_fetch_time")
-            if last_fetch:
-                elapsed = datetime.now() - last_fetch
-                REFRESH_INTERVAL = 300  # 5 minutes in seconds
-                if elapsed.total_seconds() >= REFRESH_INTERVAL:
-                    st.info("⏳ Auto-refreshing data...")
-                    self._fetch_and_display_data()
-
     def run(self):
         st.title("Stock Data Download Dashboard")
         
@@ -322,7 +304,6 @@ class DataDashboard:
                             logger.error(f"Failed to read cached data for {symbol}: {e}")
                             continue
                         self._display_symbol_data(symbol, df)
-            self._handle_auto_refresh()
         
         with tabs[1]:  # Signal Analysis Tab
             st.header("Signal Analysis")

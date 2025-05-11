@@ -8,6 +8,7 @@ Handles input validation, error cases, and proper typing.
 """
 from utils.logger import setup_logger
 from typing import Optional, Union, List, Any, Dict
+import utils.logger as logging
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
