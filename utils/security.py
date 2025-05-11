@@ -26,3 +26,10 @@ def get_api_credentials() -> Dict[str, str]:
         'account_id': os.getenv('ETRADE_ACCOUNT_ID', ''),
         'use_sandbox': os.getenv('ETRADE_USE_SANDBOX', 'true')
     }
+
+def get_openai_api_key() -> str:
+    """
+    Retrieve the OpenAI API key from environment variables.
+    """
+    load_dotenv()
+    return os.getenv('OPENAI_API_KEY', '')

@@ -21,6 +21,7 @@ vectorbt==0.27.2
 
 # Data Visualization
 matplotlib>=3.7.0,<4.0.0
+openai>=1.0.0,<2.0.0
 
 # Development & Utilities
 python-dotenv==1.0.0

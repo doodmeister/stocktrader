@@ -5,10 +5,11 @@ import plotly.graph_objects as go
 from utils.logger import setup_logger
 from typing import List, Dict, Any, Tuple
 import os
-
+import openai
 from patterns.patterns import CandlestickPatterns
 from utils.technicals.technical_analysis import TechnicalAnalysis
 from utils.dashboard_utils import initialize_dashboard_session_state
+from utils.security import get_openai_api_key
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -17,6 +18,22 @@ logger = setup_logger(__name__)
 def load_df(uploaded_file) -> pd.DataFrame:
     """Load and return CSV as DataFrame."""
     return pd.read_csv(uploaded_file)
+
+@st.cache_data(show_spinner=False)
+def get_chatgpt_insight(summary: str) -> str:
+    """Send the technical summary to ChatGPT and return its analysis."""
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",  # or "gpt-4-turbo"
+            messages=[
+                {"role": "system", "content": "You are a professional financial analyst."},
+                {"role": "user", "content": f"Analyze this technical summary:\n{summary}"}
+            ],
+            temperature=0.7
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 @st.cache_data
 def compute_price_stats(df: pd.DataFrame) -> pd.DataFrame:
@@ -143,6 +160,7 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
 
 
 def main():
+    openai.api_key = get_openai_api_key()
     initialize_dashboard_session_state()
     st.title("📊 Technical Analysis Dashboard")
 
@@ -211,6 +229,29 @@ def main():
     with col3:
         bb_period = st.number_input("BB Period", 2, 30, 20)
         bb_std = st.number_input("BB Std Dev", 1, 4, 2)
+
+    st.markdown("""
+    **Indicator Settings Explained:**
+
+    - **RSI Period**:  
+      Sets the lookback window for the Relative Strength Index (RSI), a momentum oscillator that measures the speed and change of price movements.  
+      - *Lower values* make RSI more sensitive (more signals, more noise).  
+      - *Higher values* smooth out RSI (fewer, but stronger signals).
+
+    - **MACD Fast / Slow**:  
+      Control the short-term (fast) and long-term (slow) moving averages for the MACD (Moving Average Convergence Divergence) indicator.  
+      - *Lower fast period* reacts more quickly to price changes.  
+      - *Higher slow period* smooths out the MACD line.  
+      - Adjusting these can help you spot trend changes earlier or filter out noise.
+
+    - **BB Period / BB Std Dev**:  
+      Set the window and width for Bollinger Bands, which measure price volatility.  
+      - *BB Period* is the number of bars used for the moving average.  
+      - *BB Std Dev* controls how wide the bands are (higher = wider bands, capturing more volatility).  
+      - Tighter bands (lower std dev) can signal breakouts; wider bands (higher std dev) can help avoid false signals.
+
+    *Tip: Adjust these settings to match your trading style or to experiment with different market conditions!*
+    """)
 
     # Plot indicators
     with st.container():
@@ -287,10 +328,23 @@ def main():
 
     Copy the summary below and paste it into ChatGPT or another LLM for further insights.
     """)
+
+    # Determine time range from the first column (timestamp)
+    timestamp_col = df.columns[0]
+    try:
+        # Ensure the column is in datetime format
+        df[timestamp_col] = pd.to_datetime(df[timestamp_col])
+        start_date = str(df[timestamp_col].min())
+        end_date = str(df[timestamp_col].max())
+    except Exception as e:
+        # Fallback if conversion fails
+        start_date = str(df[timestamp_col].iloc[0])
+        end_date = str(df[timestamp_col].iloc[-1])
+
     summary_lines: List[str] = [
         f"Technical Analysis Summary for {stock_ticker}:",
         f"CSV File: {filename}",
-        "",
+        f"Date Range: {start_date} to {end_date}",  # <-- Now uses timestamp column
         f"Latest Close: {df['close'].iloc[-1]:.2f}",
         f"RSI (period={rsi_period}): {rsi.iloc[-1]:.2f}" if not rsi.isna().all() else "RSI: N/A",
         f"MACD (fast={macd_fast}, slow={macd_slow}): {macd_line.iloc[-1]:.2f}",
@@ -309,6 +363,12 @@ def main():
         summary_lines.append("None detected.")
     summary_text = "\n".join(summary_lines)
     st.text_area("Copyable Analysis Summary", summary_text, height=300)
+
+    if st.button("Get ChatGPT Insight"):
+        with st.spinner("Contacting ChatGPT..."):
+            chatgpt_insight = get_chatgpt_insight(summary_text)
+        st.markdown("**ChatGPT Insight:**")
+        st.write(chatgpt_insight)
 
     # Download processed data
     st.markdown("---")
