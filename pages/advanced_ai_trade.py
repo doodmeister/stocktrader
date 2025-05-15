@@ -17,7 +17,7 @@ from utils.config.notification_settings_ui import render_notification_settings
 from utils.etrade_candlestick_bot import ETradeClient
 from patterns.patterns import CandlestickPatterns
 from patterns.patterns_nn import PatternNN
-from train.deeplearning_trainer import train_pattern_model
+from utils.deprecated.deeplearning_trainer_v1 import train_pattern_model
 from utils.technicals.risk_manager import RiskManager
 from utils.notifier import Notifier
 from utils.technicals.indicators import TechnicalIndicators

@@ -23,6 +23,7 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import StandardScaler
 from train.model_manager import ModelManager, ModelMetadata
+from patterns.pattern_utils import get_pattern_names, get_pattern_method
 
 logger = setup_logger(__name__)
 
@@ -40,6 +41,8 @@ class FeatureConfig:
     PRICE_FEATURES: List[str] = field(default_factory=lambda: ['open', 'high', 'low', 'close', 'volume'])
     ROLLING_WINDOWS: List[int] = field(default_factory=lambda: [5, 10, 20])
     TARGET_HORIZON: int = 1
+    use_candlestick_patterns: bool = True
+    selected_patterns: Optional[List[str]] = None
 
 @dataclass
 class TrainingParams:
@@ -49,6 +52,33 @@ class TrainingParams:
     random_state: int = 42
     n_jobs: int = -1
     cv_folds: int = 3  # Lowered for small datasets
+
+def add_candlestick_pattern_features(df: pd.DataFrame, selected_patterns: Optional[List[str]] = None) -> pd.DataFrame:
+    pattern_names = selected_patterns or get_pattern_names()
+    for pattern in pattern_names:
+        method = get_pattern_method(pattern)
+        min_rows = 3
+        try:
+            from patterns.patterns import CandlestickPatterns
+            for name, _, mr in CandlestickPatterns._PATTERNS:
+                if name == pattern:
+                    min_rows = mr
+                    break
+        except Exception:
+            pass
+        results = []
+        for i in range(len(df)):
+            if i + 1 < min_rows:
+                results.append(0)
+                continue
+            window = df.iloc[i + 1 - min_rows : i + 1]
+            try:
+                detected = int(method(window)) if method else 0
+            except Exception:
+                detected = 0
+            results.append(detected)
+        df[pattern.replace(" ", "")] = results
+    return df
 
 class ModelTrainer:
     def __init__(
@@ -86,6 +116,8 @@ class ModelTrainer:
             window_features = self._calc_rolling_features(result_df, window)
             for name, series in window_features.items():
                 result_df[f"{name}_{window}"] = series
+        if self.feature_config.use_candlestick_patterns:
+            result_df = add_candlestick_pattern_features(result_df, self.feature_config.selected_patterns)
         result_df['target'] = (
             result_df['close'].shift(-self.feature_config.TARGET_HORIZON) > result_df['close']
         ).astype(int)
@@ -115,6 +147,12 @@ class ModelTrainer:
                 'volume_std', 'price_volume_corr', 'sma', 'macd'
             ]:
                 col_name = f"{feat}_{window}"
+                if col_name in df.columns:
+                    feature_cols.append(col_name)
+        if self.feature_config.use_candlestick_patterns:
+            all_patterns = self.feature_config.selected_patterns or get_pattern_names()
+            for pattern in all_patterns:
+                col_name = pattern.replace(" ", "")
                 if col_name in df.columns:
                     feature_cols.append(col_name)
         return feature_cols
@@ -232,11 +270,19 @@ class ModelTrainer:
         """
         model_manager = ModelManager(base_directory=str(self.config.MODEL_DIR))
         version = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Build expected feature structure for metadata
+        expected_features = self.get_feature_columns(pd.DataFrame(columns=self.feature_config.PRICE_FEATURES))
         metadata = ModelMetadata(
             version=version,
             saved_at=datetime.now().isoformat(),
             accuracy=metrics.get("accuracy") if metrics else None,
-            parameters={"symbol": symbol, "interval": interval},
+            parameters={
+                "symbol": symbol,
+                "interval": interval,
+                "features": expected_features,
+                "rolling_windows": self.feature_config.ROLLING_WINDOWS,
+                "patterns": self.feature_config.selected_patterns if self.feature_config.use_candlestick_patterns else []
+            },
             framework_version="sklearn"
         )
         logger.info(f"Saving model with backend: {backend}")

@@ -1,0 +1,1 @@
+{"feature_order": ["RSI", "MACD", "BullishEngulfing", "Hammer"], "normalization": {"mean": [0.5, 0.3, 0.0, 0.0], "std": [0.1, 0.2, 1.0, 1.0]}}

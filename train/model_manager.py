@@ -77,6 +77,13 @@ class ModelManager:
         """
         Save model with metadata and optional backend support.
         """
+        if model is None:
+            logger.error("Attempted to save a None model.")
+            raise ValueError("Model object is None.")
+        if not hasattr(metadata, "version"):
+            logger.error("Metadata missing required 'version' attribute.")
+            raise ValueError("Metadata missing required 'version' attribute.")
+
         logger.info(f"Saving model to directory: {self.base_directory.resolve()}")
         version = metadata.version if hasattr(metadata, "version") else datetime.now().strftime("%Y%m%d_%H%M%S")
         if backend is None and hasattr(metadata, "backend"):
@@ -149,6 +156,10 @@ class ModelManager:
         """
         Load model and metadata from path.
         """
+        if not path or not Path(path).exists():
+            logger.error(f"Model file not found: {path}")
+            raise FileNotFoundError(f"Model file not found: {path}")
+
         try:
             path = Path(path)
             if not path.exists():

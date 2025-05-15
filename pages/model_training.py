@@ -20,15 +20,14 @@ from utils.technicals.performance_utils import st_error_boundary, generate_combi
 from utils.synthetic_trading_data import add_to_model_training_ui, generate_synthetic_data
 from train.ml_config import MLConfig
 from utils.config.stockticker_yahoo_validation import get_valid_tickers
-from train.deeplearning_trainer import train_pattern_model
+from utils.deprecated.deeplearning_trainer_v1 import train_pattern_model
 
 # Classic ML pipeline
 from train.ml_trainer import ModelTrainer, TrainingParams
-
 from patterns.patterns import CandlestickPatterns
 from sklearn.base import BaseEstimator
-
 from utils.dashboard_utils import initialize_dashboard_session_state
+from utils.technicals.technical_analysis import TechnicalAnalysis
 
 # Use the new logger from utils/logger.py
 logger = setup_logger(__name__)
@@ -138,6 +137,38 @@ def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
         logger.exception("Data validation error")
         return DataValidationResult(False, f"Validation error: {str(e)}", None)
 
+def compute_technical_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add key technical indicators and candlestick pattern flags to the DataFrame.
+    
+    This is a unified preprocessing step suitable for training ML models.
+    """
+    df = df.copy()
+
+    # Compute Technical Indicators
+    ta = TechnicalAnalysis(df)
+    df['RSI'] = ta.rsi(period=14)
+    df['MACD'], df['MACD_Signal'] = ta.macd(fast_period=12, slow_period=26)
+    df['BB_Upper'], df['BB_Lower'] = ta.bollinger_bands(period=20, std_dev=2)
+
+    # Compute ATR for use in model or risk estimation
+    df['ATR'] = ta.atr(period=3)
+
+    # Add Candlestick Pattern flags
+    for pattern_name in CandlestickPatterns.get_pattern_names():
+        try:
+            method = getattr(CandlestickPatterns, pattern_name)
+            df[pattern_name.replace(" ", "")] = df.apply(
+                lambda row: int(method(df.loc[max(0, row.name-4):row.name])), axis=1
+            )
+        except Exception:
+            df[pattern_name.replace(" ", "")] = 0
+
+    # Drop rows with NaN values introduced by indicators
+    df.dropna(inplace=True)
+
+    return df
+
 def train_model_deep_learning(
     data: pd.DataFrame,
     epochs: int = 10,
@@ -164,20 +195,44 @@ def train_model_deep_learning(
     selected_patterns = st.multiselect(
         "Select candlestick patterns to use for training",
         options=available_patterns,
-        default=available_patterns  # or a sensible default subset
+        default=available_patterns
     )
 
     logger.info("Starting model training step")
     st.info("Training model...")
 
-    model, optimizer, epoch, loss = train_pattern_model(
-        symbols=selected_symbols,
-        data=data,
-        epochs=epochs,
-        batch_size=batch_size,
-        learning_rate=learning_rate,
-        selected_patterns=selected_patterns,
-    )
+    try:
+        # --- Shape validation ---
+        if not isinstance(data, pd.DataFrame):
+            raise ValueError("Input data is not a pandas DataFrame.")
+        if data.empty:
+            raise ValueError("Input data is empty.")
+        # Example: check for expected columns
+        required_cols = ["open", "high", "low", "close", "volume"]
+        for col in required_cols:
+            if col not in data.columns:
+                raise ValueError(f"Missing required column: {col}")
+
+        # Optionally, check for sequence dimension if using LSTM/CNN
+        # (Assume your data loader will reshape as needed, but you can check here if you do it manually)
+
+        model, optimizer, epoch, loss = train_pattern_model(
+            symbols=selected_symbols,
+            data=data,
+            epochs=epochs,
+            batch_size=batch_size,
+            learning_rate=learning_rate,
+            selected_patterns=selected_patterns,
+        )
+    except IndexError as e:
+        logger.error(f"Shape error during model training: {e}")
+        st.error(f"Shape error during model training: {e}. "
+                 "Please check that your data has the correct dimensions and sequence length.")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during model training: {e}")
+        st.error(f"Unexpected error during model training: {e}")
+        raise
 
     logger.info("Model training step completed")
     st.info("Model training completed.")
@@ -470,6 +525,8 @@ def render_training_page():
                 data["timestamp"] = pd.to_datetime(data["timestamp"])
                 data = data.set_index("timestamp")
 
+            data = compute_technical_features(data)
+
             logger.info("Validating training data")
             st.info("Validating training data...")
             validation_result = validate_training_data(data.reset_index() if "timestamp" in data.index.names else data)
@@ -501,6 +558,9 @@ def render_training_page():
                         min_samples_split=config.min_samples_split,
                         cv_folds=config.cv_folds
                     )
+                    optimizer = None
+                    epoch = None
+                    loss = None
             logger.info("Training completed")
             st.success("Training completed!")
 
