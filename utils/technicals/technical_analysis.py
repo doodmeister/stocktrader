@@ -1,61 +1,77 @@
 import pandas as pd
 import numpy as np
+from utils.logger import setup_logger
+from utils.technicals.indicators import (
+    add_rsi, add_macd, add_bollinger_bands, add_atr, add_sma, add_ema,
+    IndicatorError, validate_dataframe
+)
+
+logger = setup_logger(__name__)
 
 class TechnicalAnalysis:
     """
     Provides technical indicator calculations and composite signal evaluation for financial time series.
+    All indicator methods return pandas Series for easy integration.
     """
 
     def __init__(self, data: pd.DataFrame):
-        self.data = data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
+        if not isinstance(data, pd.DataFrame):
+            raise TypeError("Input must be a pandas DataFrame")
+        self.data = data.copy()
 
-    def sma(self, period=20):
+    def sma(self, period=20, close_col='close'):
         """Simple Moving Average."""
-        return self.data['close'].rolling(window=period).mean()
+        try:
+            validate_dataframe(self.data, [close_col])
+            return self.data[close_col].rolling(window=period, min_periods=1).mean()
+        except Exception as e:
+            logger.error(f"SMA calculation failed: {e}")
+            raise IndicatorError(f"Failed to calculate SMA: {e}") from e
 
-    def ema(self, period=20):
+    def ema(self, period=20, close_col='close'):
         """Exponential Moving Average."""
-        return self.data['close'].ewm(span=period, adjust=False).mean()
+        try:
+            validate_dataframe(self.data, [close_col])
+            return self.data[close_col].ewm(span=period, adjust=False).mean()
+        except Exception as e:
+            logger.error(f"EMA calculation failed: {e}")
+            raise IndicatorError(f"Failed to calculate EMA: {e}") from e
 
-    def rsi(self, period=14):
+    def rsi(self, period=14, close_col='close'):
         """Relative Strength Index."""
-        delta = self.data['close'].diff()
-        gain = delta.where(delta > 0, 0.0)
-        loss = -delta.where(delta < 0, 0.0)
-        avg_gain = gain.rolling(window=period).mean()
-        avg_loss = loss.rolling(window=period).mean().replace(0, np.finfo(float).eps)
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        rsi.iloc[:period] = np.nan
-        return rsi
+        try:
+            df = add_rsi(self.data, length=period, close_col=close_col)
+            return df['rsi']
+        except Exception as e:
+            logger.error(f"RSI calculation failed: {e}")
+            raise
 
-    def macd(self, fast_period=12, slow_period=26, signal_period=9):
+    def macd(self, fast_period=12, slow_period=26, signal_period=9, close_col='close'):
         """Moving Average Convergence Divergence."""
-        fast_ema = self.data['close'].ewm(span=fast_period, adjust=False).mean()
-        slow_ema = self.data['close'].ewm(span=slow_period, adjust=False).mean()
-        macd_line = fast_ema - slow_ema
-        signal_line = macd_line.ewm(span=signal_period, adjust=False).mean()
-        return macd_line, signal_line
+        try:
+            df = add_macd(self.data, fast=fast_period, slow=slow_period, signal=signal_period, close_col=close_col)
+            return df['macd'], df['macd_signal']
+        except Exception as e:
+            logger.error(f"MACD calculation failed: {e}")
+            raise
 
-    def bollinger_bands(self, period=20, std_dev=2):
+    def bollinger_bands(self, period=20, std_dev=2, close_col='close'):
         """Bollinger Bands."""
-        sma = self.data['close'].rolling(window=period).mean()
-        std = self.data['close'].rolling(window=period).std().replace(0, self.data['close'].mean() * 0.0001)
-        upper_band = sma + (std_dev * std)
-        lower_band = sma - (std_dev * std)
-        return upper_band, lower_band
+        try:
+            df = add_bollinger_bands(self.data, length=period, std=std_dev, close_col=close_col)
+            return df['bb_upper'], df['bb_lower']
+        except Exception as e:
+            logger.error(f"Bollinger Bands calculation failed: {e}")
+            raise
 
     def atr(self, period=14):
         """Average True Range."""
-        high = self.data['high']
-        low = self.data['low']
-        close = self.data['close'].shift()
-        tr = pd.concat([
-            high - low,
-            abs(high - close),
-            abs(low - close)
-        ], axis=1).max(axis=1)
-        return tr.rolling(window=period).mean()
+        try:
+            df = add_atr(self.data, length=period)
+            return df['atr']
+        except Exception as e:
+            logger.error(f"ATR calculation failed: {e}")
+            raise
 
     def evaluate(self, market_data=None):
         """
@@ -79,25 +95,36 @@ class TechnicalAnalysis:
             df = pd.concat([padding, df]).reset_index(drop=True)
 
         # RSI
-        rsi_value = self.rsi(period=3).iloc[-1]
+        try:
+            rsi_value = self.rsi(period=3).iloc[-1]
+        except Exception:
+            rsi_value = 50
+
         if pd.isna(rsi_value):
             rsi_value = 50
 
         # MACD
-        macd_line, signal_line = self.macd(3, 6, 3)
-        macd_value = macd_line.iloc[-1] - signal_line.iloc[-1]
+        try:
+            macd_line, signal_line = self.macd(3, 6, 3)
+            macd_value = macd_line.iloc[-1] - signal_line.iloc[-1]
+        except Exception:
+            macd_value = 0
+
         if pd.isna(macd_value):
             macd_value = 0
 
         # Bollinger Bands
-        upper_band, lower_band = self.bollinger_bands(3)
-        current_price = df['close'].iloc[-1]
-        band_range = upper_band.iloc[-1] - lower_band.iloc[-1]
-        if band_range == 0 or pd.isna(band_range):
+        try:
+            upper_band, lower_band = self.bollinger_bands(3)
+            current_price = df['close'].iloc[-1]
+            band_range = upper_band.iloc[-1] - lower_band.iloc[-1]
+            if band_range == 0 or pd.isna(band_range):
+                bb_position = 0.5
+            else:
+                bb_position = (current_price - lower_band.iloc[-1]) / band_range
+                bb_position = max(0, min(1, bb_position))
+        except Exception:
             bb_position = 0.5
-        else:
-            bb_position = (current_price - lower_band.iloc[-1]) / band_range
-            bb_position = max(0, min(1, bb_position))
 
         # Normalize signals
         rsi_signal = (rsi_value - 50) / 50
@@ -108,14 +135,17 @@ class TechnicalAnalysis:
         combined_signal = (rsi_signal + macd_signal + bb_signal) / 3
         return float(max(min(combined_signal, 1), -1))
 
-    def calculate_atr(self, symbol=None):
+    def calculate_atr(self):
         """Wrapper for ATR calculation."""
-        atr_series = self.atr(period=3)
-        if atr_series is None or pd.isna(atr_series.iloc[-1]):
+        try:
+            atr_series = self.atr(period=3)
+            if atr_series is None or pd.isna(atr_series.iloc[-1]):
+                return None
+            return float(atr_series.iloc[-1])
+        except Exception:
             return None
-        return float(atr_series.iloc[-1])
 
-    def calculate_price_target(self, symbol=None):
+    def calculate_price_target(self):
         """Calculate price target using multiple technical indicators."""
         try:
             if self.data is None or len(self.data) < 2:
@@ -130,7 +160,7 @@ class TechnicalAnalysis:
                 return current_price
             momentum = price_changes.iloc[-1] if not pd.isna(price_changes.iloc[-1]) else 0
             strong_momentum = abs(momentum) > abs(trend_strength)
-            atr = self.calculate_atr(symbol)
+            atr = self.calculate_atr()
             if atr is None or atr == 0:
                 atr = current_price * 0.02
             upper_band, lower_band = self.bollinger_bands(period=3)
@@ -152,23 +182,27 @@ class TechnicalAnalysis:
                 target = min(current_price - (2 * atr), float(lower_band.iloc[-1]))
             return float(target)
         except Exception as e:
-            print(f"Error calculating price target: {e}")
-            return current_price * 1.20
+            logger.error(f"Error calculating price target: {e}")
+            return float(self.data['close'].iloc[-1]) * 1.20
 
-    def main():
-        # Example usage of the TechnicalAnalysis class
-        sample_data = pd.DataFrame({
-            'close': [100, 102, 104, 103, 105],
-            'high': [101, 103, 105, 104, 106],
-            'low': [99, 101, 103, 102, 104],
-            'volume': [1000, 1100, 1200, 1150, 1300]
-        })
-        ta = TechnicalAnalysis(sample_data)
-        print("RSI:", ta.rsi())
-        print("MACD:", ta.macd())
-        print("Bollinger Bands:", ta.bollinger_bands())
-        print("ATR:", ta.atr())
-        print("Composite Signal:", ta.evaluate())
-    
-    if __name__ == "__main__":
-        main()
+    @staticmethod
+    def enrich_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add all standard technical indicators and composite signal to the DataFrame.
+        """
+        try:
+            df = add_rsi(df)
+            df = add_macd(df)
+            df = add_bollinger_bands(df)
+            df = add_atr(df)
+            df = add_sma(df)
+            df = add_ema(df)
+            df = df.copy()
+            # Optionally add composite signal and price targets
+            from utils.technicals.indicators import add_composite_signal, calculate_price_target
+            df = add_composite_signal(df)
+            df = calculate_price_target(df)
+            return df
+        except Exception as e:
+            logger.error(f"Failed to enrich DataFrame with technical indicators: {e}")
+            return df
