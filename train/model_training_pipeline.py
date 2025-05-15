@@ -78,7 +78,7 @@ class MLPipeline:
             self._last_df = df.copy()  # Save for preprocessing config
 
             # Dynamically select all feature columns except symbol/timestamp
-            feature_cols = [col for col in df.columns if col not in ['symbol', 'timestamp']]
+            feature_cols = [col for col in df.columns if col not in ['symbol', 'timestamp'] and df[col].dtype in [np.float64, np.float32]]
             values = df[feature_cols].values
 
             if len(values) < self.config.seq_len:
@@ -137,6 +137,9 @@ class MLPipeline:
 
             # Prepare data
             X_train, X_val, y_train, y_val = self.prepare_dataset()
+
+            if len(X_train) == 0:
+                raise RuntimeError("No training data prepared.")
             
             # Setup training
             model = model.to(self.device)

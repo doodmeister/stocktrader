@@ -13,7 +13,7 @@ from train.deeplearning_config import TrainingConfig
 from patterns.patterns_nn import PatternNN
 from patterns.patterns import CandlestickPatterns
 from train.model_manager import ModelManager, ModelMetadata
-
+from utils.technicals.feature_engineering import compute_technical_features
 logger = setup_logger(__name__)
 
 @dataclass
@@ -209,21 +209,6 @@ class PatternModelTrainer:
             "confusion_matrix": cm.tolist(),
             "classification_report": report
         }
-
-            # Compose ModelMetadata
-            model_metadata = ModelMetadata(
-                version=datetime.now().strftime("%Y%m%d_%H%M%S"),
-                saved_at=datetime.now().isoformat(),
-                accuracy=metrics["metrics"]["final_metrics"]["accuracy"],
-                parameters=self.config.__dict__,
-                framework_version=torch.__version__
-            )
-            logger.info("Model training and saving completed.")
-            return model, metrics
-
-        except Exception as e:
-            logger.error("Training failed", exc_info=True)
-            raise ValueError(f"Model training failed: {e}") from e
 
     def _train_test_split(
         self,
