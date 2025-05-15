@@ -21,32 +21,45 @@ def load_df(uploaded_file) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def get_chatgpt_insight(summary: str) -> str:
-    """Send the technical summary to ChatGPT and return its analysis."""
+    """
+    Analyze a technical summary using GPT-4 and return a short-term trading recommendation.
+
+    Sends a summary of technical indicators to GPT-4, asking for a next-3-day outlook,
+    with a clear Buy / Hold / Sell rating and concise rationale.
+
+    Parameters:
+        summary (str): The technical analysis summary of the stock
+
+    Returns:
+        str: GPT-generated financial analysis or error message
+    """
     try:
         response = openai.chat.completions.create(
-            model="gpt-4",  # or "gpt-4-turbo"
+            model="gpt-4",
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "You are a professional financial analyst who specializes in technical analysis. "
-                        "You provide clear, structured insights on stock charts using indicators like RSI, MACD, Bollinger Bands, and candlestick patterns. "
-                        "Your tone is professional and insightful, but easy for traders and investors to understand."
+                        "You are a stock trading expert. You interpret RSI, MACD, Bollinger Bands, "
+                        "and candlestick patterns to provide actionable short-term recommendations."
                     )
                 },
                 {
                     "role": "user",
                     "content": (
-                        f"Based on the following technical analysis summary, provide a short-term and medium-term outlook for the stock. "
-                        f"Explain what the indicators suggest, highlight any important patterns or signals, and include any cautionary notes:\n\n{summary}"
+                        f"Here is a technical summary of a stock. Based only on this data, "
+                        f"should a trader BUY, HOLD, or SELL over the next 3 trading days?\n\n"
+                        f"Respond with a short explanation of why, and finish with a clear rating label: "
+                        f"'Final Recommendation: Buy', 'Hold', or 'Sell'.\n\n{summary}"
                     )
                 }
             ],
-            temperature=0.7
+            temperature=0.5
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error fetching GPT insight: {str(e)}"
+
 
 @st.cache_data
 def compute_price_stats(df: pd.DataFrame) -> pd.DataFrame:
@@ -367,10 +380,10 @@ def main():
         f"Price Target: {pt:.3f}" if pt is not None else "Price Target: N/A",
         f"Combined Technical Signal: {signal_value:.3f}" if signal_value is not None else "Combined Technical Signal: N/A",
         "",
-        "Detected Patterns (last 10):"
+        "Detected Patterns (last 20):"
     ]
     if patterns:
-        for p in patterns[-10:]:
+        for p in patterns[-20:]:
             summary_lines.append(f"- Index {p['index']}, Date {p['date']}: {p['pattern']}")
     else:
         summary_lines.append("None detected.")

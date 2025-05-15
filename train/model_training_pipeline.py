@@ -12,12 +12,14 @@ from typing import Tuple, Dict, Optional
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
 import json
+import pandas as pd
 from utils.etrade_candlestick_bot import ETradeClient
 from patterns.patterns_nn import PatternNN
-from train.model_manager import ModelManager
+from train.model_manager import ModelManager, ModelMetadata
 from train.ml_config import MLConfig
 from utils.notifier import Notifier
 from utils.technicals.performance_utils import get_candles_cached
+from patterns.pattern_utils import get_pattern_names, get_pattern_method
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -51,16 +53,19 @@ class MLPipeline:
             
             for symbol in self.config.symbols:
                 logger.info(f"Fetching data for {symbol}")
+                df = self.client.get_candles(
+                    symbol,
+                    interval="5min",
+                    days=5
+                )
+                if df.empty:
+                    logger.warning(f"No data received for {symbol}")
+                    continue
+
                 try:
-                    df = self.client.get_candles(
-                        symbol,
-                        interval="5min",
-                        days=5
-                    )
-                    if df.empty:
-                        logger.warning(f"No data received for {symbol}")
-                        continue
-                        
+                    df = add_candlestick_pattern_features(df)
+                    self._last_df = df.copy()  # Save for preprocessing config
+
                     values = df[['open','high','low','close','volume']].values
                     if len(values) < self.config.seq_len:
                         logger.warning(
@@ -113,7 +118,12 @@ class MLPipeline:
 
             # Prepare data
             X_train, X_val, y_train, y_val = self.prepare_dataset()
-            
+
+            # --- Add this check ---
+            if len(X_train) == 0:
+                raise RuntimeError("No training data prepared.")
+            # ----------------------
+
             # Setup training
             model = model.to(self.device)
             optimizer = torch.optim.Adam(
@@ -148,7 +158,7 @@ class MLPipeline:
             metrics = self._evaluate_model(model, X_val, y_val)
             
             # Save artifacts
-            self._save_artifacts(model, metrics)
+            self._save_artifacts(model, metrics, optimizer=optimizer, loss=best_loss)
             
             duration = datetime.now() - start_time
             logger.info(
@@ -172,15 +182,40 @@ class MLPipeline:
             raise
 
     def _normalize_features(self, values: np.ndarray) -> np.ndarray:
-        """Normalize OHLCV data using min-max scaling"""
+        """Normalize OHLCV data using min-max scaling and save normalization config."""
         min_vals = values.min(axis=0)
         max_vals = values.max(axis=0)
-        return (values - min_vals) / (max_vals - min_vals + 1e-8)
+        normed = (values - min_vals) / (max_vals - min_vals + 1e-8)
+        # Save normalization config for reproducibility
+        self._last_min_vals = min_vals
+        self._last_max_vals = max_vals
+        return normed
 
     def _extract_pattern_label(self, sequence: np.ndarray) -> int:
-        """Extract candlestick pattern label"""
-        # TODO: Implement pattern detection logic
-        return 0
+        """
+        Extract label from sequence based on last bar's pattern columns.
+        Returns:
+            0 = hold, 1 = buy, 2 = sell
+        """
+        # Use self._last_df to get the corresponding unnormalized pattern indicators
+        if not hasattr(self, "_last_df"):
+            return 0
+
+        # Find the index of the last row in the current sequence within the original DataFrame
+        seq_len = sequence.shape[0]
+        df = self._last_df
+        if len(df) < seq_len:
+            return 0
+        latest_row = df.iloc[len(df) - (len(self._last_df) - seq_len + 1)]
+
+        bullish = [col for col in df.columns if 'Bullish' in col]
+        bearish = [col for col in df.columns if 'Bearish' in col]
+
+        if any(latest_row[b] == 1 for b in bullish):
+            return 1  # Buy
+        elif any(latest_row[b] == 1 for b in bearish):
+            return 2  # Sell
+        return 0  # Hold
 
     def _train_epoch(
         self,
@@ -229,23 +264,92 @@ class MLPipeline:
     def _save_artifacts(
         self,
         model: PatternNN,
-        metrics: Dict[str, float]
+        metrics: Dict[str, float],
+        optimizer=None,
+        loss=None
     ) -> None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         metrics_path = self.config.model_dir / f"metrics_{timestamp}.json"
-        
-        # Use the existing model_manager instance
-        model_path = self.model_manager.save_model(
-            model,
-            metadata={
-                'accuracy': metrics['accuracy'],
-                'epochs': self.config.epochs,
-                'seq_len': self.config.seq_len
-            }
+
+        # Build ModelMetadata object
+        metadata = ModelMetadata(
+            version=timestamp,
+            saved_at=datetime.now().isoformat(),
+            accuracy=metrics.get('accuracy'),
+            parameters={
+                "epochs": self.config.epochs,
+                "seq_len": self.config.seq_len,
+                "input_size": getattr(model, "input_size", None),
+                "hidden_size": getattr(model, "hidden_size", None),
+                "num_layers": getattr(model, "num_layers", None),
+                "output_size": getattr(model, "output_size", None),
+                "dropout": getattr(model, "dropout", None)
+            },
+            backend="DeepPatternNN"
         )
-        
+
+        self.model_manager.save_model(
+            model=model,
+            metadata=metadata,
+            optimizer=optimizer,
+            epoch=self.config.epochs,
+            loss=loss
+        )
+
         with open(metrics_path, 'w') as f:
             json.dump(metrics, f, indent=2)
+
+        # --- Save preprocessing config (feature order and normalization) ---
+        try:
+            # Assume last used DataFrame is available as self._last_df
+            feature_order = self._last_df.columns.tolist() if hasattr(self, "_last_df") else []
+            min_vals = self._last_min_vals if hasattr(self, "_last_min_vals") else []
+            max_vals = self._last_max_vals if hasattr(self, "_last_max_vals") else []
+            preprocessing = {
+                "feature_order": feature_order,
+                "normalization": {
+                    "min": min_vals.tolist() if hasattr(min_vals, "tolist") else [],
+                    "max": max_vals.tolist() if hasattr(max_vals, "tolist") else []
+                }
+            }
+            with open(self.config.model_dir / f"preprocessing_{timestamp}.json", 'w') as f:
+                json.dump(preprocessing, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save preprocessing config: {e}")
+
+def add_candlestick_pattern_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    For each registered candlestick pattern, add a binary column to the DataFrame
+    indicating whether the pattern is detected at each row (using a rolling window).
+    """
+    pattern_names = get_pattern_names()
+    for pattern in pattern_names:
+        method = get_pattern_method(pattern)
+        min_rows = 3  # Default window size; you may want to get this from the registry if available
+        # Try to get min_rows from CandlestickPatterns registry if possible
+        try:
+            from patterns.patterns import CandlestickPatterns
+            for name, _, mr in CandlestickPatterns._PATTERNS:
+                if name == pattern:
+                    min_rows = mr
+                    break
+        except Exception:
+            pass
+
+        # Create a column for this pattern
+        results = []
+        for i in range(len(df)):
+            if i + 1 < min_rows:
+                results.append(0)
+                continue
+            window = df.iloc[i + 1 - min_rows : i + 1]
+            try:
+                detected = int(method(window)) if method else 0
+            except Exception:
+                detected = 0
+            results.append(detected)
+        df[pattern.replace(" ", "")] = results
+    return df
 
 if __name__ == '__main__':
     # Environment variables or config
@@ -270,6 +374,18 @@ if __name__ == '__main__':
     )
     notifier = Notifier()
     pipeline = MLPipeline(client, config, notifier)
-    model = PatternNN()
+
+    # Dynamically calculate input size: 5 OHLCV + number of patterns
+    num_ohlcv = 5  # open, high, low, close, volume
+    num_patterns = len(get_pattern_names())
+    feature_count = num_ohlcv + num_patterns
+
+    model = PatternNN(
+        input_size=feature_count,  # count of OHLCV + all pattern columns
+        hidden_size=64,
+        num_layers=2,
+        output_size=3,
+        dropout=0.2
+    )
     metrics = pipeline.train_and_evaluate(model)
     print("Training complete. Metrics:", metrics)

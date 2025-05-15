@@ -73,7 +73,7 @@ class ModelManager:
         self.base_directory = Path(base_directory)
         self.base_directory.mkdir(parents=True, exist_ok=True)
         
-    def save_model(self, model, metadata, backend=None):
+    def save_model(self, model, metadata, backend=None, optimizer=None, epoch=None, loss=None):
         """
         Save model with metadata and optional backend support.
         """
@@ -111,7 +111,10 @@ class ModelManager:
                 logger.info(f"Saving PyTorch model to: {model_path}")
                 torch.save({
                     'state_dict': model.state_dict(),
-                    'metadata': metadata.to_dict()
+                    'metadata': metadata.to_dict(),
+                    'optimizer_state_dict': optimizer.state_dict() if optimizer else None,
+                    'epoch': epoch,
+                    'loss': loss,
                 }, model_path)
 
             # Save metadata as JSON
@@ -178,19 +181,25 @@ class ModelManager:
                     else:
                         raise ModelError("No metadata found for model.")
                 params = metadata_dict.get("parameters", {})
-                # --- Validate required architecture params ---
+                # --- Validate required architecture params with try/except ---
                 required = ["input_size", "hidden_size", "num_layers", "output_size", "dropout"]
-                for param in required:
-                    if param not in params:
-                        raise ModelError(f"Missing required parameter '{param}' in metadata for model loading.")
+                try:
+                    missing = [p for p in required if p not in params]
+                    if missing:
+                        raise ModelError(f"Missing parameters in metadata: {missing}")
+                except Exception as e:
+                    raise ModelError(f"Error during parameter validation: {e}")
                 # Instantiate model with correct parameters
-                model = model_class(
-                    input_size=params["input_size"],
-                    hidden_size=params["hidden_size"],
-                    num_layers=params["num_layers"],
-                    output_size=params["output_size"],
-                    dropout=params["dropout"]
-                )
+                if callable(model_class):
+                    model = model_class(
+                        input_size=params["input_size"],
+                        hidden_size=params["hidden_size"],
+                        num_layers=params["num_layers"],
+                        output_size=params["output_size"],
+                        dropout=params["dropout"]
+                    )
+                else:
+                    raise ValueError("model_class must be a callable factory function")
                 model.load_state_dict(checkpoint['state_dict'])
                 model.to(device)
                 model.eval()
