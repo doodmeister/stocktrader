@@ -10,6 +10,7 @@ from utils.logger import setup_logger
 import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
+from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -25,6 +26,9 @@ from utils.config.validation import validate_symbol, safe_request
 from utils.security import get_api_credentials
 from utils.etrade_client_factory import create_etrade_client
 from utils.dashboard_utils import initialize_dashboard_session_state
+from utils.live_inference import make_trade_decision
+from utils.preprocess_input import load_preprocessing_config
+from patterns.pattern_utils import add_candlestick_pattern_features
 
 # Configure logger with proper format
 logger = setup_logger(__name__)
@@ -349,12 +353,13 @@ def render_trade_controls(client: ETradeClient, symbol: str) -> None:
                 st.error(f"Failed to place sell order: {str(e)}")
 
 
-def render_metrics(data: pd.DataFrame) -> None:
+def render_metrics(data: pd.DataFrame, symbol: str) -> None:
     """
     Render key metrics and statistics for the current symbol.
     
     Args:
         data: DataFrame with OHLCV data
+        symbol: The stock symbol being displayed
     """
     if data is None or data.empty:
         return
@@ -397,6 +402,36 @@ def render_metrics(data: pd.DataFrame) -> None:
         logger.exception(f"Error calculating metrics: {str(e)}")
         st.warning("Unable to calculate metrics due to insufficient data")
 
+    render_model_inference(st.session_state.data_cache, symbol)
+
+def render_model_inference(data: pd.DataFrame, symbol: str) -> None:
+    """
+    Render the model inference result for the selected symbol.
+    """
+    st.subheader("🧠 Model-Based Trading Signal")
+
+    try:
+        # Load latest preprocessing config dynamically
+        model_dir = Path("models/")
+        latest_model = sorted(model_dir.glob("pattern_nn_*.pth"), key=lambda x: x.stat().st_mtime, reverse=True)[0]
+        preproc_path = latest_model.with_name(latest_model.stem + "_preprocessing.json")
+
+        # Enhance data with patterns
+        df = data.reset_index().copy()
+        df = add_candlestick_pattern_features(df)
+
+        # Predict action
+        decision = make_trade_decision(
+            df=df,
+            preprocessing_path=str(preproc_path),
+            model_dir="models",
+            seq_len=10
+        )
+
+        st.success(f"📈 Model decision for {symbol}: **{decision.upper()}**")
+
+    except Exception as e:
+        st.warning(f"Could not compute model prediction: {e}")
 
 def render_last_update_info() -> None:
     """Render information about the last data update."""
@@ -462,8 +497,8 @@ def main():
         with data_container:
             # Render price chart
             render_price_chart(st.session_state.data_cache, config.symbol, config)
-
             # Render key metrics
+            render_metrics(st.session_state.data_cache, config.symbol)
             render_metrics(st.session_state.data_cache)
 
             # Render trade controls only if client is available

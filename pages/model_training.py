@@ -7,6 +7,7 @@ from typing import Optional, Tuple, Dict, Any, NamedTuple, List
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from pydantic import BaseModel
+from utils.preprocessing_config import save_preprocessing_config
 
 import torch
 import json
@@ -169,7 +170,7 @@ def train_model_deep_learning(
     logger.info("Starting model training step")
     st.info("Training model...")
 
-    model, metrics = train_pattern_model(
+    model, optimizer, epoch, loss = train_pattern_model(
         symbols=selected_symbols,
         data=data,
         epochs=epochs,
@@ -181,7 +182,7 @@ def train_model_deep_learning(
     logger.info("Model training step completed")
     st.info("Model training completed.")
 
-    return model, metrics
+    return model, optimizer, epoch, loss
 
 def train_model_classic_ml(
     data: pd.DataFrame,
@@ -229,7 +230,10 @@ def save_trained_model(
     model: Any,
     config: Any,
     metrics: Dict[str, float],
-    backend: str
+    backend: str,
+    optimizer=None,
+    epoch=None,
+    loss=None
 ) -> Tuple[bool, Optional[str]]:
     try:
         logger.info("Starting model saving step")
@@ -263,7 +267,10 @@ def save_trained_model(
 
         logger.info(f"Saving model with backend: {backend}")
         st.write(f"Saving model with backend: {backend}")
-        save_path = model_manager.save_model(model, metadata=metadata, backend=backend)
+        save_path = model_manager.save_model(
+            model, metadata=metadata, backend=backend,
+            optimizer=optimizer, epoch=epoch, loss=loss
+        )
         logger.info(f"Model saved to: {save_path} (absolute: {Path(save_path).resolve()})")
         st.write(f"Model saved to: {save_path} (absolute: {Path(save_path).resolve()})")
         model_manager.cleanup_old_models(keep_versions=5)
@@ -300,6 +307,20 @@ def save_trained_model(
         except Exception as e:
             logger.error(f"Failed to load model after save: {e}")
             st.error(f"Failed to load model after save: {e}")
+
+        # Example preprocessing configuration
+        preprocessing_config = {
+            'feature_order': ['RSI', 'MACD', 'BullishEngulfing', 'Hammer'],
+            'normalization': {
+                'mean': [0.5, 0.3, 0.0, 0.0],
+                'std': [0.1, 0.2, 1.0, 1.0]
+            }
+        }
+
+        # Save with a filename that matches your model, e.g.:
+        model_basename = Path(save_path).stem
+        preproc_path = f"{model_basename}_preprocessing.json"
+        save_preprocessing_config(preprocessing_config, path=preproc_path)
 
         logger.info("Model saving step completed")
         st.info("Model saved successfully.")
@@ -466,7 +487,7 @@ def render_training_page():
             logger.info(f"Starting model training with backend: {backend}")
             with st.spinner("Training model..."):
                 if backend == "Deep Learning (PatternNN)":
-                    model, metrics = train_model_deep_learning(
+                    model, optimizer, epoch, loss = train_model_deep_learning(
                         data,
                         epochs=config.epochs,
                         batch_size=config.batch_size,
@@ -529,6 +550,14 @@ def render_training_page():
             if classification_report is not None:
                 st.subheader("Classification Report")
                 st.text(classification_report)
+
+            # Save the trained model
+            success, error = save_trained_model(model, config, metrics, backend, optimizer=optimizer, epoch=epoch, loss=loss)
+            if success:
+                st.success("Model saved successfully.")
+            else:
+                st.error(f"Model save failed: {error}")
+
         except Exception as e:
             logger.exception("Training error")
             st.error(f"Training failed: {str(e)}")
