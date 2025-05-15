@@ -29,6 +29,8 @@ from sklearn.base import BaseEstimator
 from utils.dashboard_utils import initialize_dashboard_session_state
 from utils.technicals.technical_analysis import TechnicalAnalysis
 
+from utils.technicals.technical_analysis import TechnicalAnalysis
+
 # Use the new logger from utils/logger.py
 logger = setup_logger(__name__)
 

@@ -137,12 +137,7 @@ class MLPipeline:
 
             # Prepare data
             X_train, X_val, y_train, y_val = self.prepare_dataset()
-
-            # --- Add this check ---
-            if len(X_train) == 0:
-                raise RuntimeError("No training data prepared.")
-            # ----------------------
-
+            
             # Setup training
             model = model.to(self.device)
             optimizer = torch.optim.Adam(

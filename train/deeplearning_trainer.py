@@ -12,13 +12,6 @@ from sklearn.metrics import confusion_matrix, classification_report, precision_s
 from train.deeplearning_config import TrainingConfig
 from patterns.patterns_nn import PatternNN
 from patterns.patterns import CandlestickPatterns
-# FIX: Adjust the import path if needed, or define a placeholder if the module is missing.
-try:
-    from utils.technicals.feature_engineering import compute_technical_features
-except ModuleNotFoundError:
-    def compute_technical_features(df):
-        # Placeholder: return df unchanged if the real function is missing
-        return df
 from train.model_manager import ModelManager, ModelMetadata
 
 logger = setup_logger(__name__)
@@ -56,8 +49,7 @@ class PatternModelTrainer:
             raise ValueError("No candlestick patterns selected for training.")
 
     def prepare_training_data(
-        self,
-        data: pd.DataFrame
+        self, data: pd.DataFrame
     ) -> Tuple[np.ndarray, np.ndarray]:
         if not isinstance(data, pd.DataFrame) or data.empty:
             raise ValueError("Input data must be a non-empty pandas DataFrame.")
@@ -85,8 +77,7 @@ class PatternModelTrainer:
         return np.array(X), np.array(y)
 
     def _process_data(
-        self,
-        data: pd.DataFrame
+        self, data: pd.DataFrame
     ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
         features, labels = [], []
         feature_cols = [col for col in data.columns if col not in ["timestamp", "symbol"]]
@@ -108,6 +99,7 @@ class PatternModelTrainer:
         patterns: List[str],
         selected_patterns: List[str]
     ) -> np.ndarray:
+        """One-hot encode detected patterns."""
         label = np.zeros(len(selected_patterns), dtype=float)
         for i, pattern in enumerate(selected_patterns):
             if pattern in patterns:
@@ -218,24 +210,36 @@ class PatternModelTrainer:
             "classification_report": report
         }
 
+            # Compose ModelMetadata
+            model_metadata = ModelMetadata(
+                version=datetime.now().strftime("%Y%m%d_%H%M%S"),
+                saved_at=datetime.now().isoformat(),
+                accuracy=metrics["metrics"]["final_metrics"]["accuracy"],
+                parameters=self.config.__dict__,
+                framework_version=torch.__version__
+            )
+            logger.info("Model training and saving completed.")
+            return model, metrics
+
+        except Exception as e:
+            logger.error("Training failed", exc_info=True)
+            raise ValueError(f"Model training failed: {e}") from e
+
     def _train_test_split(
         self,
         X: np.ndarray,
         y: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         split_idx = int(len(X) * (1 - self.config.validation_split))
-        return (
-            X[:split_idx],
-            X[split_idx:],
-            y[:split_idx],
-            y[split_idx:]
-        )
+        return X[:split_idx], X[split_idx:], y[:split_idx], y[split_idx:]
 
     def _create_data_loader(
         self,
         X: np.ndarray,
         y: np.ndarray
     ) -> DataLoader:
+        tensor_x = torch.tensor(X, dtype=torch.float32)
+        tensor_y = torch.tensor(y, dtype=torch.float32)
         return DataLoader(
             TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)),
             batch_size=self.config.batch_size,
@@ -243,32 +247,12 @@ class PatternModelTrainer:
             pin_memory=torch.cuda.is_available()
         )
 
-    def _add_candlestick_pattern_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        from patterns.pattern_utils import get_pattern_names, get_pattern_method
-        pattern_names = get_pattern_names()
-        for pattern in pattern_names:
-            method = get_pattern_method(pattern)
-            min_rows = 3
-            try:
-                for name, _, mr in CandlestickPatterns._PATTERNS:
-                    if name == pattern:
-                        min_rows = mr
-                        break
-            except Exception:
-                pass
-            results = []
-            for i in range(len(df)):
-                if i + 1 < min_rows:
-                    results.append(0)
-                    continue
-                window = df.iloc[i + 1 - min_rows:i + 1]
-                try:
-                    detected = int(method(window)) if method else 0
-                except Exception:
-                    detected = 0
-                results.append(detected)
-            df[pattern.replace(" ", "")] = results
-        return df
+    def _save_model(
+        self,
+        model: PatternNN,
+        metadata: Optional[ModelMetadata] = None
+    ) -> None:
+        self.model_manager.save_model(model=model, metadata=metadata, backend="Deep Learning (PatternNN)")
 
 def train_pattern_model(
     symbols: List[str],

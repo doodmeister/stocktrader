@@ -62,13 +62,7 @@ class PatternNN(nn.Module):
 
     def forward(self, x):
         """
-        Forward pass through the model.
-
-        Args:
-            x (Tensor): Input tensor of shape (batch_size, seq_len, input_size)
-        Returns:
-            Tensor: Raw logits (apply Sigmoid externally if needed)
+        x: Tensor of shape (batch_size, seq_len, input_size)
         """
         lstm_out, _ = self.lstm(x)  # lstm_out: (batch, seq_len, hidden_size)
-        last_hidden = lstm_out[:, -1, :]  # take the last timestep
-        return self.fc(last_hidden)
+        last_hidden = lstm_out[:, -1, :]  # take the last
