@@ -20,6 +20,7 @@ from train.ml_config import MLConfig
 from utils.notifier import Notifier
 from utils.technicals.performance_utils import get_candles_cached
 from patterns.pattern_utils import get_pattern_names, get_pattern_method
+from utils.technicals.feature_engineering import compute_technical_features
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -50,7 +51,8 @@ class MLPipeline:
         """
         try:
             X, y = [], []
-            
+            all_data = []
+
             for symbol in self.config.symbols:
                 logger.info(f"Fetching data for {symbol}")
                 df = self.client.get_candles(
@@ -62,36 +64,53 @@ class MLPipeline:
                     logger.warning(f"No data received for {symbol}")
                     continue
 
-                try:
-                    df = add_candlestick_pattern_features(df)
-                    self._last_df = df.copy()  # Save for preprocessing config
+                all_data.append(df)
 
-                    values = df[['open','high','low','close','volume']].values
-                    if len(values) < self.config.seq_len:
-                        logger.warning(
-                            f"Insufficient data points for {symbol}: "
-                            f"{len(values)} < {self.config.seq_len}"
-                        )
-                        continue
+            if not all_data:
+                raise ValueError("No data fetched for any symbol.")
 
-                    # Normalize features
-                    values = self._normalize_features(values)
-                    
-                    for i in range(self.config.seq_len, len(values)):
-                        seq = values[i-self.config.seq_len:i]
-                        label = self._extract_pattern_label(seq)
-                        X.append(seq)
-                        y.append(label)
-                        
-                except Exception as e:
-                    logger.error(f"Error processing {symbol}: {str(e)}")
-                    continue
+            # Concatenate and apply feature engineering
+            df = pd.concat(all_data, ignore_index=True)
+            df = compute_technical_features(df)  # <-- Enrich features here
+
+            # Continue with your pattern feature engineering and dataset creation
+            df = add_candlestick_pattern_features(df)
+            self._last_df = df.copy()  # Save for preprocessing config
+
+            # Dynamically select all feature columns except symbol/timestamp
+            feature_cols = [col for col in df.columns if col not in ['symbol', 'timestamp']]
+            values = df[feature_cols].values
+
+            if len(values) < self.config.seq_len:
+                logger.warning(
+                    f"Insufficient data points: {len(values)} < {self.config.seq_len}"
+                )
+                raise ValueError("Not enough data for sequence length.")
+
+            # Normalize features
+            values = self._normalize_features(values)
+
+            for i in range(self.config.seq_len, len(values)):
+                seq = values[i-self.config.seq_len:i]
+                label = self._extract_pattern_label(seq)
+                X.append(seq)
+                y.append(label)
 
             if not X or not y:
                 raise ValueError("No valid sequences could be generated")
 
             X = np.array(X, dtype=np.float32)
             y = np.array(y, dtype=np.int64)
+
+            if not isinstance(X, np.ndarray) or not isinstance(y, np.ndarray):
+                logger.error("X or y is not a numpy array after processing.")
+                raise ValueError("Feature or label array is not a numpy array.")
+            if X.ndim != 3:
+                logger.error(f"Expected X to be 3D (batch, seq_len, features), got shape {X.shape}")
+                raise ValueError(f"Expected X to be 3D (batch, seq_len, features), got shape {X.shape}")
+            if y.ndim != 1 and y.ndim != 2:
+                logger.error(f"Expected y to be 1D or 2D, got shape {y.shape}")
+                raise ValueError(f"Expected y to be 1D or 2D, got shape {y.shape}")
 
             # Split and convert to tensors
             splits = train_test_split(
@@ -118,12 +137,7 @@ class MLPipeline:
 
             # Prepare data
             X_train, X_val, y_train, y_val = self.prepare_dataset()
-
-            # --- Add this check ---
-            if len(X_train) == 0:
-                raise RuntimeError("No training data prepared.")
-            # ----------------------
-
+            
             # Setup training
             model = model.to(self.device)
             optimizer = torch.optim.Adam(
@@ -375,13 +389,15 @@ if __name__ == '__main__':
     notifier = Notifier()
     pipeline = MLPipeline(client, config, notifier)
 
-    # Dynamically calculate input size: 5 OHLCV + number of patterns
-    num_ohlcv = 5  # open, high, low, close, volume
-    num_patterns = len(get_pattern_names())
-    feature_count = num_ohlcv + num_patterns
+    # Dynamically calculate input size based on feature columns
+    df_sample = pd.concat([client.get_candles(symbol, interval="5min", days=5) for symbol in config.symbols], ignore_index=True)
+    df_sample = compute_technical_features(df_sample)
+    df_sample = add_candlestick_pattern_features(df_sample)
+    feature_cols = [col for col in df_sample.columns if col not in ['symbol', 'timestamp']]
+    feature_count = df_sample[feature_cols].shape[1]
 
     model = PatternNN(
-        input_size=feature_count,  # count of OHLCV + all pattern columns
+        input_size=feature_count,  # count of all feature columns
         hidden_size=64,
         num_layers=2,
         output_size=3,

@@ -232,11 +232,19 @@ class ModelTrainer:
         """
         model_manager = ModelManager(base_directory=str(self.config.MODEL_DIR))
         version = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Build expected feature structure for metadata
+        expected_features = self.get_feature_columns(pd.DataFrame(columns=self.feature_config.PRICE_FEATURES))
         metadata = ModelMetadata(
             version=version,
             saved_at=datetime.now().isoformat(),
             accuracy=metrics.get("accuracy") if metrics else None,
-            parameters={"symbol": symbol, "interval": interval},
+            parameters={
+                "symbol": symbol,
+                "interval": interval,
+                "features": expected_features,
+                "rolling_windows": self.feature_config.ROLLING_WINDOWS,
+                "patterns": self.feature_config.selected_patterns if self.feature_config.use_candlestick_patterns else []
+            },
             framework_version="sklearn"
         )
         logger.info(f"Saving model with backend: {backend}")

@@ -30,6 +30,8 @@ from sklearn.base import BaseEstimator
 
 from utils.dashboard_utils import initialize_dashboard_session_state
 
+from utils.technicals.technical_analysis import TechnicalAnalysis
+
 # Use the new logger from utils/logger.py
 logger = setup_logger(__name__)
 
@@ -137,6 +139,38 @@ def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
     except Exception as e:
         logger.exception("Data validation error")
         return DataValidationResult(False, f"Validation error: {str(e)}", None)
+
+def compute_technical_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add key technical indicators and candlestick pattern flags to the DataFrame.
+    
+    This is a unified preprocessing step suitable for training ML models.
+    """
+    df = df.copy()
+
+    # Compute Technical Indicators
+    ta = TechnicalAnalysis(df)
+    df['RSI'] = ta.rsi(period=14)
+    df['MACD'], df['MACD_Signal'] = ta.macd(fast_period=12, slow_period=26)
+    df['BB_Upper'], df['BB_Lower'] = ta.bollinger_bands(period=20, std_dev=2)
+
+    # Compute ATR for use in model or risk estimation
+    df['ATR'] = ta.atr(period=3)
+
+    # Add Candlestick Pattern flags
+    for pattern_name in CandlestickPatterns.get_pattern_names():
+        try:
+            method = getattr(CandlestickPatterns, pattern_name)
+            df[pattern_name.replace(" ", "")] = df.apply(
+                lambda row: int(method(df.loc[max(0, row.name-4):row.name])), axis=1
+            )
+        except Exception:
+            df[pattern_name.replace(" ", "")] = 0
+
+    # Drop rows with NaN values introduced by indicators
+    df.dropna(inplace=True)
+
+    return df
 
 def train_model_deep_learning(
     data: pd.DataFrame,
