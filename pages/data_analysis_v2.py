@@ -8,8 +8,10 @@ import os
 import openai
 from patterns.patterns import CandlestickPatterns
 from utils.technicals.technical_analysis import TechnicalAnalysis
+from utils.technicals.indicators import add_bollinger_bands, compute_price_stats, compute_return_stats
 from utils.dashboard_utils import initialize_dashboard_session_state
 from utils.security import get_openai_api_key
+from utils.chatgpt import get_chatgpt_insight as _get_chatgpt_insight
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -21,55 +23,16 @@ def load_df(uploaded_file) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def get_chatgpt_insight(summary: str) -> str:
-    """
-    Analyze a technical summary using GPT-4 and return a short-term trading recommendation.
-
-    Sends a summary of technical indicators to GPT-4, asking for a next-3-day outlook,
-    with a clear Buy / Hold / Sell rating and concise rationale.
-
-    Parameters:
-        summary (str): The technical analysis summary of the stock
-
-    Returns:
-        str: GPT-generated financial analysis or error message
-    """
-    try:
-        response = openai.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a stock trading expert. You interpret RSI, MACD, Bollinger Bands, "
-                        "and candlestick patterns to provide actionable short-term recommendations."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Here is a technical summary of a stock. Based only on this data, "
-                        f"should a trader BUY, HOLD, or SELL over the next 3 trading days?\n\n"
-                        f"Respond with a short explanation of why, and finish with a clear rating label: "
-                        f"'Final Recommendation: Buy', 'Hold', or 'Sell'.\n\n{summary}"
-                    )
-                }
-            ],
-            temperature=0.5
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Error fetching GPT insight: {str(e)}"
+    return _get_chatgpt_insight(summary)
 
 
 @st.cache_data
-def compute_price_stats(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute summary statistics for price columns."""
-    return pd.DataFrame({
-        "Open": [df['open'].min(), df['open'].max(), df['open'].mean(), df['open'].std()],
-        "High": [df['high'].min(), df['high'].max(), df['high'].mean(), df['high'].std()],
-        "Low":  [df['low'].min(),  df['low'].max(),  df['low'].mean(),  df['low'].std()],
-        "Close":[df['close'].min(),df['close'].max(),df['close'].mean(),df['close'].std()]
-    }, index=["Min","Max","Mean","Std"])
+def cached_compute_price_stats(df: pd.DataFrame) -> pd.DataFrame:
+    return compute_price_stats(df)
+
+@st.cache_data
+def cached_compute_return_stats(df: pd.DataFrame) -> pd.DataFrame:
+    return compute_return_stats(df)
 
 @st.cache_data
 def compute_return_stats(df: pd.DataFrame) -> pd.DataFrame:
@@ -96,11 +59,14 @@ def get_indicator_series(
     bb_period: int,
     bb_std: int
 ) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
-    """Calculate RSI, MACD lines, and Bollinger Bands."""
+    """Calculate RSI, MACD lines, and Bollinger Bands using indicators.py."""
     ta = TechnicalAnalysis(df)
     rsi = ta.rsi(period=rsi_period)
     macd_line, signal_line = ta.macd(fast_period=macd_fast, slow_period=macd_slow)
-    upper_band, lower_band = ta.bollinger_bands(period=bb_period, std_dev=bb_std)
+    # Use add_bollinger_bands directly
+    bb_df = add_bollinger_bands(df, length=bb_period, std=bb_std)
+    upper_band = bb_df['bb_upper']
+    lower_band = bb_df['bb_lower']
     return rsi, macd_line, signal_line, upper_band, lower_band
 
 @st.cache_data
@@ -137,9 +103,10 @@ def plot_technical_indicators(
     signal_line: pd.Series,
     df: pd.DataFrame,
     upper_band: pd.Series,
-    lower_band: pd.Series
+    lower_band: pd.Series,
+    width: int = 1200,
+    height: int = 600
 ):
-    """Render indicator charts with captions."""
     st.markdown("""
     ### 📈 Technical Indicator Analysis
 
@@ -149,24 +116,33 @@ def plot_technical_indicators(
     - **Bollinger Bands (volatility bands)**
     """)
 
-    st.line_chart(rsi, height=150, use_container_width=True)
+    # RSI Plot
+    fig_rsi = go.Figure()
+    fig_rsi.add_trace(go.Scatter(x=rsi.index, y=rsi, mode='lines', name='RSI'))
+    fig_rsi.update_layout(title="RSI", width=width, height=height)
+    st.plotly_chart(fig_rsi, use_container_width=False)
     st.caption(f"RSI (last: {rsi.iloc[-1]:.2f}) — >70 overbought, <30 oversold.")
 
-    macd_df = pd.DataFrame({'MACD': macd_line, 'Signal': signal_line})
-    st.line_chart(macd_df, height=150, use_container_width=True)
+    # MACD Plot
+    fig_macd = go.Figure()
+    fig_macd.add_trace(go.Scatter(x=macd_line.index, y=macd_line, mode='lines', name='MACD'))
+    fig_macd.add_trace(go.Scatter(x=signal_line.index, y=signal_line, mode='lines', name='Signal'))
+    fig_macd.update_layout(title="MACD", width=width, height=height)
+    st.plotly_chart(fig_macd, use_container_width=False)
     st.caption(f"MACD diff (last): {(macd_line.iloc[-1] - signal_line.iloc[-1]):.2f}.")
 
-    bb_df = pd.DataFrame({
-        'Close': df['close'],
-        'Upper Band': upper_band,
-        'Lower Band': lower_band
-    })
-    st.line_chart(bb_df, height=200, use_container_width=True)
+    # Bollinger Bands Plot
+    fig_bb = go.Figure()
+    fig_bb.add_trace(go.Scatter(x=df.index, y=df['close'], mode='lines', name='Close'))
+    fig_bb.add_trace(go.Scatter(x=upper_band.index, y=upper_band, mode='lines', name='Upper Band'))
+    fig_bb.add_trace(go.Scatter(x=lower_band.index, y=lower_band, mode='lines', name='Lower Band'))
+    fig_bb.update_layout(title="Bollinger Bands", width=width, height=height)
+    st.plotly_chart(fig_bb, use_container_width=False)
     st.caption("Bollinger Bands visualize volatility.")
 
 
-def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[str, Any]]):
-    """Render Plotly candlestick chart with markers."""
+def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[str, Any]], width: int = 900, height: int = 500):
+    """Render Plotly candlestick chart with markers and adjustable size."""
     st.markdown("""
     ### 🕯️ Candlestick Chart with Pattern Markers
 
@@ -182,7 +158,8 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
             mode='markers+text', marker=dict(size=10, color='red'),
             text=[res['pattern']], textposition='top center'
         ))
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(width=width, height=height)  # <-- Set size here
+    st.plotly_chart(fig, use_container_width=False)  # Set to False to use your custom size
 
 
 def main():
@@ -212,7 +189,7 @@ def main():
     st.subheader("Data Preview")
     st.dataframe(df.head(5), height=200)
 
-    price_stats = compute_price_stats(df)
+    price_stats = cached_compute_price_stats(df)
     st.markdown("### 📈 Price Statistics")
     st.table(price_stats.round(2))
 
@@ -252,6 +229,8 @@ def main():
     with col2:
         macd_fast = st.number_input("MACD Fast", 2, 30, 12)
         macd_slow = st.number_input("MACD Slow", macd_fast+1, 60, 26)
+        fib_lookback = st.number_input("Fib Lookback", 5, 100, 30)
+        fib_ext      = st.number_input("Fib Extension", 0.1, 2.0, 0.618, step=0.001)
     with col3:
         bb_period = st.number_input("BB Period", 2, 30, 20)
         bb_std = st.number_input("BB Std Dev", 1, 4, 2)
@@ -276,6 +255,17 @@ def main():
       - *BB Std Dev* controls how wide the bands are (higher = wider bands, capturing more volatility).  
       - Tighter bands (lower std dev) can signal breakouts; wider bands (higher std dev) can help avoid false signals.
 
+    - **Fib Lookback**:  
+      Sets how many bars back to search for the highest high and lowest low when calculating the Fibonacci extension price target.  
+      - *Shorter lookback* focuses on recent swings and may give more reactive targets.  
+      - *Longer lookback* considers a broader trend and may give more stable, longer-term targets.
+
+    - **Fib Extension**:  
+      The Fibonacci multiplier used to project the price target beyond the recent swing high.  
+      - *Common values*: 0.618 (the “golden ratio”), 1.0, 1.618, etc.  
+      - *Higher values* project more aggressive targets.  
+      - *Lower values* are more conservative.
+
     *Tip: Adjust these settings to match your trading style or to experiment with different market conditions!*
     """)
 
@@ -284,23 +274,38 @@ def main():
         rsi, macd_line, signal_line, upper_band, lower_band = get_indicator_series(
             df, rsi_period, macd_fast, macd_slow, bb_period, bb_std
         )
-        plot_technical_indicators(rsi, macd_line, signal_line, df, upper_band, lower_band)
+        plot_technical_indicators(rsi, macd_line, signal_line, df, upper_band, lower_band, width=1200, height=600)
 
     # Combined Technical Signal
-    st.markdown("""
-    ---
+    st.info("""
     ## 🧮 Combined Technical Signal
 
     This metric combines RSI, MACD, and Bollinger Bands into a single value between -1 (bearish) and 1 (bullish).
 
     - **Interpretation**:
-      - Values near 1 suggest bullish conditions.
-      - Values near -1 suggest bearish conditions.
+      - Values near **1** suggest strong bullish conditions.
+      - Values near **-1** suggest strong bearish conditions.
+      - Values near **0** indicate neutral or trendless conditions.
+      - Slightly negative (**–0.1 to 0**) → mildly bearish or indecisive.
+      - Slightly positive (**0 to +0.1**) → mildly bullish or indecisive.
     - **Note**:
       - This is a composite signal for research, not a trading recommendation.
     """)
-    signal_value = TechnicalAnalysis(df).evaluate(df)
+    signal_value, rsi_score, macd_score, bb_score = TechnicalAnalysis(df).evaluate(
+        market_data=df,
+        rsi_period=rsi_period,
+        macd_fast=macd_fast,
+        macd_slow=macd_slow,
+        macd_signal=9,  # or expose as UI
+        bb_period=bb_period,
+        bb_std=bb_std,
+    )
     st.metric("Combined Technical Signal", f"{signal_value:.3f}" if signal_value is not None else "N/A", help="Range: -1 (bearish) to 1 (bullish)")
+
+    with st.expander("▶ Component Scores"):
+        st.metric("RSI Score",   f"{rsi_score:.2f}" if rsi_score is not None else "N/A")
+        st.metric("MACD Score",  f"{macd_score:.2f}" if macd_score is not None else "N/A")
+        st.metric("BB Score",    f"{bb_score:.2f}" if bb_score is not None else "N/A")
 
     # ATR & Price Target
     st.markdown("""
@@ -310,8 +315,8 @@ def main():
     - **ATR (Average True Range)**: Measures market volatility. Higher ATR means more price movement.
     - **Price Target**: A calculated projection based on trend, volatility, and momentum.
     """)
-    atr = TechnicalAnalysis(df).calculate_atr(symbol=None)
-    pt = TechnicalAnalysis(df).calculate_price_target(symbol=None)
+    atr = TechnicalAnalysis(df).calculate_atr()
+    pt = TechnicalAnalysis(df).calculate_price_target()
     if atr is not None:
         st.write(f"**ATR (period=3):** {atr:.3f}")
     else:
@@ -320,6 +325,13 @@ def main():
         st.write(f"**Price Target:** {pt:.3f}")
     else:
         st.write("Price target unavailable.")
+
+    ta = TechnicalAnalysis(df)
+    pt = ta.calculate_price_target_fib(
+        lookback=fib_lookback,
+        extension=fib_ext
+    )
+    st.write(f"**Fib Price Target:** {pt:.3f}")
 
    # Pattern detection
     st.markdown("""
@@ -345,7 +357,7 @@ def main():
         st.info("No selected patterns detected in this data.")
 
     # Candlestick chart
-    plot_candlestick_with_patterns(df, patterns)
+    plot_candlestick_with_patterns(df, patterns, width=1200, height=600)
 
     # Detailed Analysis Summary
     st.markdown("""
@@ -388,7 +400,7 @@ def main():
     else:
         summary_lines.append("None detected.")
     summary_text = "\n".join(summary_lines)
-    st.text_area("Copyable Analysis Summary", summary_text, height=300)
+    st.text_area("Copyable Analysis Summary", summary_text, height=400)
 
     if st.button("Get ChatGPT Insight"):
         with st.spinner("Contacting ChatGPT..."):

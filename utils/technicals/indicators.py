@@ -94,11 +94,24 @@ def add_bollinger_bands(df: DataFrame, length: int = 20, std: Union[int, float] 
             raise ValueError("Standard deviation multiplier must be positive")
         if TA_AVAILABLE:
             bb = ta.bbands(df[close_col], length=length, std=std)
-            df[['bb_upper','bb_middle','bb_lower']] = bb[[
-                f'BBU_{length}_{std}',
-                f'BBM_{length}_{std}',
-                f'BBL_{length}_{std}'
-            ]]
+            if bb is None or not hasattr(bb, "columns"):
+                raise ValueError("pandas_ta.bbands returned None. Check your input data for sufficient rows and NaNs.")
+            # Try all reasonable column name variants for each band
+            std_variants = [str(std), f"{float(std):.1f}", f"{float(std)}"]
+            def find_col(prefix):
+                for std_str in std_variants:
+                    col = f"{prefix}_{length}_{std_str}"
+                    if col in bb.columns:
+                        return col
+                return None
+            upper_col = find_col('BBU')
+            middle_col = find_col('BBM')
+            lower_col = find_col('BBL')
+            if not all([upper_col, middle_col, lower_col]):
+                raise KeyError(f"Bollinger Bands columns not found in DataFrame: {bb.columns}")
+            df['bb_upper'] = bb[upper_col]
+            df['bb_middle'] = bb[middle_col]
+            df['bb_lower'] = bb[lower_col]
         else:
             ma = df[close_col].rolling(window=length, min_periods=1).mean()
             sd = df[close_col].rolling(window=length, min_periods=1).std()
@@ -196,6 +209,30 @@ def calculate_price_target(df: pd.DataFrame, atr_mult: float = 1.5) -> pd.DataFr
     df['target_price_up'] = df['close'] + atr_mult * df['atr']
     df['target_price_down'] = df['close'] - atr_mult * df['atr']
     return df
+
+def compute_price_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute summary statistics for price columns."""
+    return pd.DataFrame({
+        "Open": [df['open'].min(), df['open'].max(), df['open'].mean(), df['open'].std()],
+        "High": [df['high'].min(), df['high'].max(), df['high'].mean(), df['high'].std()],
+        "Low":  [df['low'].min(),  df['low'].max(),  df['low'].mean(),  df['low'].std()],
+        "Close":[df['close'].min(),df['close'].max(),df['close'].mean(),df['close'].std()]
+    }, index=["Min","Max","Mean","Std"])
+
+def compute_return_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute distribution statistics for daily returns."""
+    daily_returns = df['close'].pct_change() * 100
+    return pd.DataFrame({
+        "Daily Returns (%)": [
+            daily_returns.min(),
+            daily_returns.quantile(0.25),
+            daily_returns.median(),
+            daily_returns.quantile(0.75),
+            daily_returns.max(),
+            daily_returns.mean(),
+            daily_returns.std()
+        ]
+    }, index=["Min","25%","Median","75%","Max","Mean","Std"])
 
 class TechnicalIndicators:
     """

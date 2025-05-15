@@ -73,67 +73,66 @@ class TechnicalAnalysis:
             logger.error(f"ATR calculation failed: {e}")
             raise
 
-    def evaluate(self, market_data=None):
+    def evaluate(
+        self,
+        market_data=None,
+        rsi_period=14,
+        macd_fast=12,
+        macd_slow=26,
+        macd_signal=9,
+        bb_period=20,
+        bb_std=2
+    ):
         """
         Evaluate market data using technical indicators and return a composite signal.
         Returns a float in [-1, 1] (bearish to bullish).
         """
         df = market_data if market_data is not None else self.data
-        if df is None or df.empty or not all(col in df.columns for col in ['close', 'high', 'low', 'volume']):
-            return None
+        min_len = max(rsi_period, macd_slow + macd_signal, bb_period)
+        if df is None or df.empty or not all(col in df.columns for col in ['open', 'high', 'low', 'close', 'volume']):
+            return None, None, None, None
+        if len(df) < min_len:
+            logger.warning(f"Not enough data for evaluation: need at least {min_len} rows, got {len(df)}")
+            return None, None, None, None
 
-        # Pad if needed
-        if len(df) < 10:
-            last_price = df['close'].iloc[-1]
-            padding_length = 10 - len(df)
-            padding = pd.DataFrame({
-                'close': [last_price] * padding_length,
-                'high': [last_price] * padding_length,
-                'low': [last_price] * padding_length,
-                'volume': [df['volume'].iloc[-1]] * padding_length
-            }, index=range(padding_length))
-            df = pd.concat([padding, df]).reset_index(drop=True)
-
-        # RSI
         try:
-            rsi_value = self.rsi(period=3).iloc[-1]
-        except Exception:
-            rsi_value = 50
+            # Calculate indicators with user parameters
+            rsi = self.rsi(period=rsi_period)
+            macd, macd_sig = self.macd(
+                fast_period=macd_fast,
+                slow_period=macd_slow,
+                signal_period=macd_signal
+            )
+            bb_upper, bb_lower = self.bollinger_bands(
+                period=bb_period,
+                std_dev=bb_std
+            )
+            close = df['close']
 
-        if pd.isna(rsi_value):
-            rsi_value = 50
+            # RSI Score
+            rsi_score = ((rsi.iloc[-1] - 50) / 50) if not pd.isna(rsi.iloc[-1]) else 0
 
-        # MACD
-        try:
-            macd_line, signal_line = self.macd(3, 6, 3)
-            macd_value = macd_line.iloc[-1] - signal_line.iloc[-1]
-        except Exception:
-            macd_value = 0
+            # MACD Score (normalized and clamped)
+            macd_diff = macd.iloc[-1] - macd_sig.iloc[-1]
+            macd_range = max(abs(macd.max()), abs(macd.min()), 1e-6)
+            macd_score = np.clip(macd_diff / macd_range, -1, 1)
 
-        if pd.isna(macd_value):
-            macd_value = 0
-
-        # Bollinger Bands
-        try:
-            upper_band, lower_band = self.bollinger_bands(3)
-            current_price = df['close'].iloc[-1]
-            band_range = upper_band.iloc[-1] - lower_band.iloc[-1]
-            if band_range == 0 or pd.isna(band_range):
-                bb_position = 0.5
+            # Bollinger Bands Score (scaled)
+            price = close.iloc[-1]
+            if bb_upper.iloc[-1] != bb_lower.iloc[-1]:
+                bb_score = np.clip((2 * (price - bb_lower.iloc[-1]) / (bb_upper.iloc[-1] - bb_lower.iloc[-1]) - 1), -1, 1)
             else:
-                bb_position = (current_price - lower_band.iloc[-1]) / band_range
-                bb_position = max(0, min(1, bb_position))
-        except Exception:
-            bb_position = 0.5
+                bb_score = 0
 
-        # Normalize signals
-        rsi_signal = (rsi_value - 50) / 50
-        macd_signal = np.tanh(macd_value)
-        bb_signal = 2 * (bb_position - 0.5)
+            composite = np.mean([rsi_score, macd_score, bb_score])
+            composite = np.clip(composite, -1, 1)
 
-        # Combine signals
-        combined_signal = (rsi_signal + macd_signal + bb_signal) / 3
-        return float(max(min(combined_signal, 1), -1))
+            logger.debug(f"RSI_score={rsi_score:.2f}, MACD_score={macd_score:.2f}, BB_score={bb_score:.2f}")
+
+            return float(composite), rsi_score, macd_score, bb_score
+        except Exception as e:
+            logger.error(f"Error in evaluate(): {e}")
+            return None, None, None, None
 
     def calculate_atr(self):
         """Wrapper for ATR calculation."""
@@ -145,45 +144,28 @@ class TechnicalAnalysis:
         except Exception:
             return None
 
+    def calculate_price_target_fib(
+        self,
+        lookback: int = 20,
+        extension: float = 0.618
+    ) -> float:
+        """
+        Fibonacci‐extension price target:
+          - Finds the highest high and lowest low over the past `lookback` bars.
+          - Projects the target = swing_high + ( (high–low) * extension ).
+        """
+        if len(self.data) < lookback:
+            return float(self.data['close'].iloc[-1])
+
+        recent     = self.data.iloc[-lookback:]
+        swing_high = recent['high'].max()
+        swing_low  = recent['low'].min()
+        diff       = swing_high - swing_low
+        return float(swing_high + diff * extension)
+
     def calculate_price_target(self):
-        """Calculate price target using multiple technical indicators."""
-        try:
-            if self.data is None or len(self.data) < 2:
-                return None
-            current_price = float(self.data['close'].iloc[-1])
-            price_changes = self.data['close'].diff()
-            trend_strength = price_changes.mean()
-            trend_positive = trend_strength > 0
-            price_std = self.data['close'].std()
-            is_sideways = price_std < (current_price * 0.005)
-            if is_sideways:
-                return current_price
-            momentum = price_changes.iloc[-1] if not pd.isna(price_changes.iloc[-1]) else 0
-            strong_momentum = abs(momentum) > abs(trend_strength)
-            atr = self.calculate_atr()
-            if atr is None or atr == 0:
-                atr = current_price * 0.02
-            upper_band, lower_band = self.bollinger_bands(period=3)
-            if trend_positive:
-                last_prices = self.data['close'].iloc[-3:]
-                if len(last_prices) >= 3 and all(last_prices.diff().dropna() > 0):
-                    avg_increase = last_prices.diff().mean()
-                    trend_target = current_price + (5 * avg_increase)
-                else:
-                    trend_target = current_price * 1.15
-                volatility_target = current_price + (8 * atr)
-                band_target = float(upper_band.iloc[-1]) + (5 * atr)
-                target = max(trend_target, volatility_target, band_target)
-                if strong_momentum:
-                    target += (2 * atr)
-                min_target = current_price * 1.20
-                target = max(target, min_target)
-            else:
-                target = min(current_price - (2 * atr), float(lower_band.iloc[-1]))
-            return float(target)
-        except Exception as e:
-            logger.error(f"Error calculating price target: {e}")
-            return float(self.data['close'].iloc[-1]) * 1.20
+        # now just use our Fibonacci‐extension routine
+        return self.calculate_price_target_fib(lookback=30, extension=0.618)
 
     @staticmethod
     def enrich_dataframe(df: pd.DataFrame) -> pd.DataFrame:

@@ -21,6 +21,7 @@ from utils.notifier import Notifier
 from utils.technicals.performance_utils import get_candles_cached
 from patterns.pattern_utils import get_pattern_names, get_pattern_method
 from utils.technicals.feature_engineering import compute_technical_features
+from utils.security import get_api_credentials
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -369,13 +370,14 @@ def add_candlestick_pattern_features(df: pd.DataFrame) -> pd.DataFrame:
 
 if __name__ == '__main__':
     # Environment variables or config
+    creds = get_api_credentials()
     client = ETradeClient(
-        consumer_key=os.getenv('ETRADE_CONSUMER_KEY', ''),
-        consumer_secret=os.getenv('ETRADE_CONSUMER_SECRET', ''),
-        oauth_token=os.getenv('ETRADE_OAUTH_TOKEN', ''),
-        oauth_token_secret=os.getenv('ETRADE_OAUTH_TOKEN_SECRET', ''),
-        account_id=os.getenv('ETRADE_ACCOUNT_ID', ''),
-        sandbox=True
+        consumer_key=creds['consumer_key'],
+        consumer_secret=creds['consumer_secret'],
+        oauth_token=creds['oauth_token'],
+        oauth_token_secret=creds['oauth_token_secret'],
+        account_id=creds['account_id'],
+        sandbox=creds.get('use_sandbox', 'true').lower() == 'true'
     )
     config = MLConfig(
         seq_len=10,
