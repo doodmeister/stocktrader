@@ -40,7 +40,7 @@ def get_chatgpt_insight(summary: str) -> str:
                     )
                 }
             ],
-            temperature=0.5
+            temperature=0.4
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
