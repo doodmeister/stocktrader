@@ -80,6 +80,9 @@ class PatternModelTrainer:
         if X.ndim != 3:
             raise ValueError(f"Expected X to be 3D (batch, seq_len, features), got shape {X.shape}")
 
+        if len(X) == 0 or len(y) == 0:
+            raise ValueError("No data available for training after preprocessing.")
+
         return X, y
 
     def _process_data(
@@ -167,6 +170,9 @@ class PatternModelTrainer:
                 batch_X, batch_y = batch_X.to(device), batch_y.to(device)
                 optimizer.zero_grad()
                 outputs = model(batch_X)
+                if outputs is None or batch_y is None:
+                    logger.error(f"Model output or batch_y is None. batch_X shape: {batch_X.shape}, batch_y: {batch_y}")
+                    raise ValueError("Model output or batch_y is None. Check your data and model forward method.")
                 loss = loss_fn(outputs, batch_y)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)

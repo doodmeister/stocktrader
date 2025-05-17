@@ -197,7 +197,8 @@ def train_model_deep_learning(
     selected_patterns = st.multiselect(
         "Select candlestick patterns to use for training",
         options=available_patterns,
-        default=available_patterns
+        default=available_patterns,
+        key="dl_pattern_multiselect"
     )
 
     logger.info("Starting model training step")
@@ -218,7 +219,7 @@ def train_model_deep_learning(
         # Optionally, check for sequence dimension if using LSTM/CNN
         # (Assume your data loader will reshape as needed, but you can check here if you do it manually)
 
-        model, optimizer, epoch, loss = train_pattern_model(
+        model, metrics = train_pattern_model(
             symbols=selected_symbols,
             data=data,
             epochs=epochs,
@@ -226,6 +227,7 @@ def train_model_deep_learning(
             learning_rate=learning_rate,
             selected_patterns=selected_patterns,
         )
+
     except IndexError as e:
         logger.error(f"Shape error during model training: {e}")
         st.error(f"Shape error during model training: {e}. "
@@ -239,7 +241,7 @@ def train_model_deep_learning(
     logger.info("Model training step completed")
     st.info("Model training completed.")
 
-    return model, optimizer, epoch, loss
+    return model, metrics
 
 def train_model_classic_ml(
     data: pd.DataFrame,
@@ -276,6 +278,10 @@ def save_trained_model(
     epoch=None,
     loss=None
 ) -> Tuple[bool, Optional[str]]:
+    if model is None:
+        st.error("Model training failed. No model to save.")
+        logger.error("Model training failed. No model to save.")
+        return False, "No model to save."
     try:
         logger.info("Starting model saving step")
         st.info("Saving trained model...")
@@ -533,12 +539,13 @@ def render_training_page():
             logger.info(f"Starting model training with backend: {backend}")
             with st.spinner("Training model..."):
                 if backend == "Deep Learning (PatternNN)":
-                    model, optimizer, epoch, loss = train_model_deep_learning(
+                    model, metrics = train_model_deep_learning(
                         data,
                         epochs=config.epochs,
                         batch_size=config.batch_size,
                         learning_rate=config.learning_rate
                     )
+                    optimizer = epoch = loss = None  # or set as needed
                 else:
                     model, metrics = train_model_classic_ml(
                         data,

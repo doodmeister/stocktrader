@@ -64,5 +64,9 @@ class PatternNN(nn.Module):
         """
         x: Tensor of shape (batch_size, seq_len, input_size)
         """
+        if x.ndim != 3:
+            raise ValueError(f"Expected input of shape (batch, seq_len, input_size), got {x.shape}")
         lstm_out, _ = self.lstm(x)  # lstm_out: (batch, seq_len, hidden_size)
         last_hidden = lstm_out[:, -1, :]  # take the last
+        out = self.fc(last_hidden)
+        return out
