@@ -366,6 +366,7 @@ def add_candlestick_pattern_features(df: pd.DataFrame) -> pd.DataFrame:
               .apply(safe_method, raw=False)
               .fillna(0)
               .astype(int)
+              .reset_index(drop=True)  # <-- Ensure index matches DataFrame
         )
     return df
 

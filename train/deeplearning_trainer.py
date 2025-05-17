@@ -14,6 +14,7 @@ from patterns.patterns_nn import PatternNN
 from patterns.patterns import CandlestickPatterns
 from train.model_manager import ModelManager, ModelMetadata
 from utils.technicals.feature_engineering import compute_technical_features
+from train.model_training_pipeline import add_candlestick_pattern_features
 logger = setup_logger(__name__)
 
 
@@ -46,7 +47,7 @@ class PatternModelTrainer:
 
         # --- Feature engineering step ---
         data = compute_technical_features(data)
-        data = self._add_candlestick_pattern_features(data)
+        data = add_candlestick_pattern_features(data)
         self._last_df = data.copy()
 
         X, y = [], []

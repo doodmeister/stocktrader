@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, Optional, Any
 from datetime import datetime
 import numpy as np
 import pandas as pd
-import joblib  # Added joblib for model persistence
+import joblib
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import TimeSeriesSplit
@@ -51,12 +51,15 @@ class TrainingParams:
     min_samples_split: int = 2
     random_state: int = 42
     n_jobs: int = -1
-    cv_folds: int = 3  # Lowered for small datasets
+    cv_folds: int = 3
 
 def add_candlestick_pattern_features(df: pd.DataFrame, selected_patterns: Optional[List[str]] = None) -> pd.DataFrame:
     pattern_names = selected_patterns or get_pattern_names()
     for pattern in pattern_names:
         method = get_pattern_method(pattern)
+        if method is None:
+            logger.warning(f"No detection method found for pattern: {pattern}")
+            continue
         min_rows = 3
         try:
             from patterns.patterns import CandlestickPatterns
@@ -81,12 +84,7 @@ def add_candlestick_pattern_features(df: pd.DataFrame, selected_patterns: Option
     return df
 
 class ModelTrainer:
-    def __init__(
-        self, 
-        config: Any,
-        feature_config: Optional[FeatureConfig] = None,
-        training_params: Optional[TrainingParams] = None
-    ):
+    def __init__(self, config: Any, feature_config: Optional[FeatureConfig] = None, training_params: Optional[TrainingParams] = None):
         self.config = config
         self.feature_config = feature_config or FeatureConfig()
         self.default_params = training_params or TrainingParams()
@@ -100,28 +98,40 @@ class ModelTrainer:
             raise ValidationError(f"Missing required columns: {missing_columns}")
         if not isinstance(df.index, pd.DatetimeIndex):
             raise ValidationError("DataFrame index must be DatetimeIndex")
+        if df['close'].isna().all():
+            raise ValidationError("Column 'close' contains only NaNs")
+        if not all(np.issubdtype(df[col].dtype, np.number) for col in required_columns):
+            raise ValidationError(f"One or more required columns are not numeric: {required_columns}")
         if df.isna().any().any():
             logger.warning(f"DataFrame contains NaN values. Rows with NaN: {df.isna().any(axis=1).sum()}")
+        if not np.isfinite(df.values).all():
+            raise ValueError("Input data contains NaN, infinity, or values too large for dtype('float64').")
 
     def feature_engineering(self, df: pd.DataFrame) -> pd.DataFrame:
         result_df = df.copy()
         result_df.columns = [c.lower() for c in result_df.columns]
-        # Dynamically adjust rolling windows based on data length
-        available_windows = [w for w in self.feature_config.ROLLING_WINDOWS if w < len(result_df) - self.feature_config.TARGET_HORIZON]
+        available_windows = [
+            w for w in self.feature_config.ROLLING_WINDOWS
+            if w < len(result_df) - self.feature_config.TARGET_HORIZON
+        ]
         if not available_windows:
             raise ValidationError(
-                f"Not enough data points. Got {len(result_df)}, need at least {min(self.feature_config.ROLLING_WINDOWS) + self.feature_config.TARGET_HORIZON + 1} for feature engineering."
+                f"Not enough data points. Got {len(result_df)}, need at least "
+                f"{min(self.feature_config.ROLLING_WINDOWS) + self.feature_config.TARGET_HORIZON + 1} "
+                f"for feature engineering."
             )
         for window in available_windows:
             window_features = self._calc_rolling_features(result_df, window)
             for name, series in window_features.items():
-                result_df[f"{name}_{window}"] = series
+                result_df[f"{name}_{window}"] = series.replace([np.inf, -np.inf], np.nan)
         if self.feature_config.use_candlestick_patterns:
             result_df = add_candlestick_pattern_features(result_df, self.feature_config.selected_patterns)
         result_df['target'] = (
             result_df['close'].shift(-self.feature_config.TARGET_HORIZON) > result_df['close']
         ).astype(int)
         result_df = result_df.dropna()
+        logger.info(f"Feature-engineered data shape: {result_df.shape}")
+        logger.debug(f"Feature-engineered data statistics:\n{result_df.describe()}")
         return result_df
 
     def _calc_rolling_features(self, df: pd.DataFrame, window: int) -> Dict[str, pd.Series]:
@@ -139,7 +149,6 @@ class ModelTrainer:
         return features
 
     def get_feature_columns(self, df: pd.DataFrame) -> List[str]:
-        # Only include columns that actually exist in the DataFrame
         feature_cols = []
         for window in self.feature_config.ROLLING_WINDOWS:
             for feat in [
@@ -157,14 +166,8 @@ class ModelTrainer:
                     feature_cols.append(col_name)
         return feature_cols
 
-    def train_model(
-        self,
-        df: pd.DataFrame,
-        params: Optional[TrainingParams] = None
-    ) -> Tuple[Pipeline, Dict[str, Dict[str, float]], np.ndarray, str]:
+    def train_model(self, df: pd.DataFrame, params: Optional[TrainingParams] = None) -> Tuple[Pipeline, Dict[str, Dict[str, float]], np.ndarray, str]:
         logger.info(f"Starting training for {len(df)} rows with params: {params}")
-        logger.info(f"Starting model training with data shape: {df.shape}")
-        params = params or self.default_params
         try:
             self.validate_input_data(df)
             features_df = self.feature_engineering(df)
@@ -176,8 +179,8 @@ class ModelTrainer:
             y = features_df['target']
             if len(X) < 5:
                 raise ValidationError(f"Not enough samples after feature engineering: {len(X)} rows.")
-            
-            # Create a single sklearn Pipeline that scales then classifies
+            if y.nunique() < 2:
+                raise ValidationError("Target column has only one class — cannot train a classifier.")
             pipeline = Pipeline([
                 ("scaler", StandardScaler()),
                 ("clf", RandomForestClassifier(
@@ -188,7 +191,6 @@ class ModelTrainer:
                     n_jobs=params.n_jobs
                 ))
             ])
-            
             tscv = TimeSeriesSplit(n_splits=min(params.cv_folds, max(2, len(X) // 2)))
             cv_metrics = []
             for train_idx, test_idx in tscv.split(X):
@@ -222,10 +224,7 @@ class ModelTrainer:
             'f1': f1
         }
 
-    def _aggregate_metrics(
-        self, 
-        metric_list: List[Dict[str, float]]
-    ) -> Dict[str, Dict[str, float]]:
+    def _aggregate_metrics(self, metric_list: List[Dict[str, float]]) -> Dict[str, Dict[str, float]]:
         result = {'mean': {}, 'std': {}}
         all_keys = set()
         for metrics in metric_list:
@@ -236,41 +235,23 @@ class ModelTrainer:
             result['std'][key] = np.std(values)
         return result
 
-    def save_model(
-        self,
-        pipeline: Pipeline,
-        symbol: str,
-        interval: str
-    ) -> Path:
-        """
-        Persist the full sklearn Pipeline (scaler + model) to disk.
-        Returns the filepath of the saved .joblib file.
-        """
+    def save_model(self, pipeline: Pipeline, symbol: str, interval: str) -> Path:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{symbol}_{interval}_{timestamp}.joblib"
         filepath = self.config.MODEL_DIR / filename
         try:
             joblib.dump(pipeline, filepath)
+            if not filepath.exists():
+                raise ModelError(f"Model file not found after save: {filepath}")
             logger.info(f"Pipeline saved successfully to {filepath}")
             return filepath
         except Exception as e:
             logger.exception(f"Error saving pipeline: {e}")
             raise ModelError(f"Failed to save pipeline: {e}") from e
 
-    def save_model_with_manager(
-        self,
-        pipeline: Pipeline,
-        symbol: str,
-        interval: str,
-        metrics: dict = None,
-        backend: str = "Classic ML (RandomForest)"
-    ) -> str:
-        """
-        Save the sklearn Pipeline using ModelManager for unified model handling.
-        """
+    def save_model_with_manager(self, pipeline: Pipeline, symbol: str, interval: str, metrics: dict = None, backend: str = "Classic ML (RandomForest)") -> str:
         model_manager = ModelManager(base_directory=str(self.config.MODEL_DIR))
         version = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Build expected feature structure for metadata
         expected_features = self.get_feature_columns(pd.DataFrame(columns=self.feature_config.PRICE_FEATURES))
         metadata = ModelMetadata(
             version=version,
@@ -295,66 +276,34 @@ class ModelTrainer:
         return save_path
 
     def load_model(self, model_path: Path) -> Pipeline:
-        """
-        Load and return a previously saved Pipeline from disk.
-        """
         try:
             pipeline = joblib.load(model_path)
+            if not hasattr(pipeline, "predict"):
+                raise ModelError("Loaded pipeline does not implement predict().")
             logger.info(f"Pipeline loaded from {model_path}")
             return pipeline
         except Exception as e:
             logger.exception(f"Error loading pipeline: {e}")
             raise ModelError(f"Failed to load pipeline: {e}") from e
 
-    def predict(
-        self,
-        df: pd.DataFrame,
-        model_path: Path
-    ) -> pd.Series:
-        """
-        Given a new OHLCV DataFrame and a saved Pipeline path,
-        runs the same feature engineering + scaling + model.predict
-        and returns a Series of 0/1 predictions indexed by the dates.
-        """
-        # 1) Load pipeline
+    def predict(self, df: pd.DataFrame, model_path: Path) -> pd.Series:
         pipeline = self.load_model(model_path)
-
-        # 2) Run feature engineering (must match training)
         fe_df = self.feature_engineering(df)
         feature_cols = self.get_feature_columns(fe_df)
         if not feature_cols:
             raise ValidationError("No feature columns found during predict()")
-
-        # 3) Predict
         X = fe_df[feature_cols]
         preds = pipeline.predict(X)
-
-        # 4) Return as a Pandas Series aligned with fe_df index
         return pd.Series(preds, index=fe_df.index, name="model_signal")
 
-    def predict_proba(
-        self,
-        df: pd.DataFrame,
-        model_path: Path
-    ) -> pd.Series:
-        """
-        Given a new OHLCV DataFrame and a saved Pipeline path,
-        returns the probability of a positive signal (class 1) as a Series.
-        
-        This allows for more nuanced trading strategies than binary predictions.
-        """
-        # Load pipeline
+    def predict_proba(self, df: pd.DataFrame, model_path: Path) -> pd.Series:
         pipeline = self.load_model(model_path)
-        
-        # Run feature engineering (must match training)
+        if not hasattr(pipeline, "predict_proba"):
+            raise ModelError("Loaded pipeline does not implement predict_proba().")
         fe_df = self.feature_engineering(df)
         feature_cols = self.get_feature_columns(fe_df)
         if not feature_cols:
             raise ValidationError("No feature columns found during predict_proba()")
-        
-        # Get probabilities (second column is probability of class 1)
         X = fe_df[feature_cols]
         proba = pipeline.predict_proba(X)[:, 1]
-        
-        # Return as a Pandas Series aligned with fe_df index
         return pd.Series(proba, index=fe_df.index, name="model_buy_proba")

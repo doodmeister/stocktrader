@@ -18,9 +18,9 @@ from train.model_manager import ModelManager, ModelMetadata
 from patterns.patterns_nn import PatternNN
 from utils.technicals.performance_utils import st_error_boundary, generate_combined_signals
 from utils.synthetic_trading_data import add_to_model_training_ui, generate_synthetic_data
-from train.ml_config import MLConfig
+from train.ml_config import MLConfig  # <-- Ensure this import is present
 from utils.config.stockticker_yahoo_validation import get_valid_tickers
-from utils.deprecated.deeplearning_trainer_v1 import train_pattern_model
+from train.deeplearning_trainer import train_pattern_model
 
 # Classic ML pipeline
 from train.ml_trainer import ModelTrainer, TrainingParams
@@ -72,10 +72,6 @@ class DataValidationResult(NamedTuple):
     error_message: Optional[str]
     stats: Optional[Dict[str, Any]] = None
 
-class MLConfig(BaseModel):
-    # ...fields...
-    symbols: List[str]
-
 REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume", "timestamp"]
 MAX_FILE_SIZE_MB = 5
 MODELS_DIR = Path("models/")
@@ -88,6 +84,10 @@ def get_model_manager() -> ModelManager:
     return ModelManager(base_directory=str(MODELS_DIR))
 
 def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
+    # Only check numeric columns for isfinite
+    numeric_df = df.select_dtypes(include=[np.number])
+    if not np.isfinite(numeric_df.values).all():
+        return DataValidationResult(False, "Dataset contains NaN or infinity values.", None)
     try:
         logger.info("Starting data validation step")
         st.info("Validating data...")
@@ -248,17 +248,14 @@ def train_model_classic_ml(
     min_samples_split: int = 10,
     cv_folds: int = 5
 ) -> Tuple[Any, Dict[str, Any]]:
-    # Load default config
-    # FIX: Provide symbols from data if possible
     symbols = list(data['symbol'].unique()) if 'symbol' in data.columns else ["UNKNOWN"]
-    config = MLConfig(symbols=symbols)
-    # Override with UI/user values
-    config.n_estimators = n_estimators
-    config.max_depth = max_depth
-    config.min_samples_split = min_samples_split
-    config.cv_folds = cv_folds
-
-    # Pass config to ModelTrainer
+    config = MLConfig(
+        symbols=symbols,
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        min_samples_split=min_samples_split,
+        cv_folds=cv_folds
+    )
     trainer = ModelTrainer(config)
     params = TrainingParams(
         n_estimators=config.n_estimators,
@@ -268,7 +265,8 @@ def train_model_classic_ml(
         random_state=config.random_state
     )
     model_result, metrics, cm, report = trainer.train_model(data, params=params)
-
+    return model_result, {"metrics": metrics, "confusion_matrix": cm, "classification_report": report}
+ 
 def save_trained_model(
     model: Any,
     config: Any,
@@ -436,6 +434,9 @@ def render_training_page():
     )
     st.session_state.training_config.backend = backend
 
+    logger.info(f"Selected backend: {backend}")
+    st.write(f"Selected backend: {backend}")
+
     use_synthetic = st.checkbox("Generate synthetic data instead of uploading a file")
     if use_synthetic:
         add_to_model_training_ui()
@@ -452,7 +453,7 @@ def render_training_page():
         st.subheader("Training Configuration")
         config = st.session_state.training_config
 
-        if backend.startswith("Deep"):
+        if st.session_state.training_config.backend == "Deep Learning (PatternNN)":
             col1, col2 = st.columns(2)
             with col1:
                 config.epochs = st.slider("Epochs", 1, 100, config.epochs)
