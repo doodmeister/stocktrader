@@ -15,6 +15,8 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 from sklearn.base import BaseEstimator
 import jsonschema
+import re
+import pandas as pd
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -36,6 +38,24 @@ MODEL_METADATA_SCHEMA = {
 def generate_version_id() -> str:
     """Generate a consistent version ID based on UTC time."""
     return datetime.utcnow().strftime("v%Y%m%d_%H%M%S")
+
+def extract_ticker_interval(filename: str):
+    match = re.match(r"([A-Za-z0-9\-\.]+)_([A-Za-z0-9]+)\.csv", filename)
+    if match:
+        ticker, interval = match.groups()
+        return ticker.upper(), interval
+    return None, None
+
+def get_timeframe(df: pd.DataFrame):
+    if 'timestamp' in df.columns:
+        start = pd.to_datetime(df['timestamp']).min()
+        end = pd.to_datetime(df['timestamp']).max()
+    elif 'date' in df.columns:
+        start = pd.to_datetime(df['date']).min()
+        end = pd.to_datetime(df['date']).max()
+    else:
+        start = end = None
+    return str(start), str(end)
 
 class ModelError(Exception):
     """Base exception for model management errors."""
@@ -108,7 +128,7 @@ class ModelManager:
             raise ModelError(f"Metadata schema validation failed: {ve.message}")
         return metadata
         
-    def save_model(self, model, metadata, backend=None, optimizer=None, epoch=None, loss=None):
+    def save_model(self, model, metadata, backend=None, optimizer=None, epoch=None, loss=None, csv_filename=None, df=None):
         """
         Save model with metadata and optional backend support.
         """
@@ -147,6 +167,18 @@ class ModelManager:
                 if hasattr(metadata, "parameters") and isinstance(metadata.parameters, dict):
                     arch_params.update({k: v for k, v in metadata.parameters.items() if k not in arch_params})
                 metadata.parameters = arch_params
+
+                if csv_filename and df is not None:
+                    ticker, interval = extract_ticker_interval(csv_filename)
+                    start_time, end_time = get_timeframe(df)
+
+                    metadata.parameters.update({
+                        "ticker": ticker,
+                        "interval": interval,
+                        "timeframe_start": start_time,
+                        "timeframe_end": end_time,
+                        "csv_filename": csv_filename
+                    })
 
                 model_filename = f"pattern_nn_{version}.pth"
                 model_path = self.base_directory / model_filename

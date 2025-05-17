@@ -276,7 +276,9 @@ def save_trained_model(
     backend: str,
     optimizer=None,
     epoch=None,
-    loss=None
+    loss=None,
+    csv_filename=None,
+    df=None
 ) -> Tuple[bool, Optional[str]]:
     if model is None:
         st.error("Model training failed. No model to save.")
@@ -316,7 +318,8 @@ def save_trained_model(
         st.write(f"Saving model with backend: {backend}")
         save_path = model_manager.save_model(
             model, metadata=metadata, backend=backend,
-            optimizer=optimizer, epoch=epoch, loss=loss
+            optimizer=optimizer, epoch=epoch, loss=loss,
+            csv_filename=csv_filename, df=df
         )
         logger.info(f"Model saved to: {save_path} (absolute: {Path(save_path).resolve()})")
         st.write(f"Model saved to: {save_path} (absolute: {Path(save_path).resolve()})")
@@ -608,7 +611,12 @@ def render_training_page():
                 st.text(classification_report)
 
             # Save the trained model
-            success, error = save_trained_model(model, config, metrics, backend, optimizer=optimizer, epoch=epoch, loss=loss)
+            success, error = save_trained_model(
+                model, config, metrics, backend,
+                optimizer=optimizer, epoch=epoch, loss=loss,
+                csv_filename=uploaded_file.name if uploaded_file else None,
+                df=data
+            )
             if success:
                 st.success("Model saved successfully.")
             else:
