@@ -22,6 +22,7 @@ from utils.technicals.performance_utils import get_candles_cached
 from patterns.pattern_utils import get_pattern_names, get_pattern_method
 from utils.technicals.feature_engineering import compute_technical_features
 from utils.security import get_api_credentials
+from train.feature_engineering import add_candlestick_pattern_features
 
 # Configure logging
 logger = setup_logger(__name__)

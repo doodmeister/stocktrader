@@ -24,6 +24,7 @@ from sklearn.metrics import (
 from sklearn.preprocessing import StandardScaler
 from train.model_manager import ModelManager, ModelMetadata
 from patterns.pattern_utils import get_pattern_names, get_pattern_method
+from train.feature_engineering import add_candlestick_pattern_features
 
 logger = setup_logger(__name__)
 

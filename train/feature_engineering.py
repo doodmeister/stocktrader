@@ -1,11 +1,12 @@
+import pandas as pd
+import numpy as np
+
 def compute_technical_features(df):
     """
     Adds technical indicator columns (e.g., RSI, MACD, Bollinger Bands, ATR, etc.)
     to the DataFrame and returns the enriched DataFrame.
     """
     # Example using TA-Lib or pandas_ta, or your own calculations
-    import pandas as pd
-    import numpy as np
 
     # Ensure required columns exist
     required = {'open', 'high', 'low', 'close', 'volume'}
@@ -32,4 +33,43 @@ def compute_technical_features(df):
 
     # Fill any new NaNs (from indicators) if desired
     df = df.fillna(0)
+    return df
+
+from patterns.pattern_utils import get_pattern_names, get_pattern_method
+from typing import Optional, List
+
+def add_candlestick_pattern_features(df: pd.DataFrame, selected_patterns: Optional[List[str]] = None) -> pd.DataFrame:
+    """
+    For each registered candlestick pattern, add a binary column to the DataFrame
+    indicating whether the pattern is detected at each row (using a rolling window).
+    Uses pandas' rolling().apply() for efficiency.
+    """
+    pattern_names = selected_patterns or get_pattern_names()
+    for pattern in pattern_names:
+        method = get_pattern_method(pattern)
+        min_rows = 3  # Default window size
+        try:
+            from patterns.patterns import CandlestickPatterns
+            for name, _, mr in CandlestickPatterns._PATTERNS:
+                if name == pattern:
+                    min_rows = mr
+                    break
+        except Exception:
+            pass
+
+        def safe_method(window):
+            try:
+                return int(method(window)) if method else 0
+            except Exception:
+                return 0
+
+        result = (
+            df.rolling(window=min_rows, min_periods=min_rows)
+              .apply(safe_method, raw=False)
+              .fillna(0)
+              .astype(int)
+        )
+        # Assign as numpy array to avoid index alignment issues
+        df[pattern.replace(" ", "")] = result.to_numpy()
+
     return df
