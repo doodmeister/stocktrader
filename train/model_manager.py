@@ -7,15 +7,35 @@ import os
 import torch
 import json
 import joblib
+from train.deeplearning_config import TrainingConfig
 from typing import List, Type, Dict, Any, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from enum import Enum
 from sklearn.base import BaseEstimator
+import jsonschema
 
 # Configure logging
 logger = setup_logger(__name__)
+
+MODEL_METADATA_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "version": {"type": "string"},
+        "saved_at": {"type": "string"},
+        "accuracy": {"type": ["number", "null"]},
+        "parameters": {"type": ["object", "null"]},
+        "framework_version": {"type": "string"},
+        "backend": {"type": ["string", "null"]}
+    },
+    "required": ["version", "saved_at", "framework_version"],
+    "additionalProperties": True
+}
+
+def generate_version_id() -> str:
+    """Generate a consistent version ID based on UTC time."""
+    return datetime.utcnow().strftime("v%Y%m%d_%H%M%S")
 
 class ModelError(Exception):
     """Base exception for model management errors."""
@@ -72,6 +92,21 @@ class ModelManager:
         """
         self.base_directory = Path(base_directory)
         self.base_directory.mkdir(parents=True, exist_ok=True)
+
+    def _load_metadata(self, path: Path) -> Dict[str, Any]:
+        """
+        Load and validate metadata from a JSON file.
+        """
+        if not path.exists():
+            raise ModelError(f"Metadata file not found: {path}")
+        with path.open() as f:
+            metadata = json.load(f)
+        # Validate metadata
+        try:
+            jsonschema.validate(instance=metadata, schema=MODEL_METADATA_SCHEMA)
+        except jsonschema.ValidationError as ve:
+            raise ModelError(f"Metadata schema validation failed: {ve.message}")
+        return metadata
         
     def save_model(self, model, metadata, backend=None, optimizer=None, epoch=None, loss=None):
         """
@@ -85,7 +120,7 @@ class ModelManager:
             raise ValueError("Metadata missing required 'version' attribute.")
 
         logger.info(f"Saving model to directory: {self.base_directory.resolve()}")
-        version = metadata.version if hasattr(metadata, "version") else datetime.now().strftime("%Y%m%d_%H%M%S")
+        version = getattr(metadata, "version", None) or generate_version_id()
         if backend is None and hasattr(metadata, "backend"):
             backend = metadata.backend
 
@@ -169,8 +204,7 @@ class ModelManager:
                 model = joblib.load(path)
                 metadata_path = path.with_suffix('.json')
                 if metadata_path.exists():
-                    with metadata_path.open() as f:
-                        metadata = json.load(f)
+                    metadata = self._load_metadata(metadata_path)
                 else:
                     metadata = {}
                 logger.info(f"Scikit-learn model loaded successfully from {path}")
@@ -184,13 +218,18 @@ class ModelManager:
                 # --- Read parameters from metadata ---
                 if 'metadata' in checkpoint:
                     metadata_dict = checkpoint['metadata']
+                    # Validate metadata with jsonschema
+                    try:
+                        jsonschema.validate(instance=metadata_dict, schema=MODEL_METADATA_SCHEMA)
+                    except jsonschema.ValidationError as ve:
+                        raise ModelError(f"Metadata schema validation failed: {ve.message}")
                 else:
                     metadata_path = path.with_suffix('.json')
                     if metadata_path.exists():
-                        with metadata_path.open() as f:
-                            metadata_dict = json.load(f)
+                        metadata_dict = self._load_metadata(metadata_path)
                     else:
                         raise ModelError("No metadata found for model.")
+
                 params = metadata_dict.get("parameters", {})
                 # --- Validate required architecture params with try/except ---
                 required = ["input_size", "hidden_size", "num_layers", "output_size", "dropout"]
@@ -211,6 +250,12 @@ class ModelManager:
                     )
                 else:
                     raise ValueError("model_class must be a callable factory function")
+
+                # Add this assertion to prevent misconfiguration
+                from patterns.patterns_nn import PatternNN  # Adjust import path if needed
+                if model_class is PatternNN:
+                    assert isinstance(model, PatternNN), "Loaded model does not match expected architecture"
+
                 model.load_state_dict(checkpoint['state_dict'])
                 model.to(device)
                 model.eval()
@@ -311,3 +356,26 @@ def load_latest_model(model_class, base_directory: str = "models/"):
     manager = ModelManager(base_directory)
     model, metadata = manager.load_model(model_class, str(latest_model_path))
     return model
+
+def train_model_deep_learning(
+    epochs,
+    seq_len,
+    learning_rate,
+    batch_size,
+    validation_split,
+    early_stopping_patience,
+    min_patterns,
+    max_samples_per_symbol,
+    *args,
+    **kwargs
+):
+    config = TrainingConfig(
+        epochs=epochs,
+        seq_len=seq_len,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+        validation_split=validation_split,
+        early_stopping_patience=early_stopping_patience,
+        min_patterns=min_patterns,
+        max_samples_per_symbol=max_samples_per_symbol
+    )

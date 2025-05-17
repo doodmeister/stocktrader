@@ -338,12 +338,12 @@ def add_candlestick_pattern_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     For each registered candlestick pattern, add a binary column to the DataFrame
     indicating whether the pattern is detected at each row (using a rolling window).
+    Uses pandas' rolling().apply() for efficiency.
     """
     pattern_names = get_pattern_names()
     for pattern in pattern_names:
         method = get_pattern_method(pattern)
-        min_rows = 3  # Default window size; you may want to get this from the registry if available
-        # Try to get min_rows from CandlestickPatterns registry if possible
+        min_rows = 3  # Default window size
         try:
             from patterns.patterns import CandlestickPatterns
             for name, _, mr in CandlestickPatterns._PATTERNS:
@@ -353,19 +353,20 @@ def add_candlestick_pattern_features(df: pd.DataFrame) -> pd.DataFrame:
         except Exception:
             pass
 
-        # Create a column for this pattern
-        results = []
-        for i in range(len(df)):
-            if i + 1 < min_rows:
-                results.append(0)
-                continue
-            window = df.iloc[i + 1 - min_rows : i + 1]
+        # Use rolling().apply() for batch processing
+        def safe_method(window):
             try:
-                detected = int(method(window)) if method else 0
+                return int(method(window)) if method else 0
             except Exception:
-                detected = 0
-            results.append(detected)
-        df[pattern.replace(" ", "")] = results
+                return 0
+
+        # rolling().apply() returns NaN for the first (min_rows-1) rows, so fill with 0
+        df[pattern.replace(" ", "")] = (
+            df.rolling(window=min_rows, min_periods=min_rows)
+              .apply(safe_method, raw=False)
+              .fillna(0)
+              .astype(int)
+        )
     return df
 
 if __name__ == '__main__':

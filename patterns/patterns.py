@@ -359,6 +359,95 @@ class CandlestickPatterns:
         """
         prev, last = df.iloc[-2], df.iloc[-1]
         return prev.high < last.low
+    
+    @staticmethod
+    def is_bearish_engulfing(df: pd.DataFrame) -> bool:
+        """
+        The Bearish Engulfing is a two-candle bearish reversal pattern seen during uptrends.
+
+        Visual: A small bullish candle followed by a larger bearish candle that completely 
+        engulfs the previous candle's body.
+
+        Psychology: Signals that bears have taken control after a temporary bullish push. 
+        The strength of the bearish move shows overwhelming selling pressure.
+
+        Significance: Suggests a potential top or resistance level and may signal the beginning 
+        of a downtrend.
+        """
+        prev, last = df.iloc[-2], df.iloc[-1]
+        return (
+            prev.close > prev.open and
+            last.close < last.open and
+            last.open > prev.close and
+            last.close < prev.open
+        )
+
+    @staticmethod
+    def is_evening_star(df: pd.DataFrame) -> bool:
+        """
+        The Evening Star is a three-candle bearish reversal pattern appearing at market tops.
+
+        Visual: A large bullish candle, followed by a small-bodied candle (gap up), and a 
+        large bearish candle that closes deep into the first candle's body.
+
+        Psychology: Shows transition from bullish strength to indecision and then strong 
+        bearish follow-through.
+
+        Significance: Strong signal of trend reversal from bullish to bearish, especially 
+        when supported by volume.
+        """
+        first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+        return (
+            first.close > first.open and
+            abs(second.close - second.open) < abs(first.close - first.open) * 0.3 and
+            third.close < third.open and
+            third.close < (first.open + first.close) / 2
+        )
+
+    @staticmethod
+    def is_three_black_crows(df: pd.DataFrame) -> bool:
+        """
+        The Three Black Crows is a strong bearish reversal pattern consisting of three 
+        consecutive bearish candles.
+
+        Visual: Each candle opens within the body of the previous and closes lower, 
+        showing consistent selling.
+
+        Psychology: Indicates sustained bearish pressure and confidence in the downtrend.
+
+        Significance: Strong bearish signal when occurring after an uptrend or at resistance.
+        """
+        first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+        return (
+            first.close < first.open and
+            second.close < second.open and
+            third.close < third.open and
+            second.open < first.open and
+            third.open < second.open and
+            second.close < first.close and
+            third.close < second.close
+        )
+
+    @staticmethod
+    def is_bearish_harami(df: pd.DataFrame) -> bool:
+        """
+        The Bearish Harami is a two-candle reversal pattern seen during uptrends.
+
+        Visual: A large bullish candle followed by a smaller bearish candle that is 
+        completely contained within the previous candle's body.
+
+        Psychology: Suggests bullish momentum is stalling and bears may be gaining 
+        control.
+
+        Significance: Indicates possible reversal to a downtrend, especially with confirmation.
+        """
+        prev, last = df.iloc[-2], df.iloc[-1]
+        return (
+            prev.close > prev.open and
+            last.open < prev.close and
+            last.close > prev.open and
+            last.close < last.open
+        )
 
 # --- Register patterns with required minimum rows ---
 CandlestickPatterns.register_pattern("Hammer", CandlestickPatterns.is_hammer, min_rows=1)
@@ -374,5 +463,8 @@ CandlestickPatterns.register_pattern("Bullish Abandoned Baby", CandlestickPatter
 CandlestickPatterns.register_pattern("Bullish Belt Hold", CandlestickPatterns.is_bullish_belt_hold, min_rows=1)
 CandlestickPatterns.register_pattern("Three Inside Up", CandlestickPatterns.is_three_inside_up, min_rows=3)
 CandlestickPatterns.register_pattern("Rising Window", CandlestickPatterns.is_rising_window, min_rows=2)
-
+CandlestickPatterns.register_pattern("Bearish Engulfing", CandlestickPatterns.is_bearish_engulfing, min_rows=2)
+CandlestickPatterns.register_pattern("Evening Star", CandlestickPatterns.is_evening_star, min_rows=3)
+CandlestickPatterns.register_pattern("Three Black Crows", CandlestickPatterns.is_three_black_crows, min_rows=3)
+CandlestickPatterns.register_pattern("Bearish Harami", CandlestickPatterns.is_bearish_harami, min_rows=2)
 # --- End of patterns.py ---

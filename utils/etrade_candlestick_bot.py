@@ -17,12 +17,12 @@ import requests
 from requests_oauthlib import OAuth1Session
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from dotenv import load_dotenv
 import signal
 import sys
 
 from patterns.patterns_nn import PatternNN
 from utils.notifier import Notifier
+from utils.technicals.indicators import TechnicalIndicators
 
 # Configure logging to both file and console for traceability
 logger = setup_logger(__name__)
@@ -132,12 +132,13 @@ class ETradeClient:
                         self.renew_access_token()
                     except Exception as renew_err:
                         logger.error(f"Token renew failed: {renew_err}")
-                    # re-init session with latest env vars
+                    # re-init session with latest credentials
+                    creds = get_api_credentials()
                     self._initialize_session(
-                        os.getenv("ETRADE_CONSUMER_KEY"),
-                        os.getenv("ETRADE_CONSUMER_SECRET"),
-                        os.getenv("ETRADE_OAUTH_TOKEN"),
-                        os.getenv("ETRADE_OAUTH_TOKEN_SECRET")
+                        creds['consumer_key'],
+                        creds['consumer_secret'],
+                        creds['oauth_token'],
+                        creds['oauth_token_secret']
                     )
                 elif status == 429:
                     retry_after = int(r.headers.get("Retry-After", 1))
@@ -190,11 +191,13 @@ class ETradeClient:
                         self.renew_access_token()
                     except Exception as renew_err:
                         logger.error(f"Token renew failed: {renew_err}")
+                    # re-init session with latest credentials
+                    creds = get_api_credentials()
                     self._initialize_session(
-                        os.getenv("ETRADE_CONSUMER_KEY"),
-                        os.getenv("ETRADE_CONSUMER_SECRET"),
-                        os.getenv("ETRADE_OAUTH_TOKEN"),
-                        os.getenv("ETRADE_OAUTH_TOKEN_SECRET")
+                        creds['consumer_key'],
+                        creds['consumer_secret'],
+                        creds['oauth_token'],
+                        creds['oauth_token_secret']
                     )
                 elif status == 429:
                     retry_after = int(r.headers.get("Retry-After", 1))
@@ -353,19 +356,14 @@ class StrategyEngine:
                 self._enter_position(symbol, df, detected_patterns)
 
     def _add_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        # RSI
-        delta = df['close'].diff()
-        gain = delta.clip(lower=0).rolling(window=14).mean()
-        loss = -delta.clip(upper=0).rolling(window=14).mean()
-        rs = gain / (loss + 1e-9)
-        df['rsi'] = 100 - (100 / (1 + rs))
-        
-        # MACD
-        df['ema12'] = df['close'].ewm(span=12, adjust=False).mean()
-        df['ema26'] = df['close'].ewm(span=26, adjust=False).mean()
-        df['macd'] = df['ema12'] - df['ema26']
-        df['signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-        
+        """
+        Add standard technical indicators to the DataFrame using the shared indicators module.
+        """
+        df = TechnicalIndicators.add_rsi(df, length=14)
+        df = TechnicalIndicators.add_macd(df, fast=12, slow=26, signal=9)
+        # Optionally add more indicators as needed:
+        # df = TechnicalIndicators.add_bollinger_bands(df)
+        # df = TechnicalIndicators.add_atr(df)
         return df
 
     def _check_indicator_confirmation(self, df: pd.DataFrame) -> bool:
@@ -461,7 +459,7 @@ class StrategyEngine:
 
 def main():
     try:
-        load_dotenv()
+        # Remove load_dotenv() here; it's already handled in utils/security.py
         config = TradeConfig(
             max_positions=int(os.getenv('MAX_POSITIONS', '5')),
             max_loss_percent=float(os.getenv('MAX_LOSS_PERCENT', '0.02')),
@@ -470,7 +468,8 @@ def main():
             polling_interval=int(os.getenv('POLLING_INTERVAL', '300'))
         )
 
-        creds = get_api_credentials()  # <-- Use the helper function
+        # Always use the central credential loader
+        creds = get_api_credentials()
 
         client = ETradeClient(
             consumer_key=creds['consumer_key'],
@@ -478,7 +477,7 @@ def main():
             oauth_token=creds['oauth_token'],
             oauth_token_secret=creds['oauth_token_secret'],
             account_id=creds['account_id'],
-            sandbox=creds['use_sandbox'].lower() == 'true'
+            sandbox=str(creds.get('use_sandbox', 'true')).lower() == 'true'
         )
 
         symbols = os.getenv('SYMBOLS', 'AAPL,MSFT,GOOG').split(',')

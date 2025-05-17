@@ -186,6 +186,8 @@ class Backtest:
 
     def _calculate_sharpe_ratio(self, returns: pd.Series) -> float:
         excess_returns = returns - self.config.risk_free_rate / 252
+        if excess_returns.std() == 0:
+            return 0.0
         return np.sqrt(252) * excess_returns.mean() / excess_returns.std()
 
     def _calculate_max_drawdown(self) -> float:
@@ -194,13 +196,38 @@ class Backtest:
         return drawdown.min()
 
     def _calculate_profit_factor(self) -> float:
-        returns = pd.Series([t.price for t in self.trades if t.side == 'SELL'])
-        costs = pd.Series([t.price for t in self.trades if t.side == 'BUY'])
-        if len(returns) == 0 or len(costs) == 0:
-            return 0.0
-        profits = (returns - costs).clip(lower=0).sum()
-        losses = abs((returns - costs).clip(upper=0).sum())
-        return profits / losses if losses != 0 else float('inf')
+        """
+        Calculate profit factor using FIFO pairing of BUY and SELL trades,
+        properly accounting for trade quantities and prices.
+        """
+        buy_queue = []
+        profits = []
+        losses = []
+
+        for t in self.trades:
+            if t.side == 'BUY':
+                buy_queue.append({'price': t.price, 'qty': t.quantity})
+            elif t.side == 'SELL':
+                qty_to_match = t.quantity
+                sell_price = t.price
+                while qty_to_match > 0 and buy_queue:
+                    buy = buy_queue[0]
+                    matched_qty = min(buy['qty'], qty_to_match)
+                    pnl = (sell_price - buy['price']) * matched_qty
+                    if pnl >= 0:
+                        profits.append(pnl)
+                    else:
+                        losses.append(-pnl)
+                    buy['qty'] -= matched_qty
+                    qty_to_match -= matched_qty
+                    if buy['qty'] == 0:
+                        buy_queue.pop(0)
+
+        total_profit = sum(profits)
+        total_loss = sum(losses)
+        if total_loss == 0:
+            return float('inf') if total_profit > 0 else 0.0
+        return total_profit / total_loss
 
     def export_results(self, output_dir: Path) -> None:
         try:
@@ -255,7 +282,8 @@ def run_backtest(
     end_date: datetime,
     strategy: str,
     initial_capital: float,
-    risk_per_trade: float
+    risk_per_trade: float,
+    **kwargs  # <-- Accept extra strategy parameters
 ) -> Dict[str, Any]:
     """Run a backtest for a given trading strategy with improved safety."""
     df = load_ohlcv(symbol, start_date, end_date)
@@ -295,10 +323,28 @@ def run_backtest(
         metrics, equity_curve, trades = empty_backtest_result(initial_capital)
         return {'metrics': metrics, 'equity_curve': equity_curve, 'trade_log': trades}
 
-    # Run simulation with no-trade handling
+    # --- Generate signals using the selected strategy and kwargs ---
     try:
-        results = bt.simulate(data, strategy_fn)
+        # Pass kwargs to the strategy function if it accepts them
+        import inspect
+        sig = inspect.signature(strategy_fn)
+        if len(sig.parameters) > 1:
+            signals = strategy_fn(df, **kwargs)
+        else:
+            signals = strategy_fn(df)
+
+        # Normalize PatternNN outputs if needed
+        if signals.max() > 1 or signals.min() < -1:
+            signals = signals.map({0: 0, 1: 1, 2: -1})
+
+        # Define a lambda to fetch the signal for the current date
+        def signal_fn(d):
+            idx = d.index[-1]
+            return signals.loc[idx] if idx in signals.index else 0
+
+        results = bt.simulate(data, signal_fn)
         trades_df = pd.DataFrame([t.__dict__ for t in bt.trades])
+
     except ValueError as e:
         if 'No trades executed' in str(e):
             logger.warning("Strategy produced zero trades; returning empty result.")
@@ -306,7 +352,7 @@ def run_backtest(
             return {'metrics': metrics, 'equity_curve': equity_curve, 'trade_log': trades_df}
         raise
 
-    equity_curve = bt.equity_curve.reset_index().rename(columns={'index':'date'})
+    equity_curve = bt.equity_curve.rename_axis("date").reset_index()
     metrics = results.dict()
 
     return {'metrics': metrics, 'equity_curve': equity_curve, 'trade_log': trades_df}
@@ -319,10 +365,11 @@ def run_backtest_wrapper(
     end_date: datetime,
     strategy: str,
     initial_capital: float,
-    risk_per_trade: float
+    risk_per_trade: float,
+    **kwargs  # <-- Accept extra strategy parameters
 ) -> Dict[str, Any]:
     try:
-        return run_backtest(symbol, start_date, end_date, strategy, initial_capital, risk_per_trade)
+        return run_backtest(symbol, start_date, end_date, strategy, initial_capital, risk_per_trade, **kwargs)
     except Exception as e:
         logger.error(f"Backtest wrapper caught exception: {e}")
         metrics, equity_curve, trades = empty_backtest_result(initial_capital)

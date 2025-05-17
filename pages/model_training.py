@@ -248,40 +248,26 @@ def train_model_classic_ml(
     min_samples_split: int = 10,
     cv_folds: int = 5
 ) -> Tuple[Any, Dict[str, Any]]:
-    st.info("Training classic ML model (RandomForest)...")
-    trainer = ModelTrainer({'MODEL_DIR': str(MODELS_DIR)})
+    # Load default config
+    # FIX: Provide symbols from data if possible
+    symbols = list(data['symbol'].unique()) if 'symbol' in data.columns else ["UNKNOWN"]
+    config = MLConfig(symbols=symbols)
+    # Override with UI/user values
+    config.n_estimators = n_estimators
+    config.max_depth = max_depth
+    config.min_samples_split = min_samples_split
+    config.cv_folds = cv_folds
+
+    # Pass config to ModelTrainer
+    trainer = ModelTrainer(config)
     params = TrainingParams(
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        min_samples_split=min_samples_split,
-        cv_folds=cv_folds,
-        random_state=42
+        n_estimators=config.n_estimators,
+        max_depth=config.max_depth,
+        min_samples_split=config.min_samples_split,
+        cv_folds=config.cv_folds,
+        random_state=config.random_state
     )
     model_result, metrics, cm, report = trainer.train_model(data, params=params)
-    
-    logger.info(f"Type of model returned: {type(model_result)}")
-    st.write(f"Type of model returned: {type(model_result)}")
-    st.write(f"Model result: {model_result}")
-
-    if hasattr(model_result, 'estimator') and isinstance(model_result.estimator, BaseEstimator):
-        actual_model = model_result.estimator
-    elif hasattr(model_result, 'model') and isinstance(model_result.model, BaseEstimator):
-        actual_model = model_result.model
-    elif isinstance(model_result, BaseEstimator):
-        actual_model = model_result
-    else:
-        logger.error(f"Cannot extract scikit-learn estimator from {type(model_result)}")
-        st.error(f"Model is not a scikit-learn estimator or doesn't contain one: {type(model_result)}")
-        raise ValueError(f"Model is not a scikit-learn estimator or doesn't contain one: {type(model_result)}")
-        
-    logger.info(f"Extracted model type: {type(actual_model)}")
-    st.write(f"Extracted model type: {type(actual_model)}")
-    
-    return actual_model, {
-        "metrics": metrics,
-        "confusion_matrix": cm.tolist() if hasattr(cm, "tolist") else cm,
-        "classification_report": report
-    }
 
 def save_trained_model(
     model: Any,

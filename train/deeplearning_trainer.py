@@ -16,17 +16,7 @@ from train.model_manager import ModelManager, ModelMetadata
 from utils.technicals.feature_engineering import compute_technical_features
 logger = setup_logger(__name__)
 
-@dataclass
-class TrainingConfig:
-    """Configuration parameters for pattern model training."""
-    epochs: int = 10
-    seq_len: int = 10
-    learning_rate: float = 0.001
-    batch_size: int = 32
-    validation_split: float = 0.2
-    early_stopping_patience: int = 5
-    min_patterns: int = 20
-    max_samples_per_symbol: int = 10000
+
 
 class PatternModelTrainer:
     """Handles the training of neural network models for candlestick pattern recognition."""

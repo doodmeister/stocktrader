@@ -1,32 +1,25 @@
 import os, sys
 from pathlib import Path
 import functools
-def in_docker() -> bool:
-    return os.path.exists('/.dockerenv')
-# figure out where “.` actually is
-PROJECT_ROOT = Path('/app') if in_docker() else Path(__file__).resolve().parent
-# add it so `import stocktrader…` works
-sys.path.insert(0, str(PROJECT_ROOT))
-from utils.logger import setup_logger
 from typing import List, Optional, Dict
 from datetime import datetime
 import streamlit as st
 import pandas as pd
 import plotly.graph_objs as go
+from utils.logger import setup_logger
 from utils.config.notification_settings_ui import render_notification_settings
 from utils.etrade_candlestick_bot import ETradeClient
 from patterns.patterns import CandlestickPatterns
 from patterns.patterns_nn import PatternNN
-from utils.deprecated.deeplearning_trainer_v1 import train_pattern_model
 from utils.technicals.risk_manager import RiskManager
 from utils.notifier import Notifier
 from utils.technicals.indicators import TechnicalIndicators
 from utils.etrade_client_factory import create_etrade_client
 from utils.dashboard_utils import initialize_dashboard_session_state
 from utils.security import get_api_credentials
-
-import os
-from pathlib import Path
+from train.deeplearning_trainer import PatternModelTrainer
+from train.deeplearning_config import TrainingConfig
+from train.model_manager import ModelManager
 
 # --- Logging Configuration ---
 logger = setup_logger(__name__)
@@ -82,12 +75,7 @@ class DashboardState:
         st.session_state[SESSION_KEYS["model"]] = None
         st.session_state[SESSION_KEYS["training"]] = False
         st.session_state[SESSION_KEYS["symbols"]] = ["AAPL", "MSFT"]
-        st.session_state[SESSION_KEYS["class_names"]] = [
-            "Hammer", "Bullish Engulfing", "Doji", "Morning Star",
-            "Morning Doji Star", "Piercing Pattern", "Bullish Harami",
-            "Three White Soldiers", "Inverted Hammer", "Bullish Belt Hold",
-            "Bullish Abandoned Baby", "Three Inside Up", "Rising Window"
-        ]
+        st.session_state[SESSION_KEYS["class_names"]] = CandlestickPatterns.get_pattern_names()
         st.session_state[SESSION_KEYS["risk_params"]] = {
             'max_position_size': 0.02,
             'stop_loss_atr': 2.0,
@@ -135,7 +123,7 @@ class Dashboard:
         st.sidebar.title("⚙️ Configuration")
         st.sidebar.markdown("### 🔒 Trading Environment")
 
-        # Always load credentials from .env using get_api_credentials
+        # Always load credentials from .env using utils/security.py get_api_credentials
         env_creds = get_api_credentials()
 
         env = st.sidebar.radio("Select Environment", ["Sandbox", "Live"], index=0)
@@ -167,6 +155,15 @@ class Dashboard:
         self._render_symbol_manager()
         self._render_training_controls()
         self._render_risk_controls()
+
+        # --- Model selection ---
+        st.sidebar.markdown("### 🤖 Model Selection")
+        model_manager = ModelManager()
+        model_files = model_manager.list_models()
+        model_types = ["PatternNN"] + [f for f in model_files if f.endswith(".joblib")]
+        selected_model_type = st.sidebar.selectbox("Select Model Type", model_types, key="model_type")
+
+        st.session_state["selected_model_type"] = selected_model_type
 
         return creds
 
@@ -227,16 +224,28 @@ class Dashboard:
         self.state.set_training(True)
         with st.spinner("Training model... this may take a while"):
             try:
-                model = PatternNN()
-                trained = train_pattern_model(
-                    client=self.client,
-                    symbols=self.state.symbols,
-                    model=model,
+                config = TrainingConfig(
                     epochs=epochs,
                     seq_len=seq_len,
-                    learning_rate=lr
+                    learning_rate=lr,
+                    batch_size=32,  # or get from UI
+                    validation_split=0.2,
+                    early_stopping_patience=5,
+                    min_patterns=100
                 )
-                self.state.set_model(trained)
+                model_manager = ModelManager()
+                trainer = PatternModelTrainer(
+                    model_manager=model_manager,
+                    config=config,
+                    selected_patterns=[]  # or pass your selected patterns
+                )
+                # Load real data for selected symbols
+                data = pd.concat([
+                    self.client.get_candles(symbol, interval="5min", days=5)
+                    for symbol in self.state.symbols
+                ], ignore_index=True)
+                model, metrics = trainer.train_model(data)
+                self.state.set_model(model)
                 st.sidebar.success("Training complete!")
             except Exception as e:
                 logger.error(f"Training failed: {e}")
@@ -633,7 +642,6 @@ class Dashboard:
 
         # Notification settings
     def _render_alerts_tab(self):
-        # ...existing code...
         # Notification settings
         notification_channels = st.session_state["alerts"]["notification_channels"]
         render_notification_settings(
@@ -647,7 +655,7 @@ class Dashboard:
         st.session_state["alerts"]["notification_channels"][channel][setting] = value
 
     def _send_test_notification(self):
-        """Send a test notification using the configured channels."""
+        """Send a test notification using the configured channels."""        
         test_message = f"Test notification from E*Trade Bot at {datetime.now().strftime('%H:%M:%S')}"
         # Use Notifier to send to all configured channels
         try:
@@ -735,6 +743,58 @@ class Dashboard:
                 })
             except Exception as e:
                 logger.error(f"Failed to send alert notification: {e}")
+
+    def _load_selected_model(self):
+        model_manager = ModelManager()
+        selected_model_type = st.session_state.get("selected_model_type", "PatternNN")
+        if selected_model_type == "PatternNN":
+            # Load latest PatternNN model
+            model_files = model_manager.list_models(pattern="pattern_nn_*.pth")
+            if not model_files:
+                st.error("No PatternNN models found.")
+                return None
+            model, metadata = model_manager.load_model(PatternNN, model_files[-1])
+            return model
+        else:
+            # Load classic ML model
+            model, metadata = model_manager.load_model(None, selected_model_type)
+            return model
+
+    def _run_inference(self, df: pd.DataFrame):
+        model = self._load_selected_model()
+        if model is None:
+            st.error("No model loaded.")
+            return
+
+        if isinstance(model, PatternNN):
+            # Deep learning inference
+            import torch
+
+            window_size = 10  # Or make this configurable
+            signals = []
+            model.eval()
+
+            # Ensure required columns exist
+            required_cols = ['open', 'high', 'low', 'close', 'volume']
+            if not all(col in df.columns for col in required_cols):
+                st.error(f"Missing columns for inference: {required_cols}")
+                return
+
+            for i in range(window_size, len(df)):
+                window = df.iloc[i - window_size:i][required_cols].values
+                tensor = torch.tensor(window, dtype=torch.float32).unsqueeze(0)
+                with torch.no_grad():
+                    output = model(tensor)
+                    prediction = torch.argmax(output).item()
+                signals.append(prediction)
+
+            # Pad initial with 0s
+            result = pd.Series([0] * window_size + signals, index=df.index)
+            return result
+        else:
+            # Classic ML inference
+            preds = model.predict(df)  # Ensure df is preprocessed as expected
+            return pd.Series(preds, index=df.index)
 
     def run(self):
         initialize_dashboard_session_state()
