@@ -73,6 +73,9 @@ An enterprise-grade trading platform that combines classic technical analysis wi
 
 ## Installation
 
+Python 3.10 is the rcommended version for this project. Ensure you have Python and pip installed.
+
+
 1. **Clone the Repository**  
    ```bash
    git clone https://github.com/doodmeister/stocktrader.git

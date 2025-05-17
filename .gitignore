@@ -100,4 +100,5 @@ pip-selfcheck.json
 .python-version
 
 # Temp files
+*.json
 *~
