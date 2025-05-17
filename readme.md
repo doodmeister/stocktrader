@@ -111,7 +111,7 @@ Python 3.10 is the rcommended version for this project. Ensure you have Python a
 
 2. **Validate Your Configuration**  
    ```bash
-   python -m utils.validation
+   python -m config.validation
    ```
 
 ---
@@ -174,7 +174,7 @@ stocktrader/
 
 1. **Launch Dashboard**  
    ```bash
-   streamlit run dashboard/streamlit_dashboard.py
+   streamlit run streamlit_dashboard.py
    ```
 
 2. **Pattern Detection (CLI)**  
