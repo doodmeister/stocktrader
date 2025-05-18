@@ -13,7 +13,7 @@ python-dateutil>=2.8.2,<3.0.0
 
 # Trading & Backtesting
 backtrader>=1.9.78,<1.10.0
-yfinance==0.2.30
+yfinance==0.2.58
 
 # Alternative trading libraries
 backtesting==0.3.3

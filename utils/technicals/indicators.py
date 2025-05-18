@@ -61,24 +61,46 @@ def add_rsi(df: DataFrame, length: int = 14, close_col: str = 'close') -> DataFr
         raise IndicatorError(f"Failed to calculate RSI: {e}") from e
 
 def add_macd(df: DataFrame, fast: int = 12, slow: int = 26, signal: int = 9, close_col: str = 'close') -> DataFrame:
-    """Calculate MACD indicator and append columns."""
+    """Calculate MACD indicator and append columns. If insufficient rows, fill columns with NaN."""
     try:
         df = df.copy()
         validate_dataframe(df, [close_col])
+
+        # Ensure all periods are valid
         if any(p < 1 for p in (fast, slow, signal)):
-            raise ValueError("All periods must be positive")
+            raise ValueError("All periods must be positive integers.")
         if fast >= slow:
-            raise ValueError("Fast period must be less than slow period")
+            raise ValueError("Fast period must be less than slow period.")
+
+        # If not enough rows, add NaN columns and return
+        min_required_rows = slow + signal
+        if len(df) < min_required_rows:
+            df['macd'] = np.nan
+            df['macd_signal'] = np.nan
+            df['macd_hist'] = np.nan
+            logger.warning(f"Insufficient data for MACD. Need at least {min_required_rows} rows, got {len(df)}. Returning NaN columns.")
+            return df
+
         if TA_AVAILABLE:
             macd = ta.macd(df[close_col], fast=fast, slow=slow, signal=signal)
-            df[['macd','macd_signal','macd_hist']] = macd
+            df[['macd', 'macd_signal', 'macd_hist']] = macd
         else:
-            exp1 = df[close_col].ewm(span=fast, adjust=False, min_periods=1).mean()
-            exp2 = df[close_col].ewm(span=slow, adjust=False, min_periods=1).mean()
+            exp1 = df[close_col].ewm(span=fast, adjust=False, min_periods=fast).mean()
+            exp2 = df[close_col].ewm(span=slow, adjust=False, min_periods=slow).mean()
+            if exp1.isna().any() or exp2.isna().any():
+                raise ValueError("EMAs contain NaN values. Check for missing or malformed data.")
             df['macd'] = exp1 - exp2
-            df['macd_signal'] = df['macd'].ewm(span=signal, adjust=False, min_periods=1).mean()
+            if df['macd'].isna().all():
+                raise ValueError("MACD calculation failed: resulting 'macd' column is all NaN.")
+            df['macd_signal'] = df['macd'].ewm(span=signal, adjust=False, min_periods=signal).mean()
             df['macd_hist'] = df['macd'] - df['macd_signal']
+
+        for col in ['macd', 'macd_signal', 'macd_hist']:
+            if df[col].isna().all():
+                raise ValueError(f"{col} column is entirely NaN. MACD calculation incomplete.")
+
         return df
+
     except Exception as e:
         logger.error(f"MACD calculation failed: {e}")
         raise IndicatorError(f"Failed to calculate MACD: {e}") from e
