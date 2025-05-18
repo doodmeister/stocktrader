@@ -6,6 +6,7 @@ from utils.logger import setup_logger
 from typing import List, Dict, Any, Tuple
 import os
 import openai
+from collections import defaultdict  # <-- Move this here
 from patterns.patterns import CandlestickPatterns
 from utils.technicals.technical_analysis import TechnicalAnalysis
 from utils.technicals.indicators import add_bollinger_bands, compute_price_stats, compute_return_stats
@@ -148,18 +149,48 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
 
     Price action as candlesticks with markers for detected patterns.
     """)
+
+    # Use timestamp column if present, else fallback to index
+    timestamp_col = None
+    for col in df.columns:
+        if col.lower() in ("timestamp", "date", "datetime", "time"):
+            timestamp_col = col
+            break
+
+    x_vals = df[timestamp_col] if timestamp_col else df.index
+
     fig = go.Figure(data=[go.Candlestick(
-        x=df.index,
+        x=x_vals,
         open=df['open'], high=df['high'], low=df['low'], close=df['close']
     )])
+
+    # Group patterns by index to avoid overlap
+    pattern_by_idx = defaultdict(list)
     for res in pattern_results:
+        pattern_by_idx[res['index']].append(res['pattern'])
+
+    avg_range = (df['high'] - df['low']).mean()
+    first = True
+    for idx, patterns in pattern_by_idx.items():
+        offset = 0.02 * avg_range * (len(patterns) - 1)
+        y = df['high'].iloc[idx] + offset
+        x = df[timestamp_col].iloc[idx] if timestamp_col else df.index[idx]
         fig.add_trace(go.Scatter(
-            x=[res['date']], y=[df['high'].iloc[res['index']]],
-            mode='markers+text', marker=dict(size=10, color='red'),
-            text=[res['pattern']], textposition='top center'
+            x=[x],
+            y=[y],
+            mode='markers+text',
+            marker=dict(size=12, color='red'),
+            text=[", ".join(patterns)],
+            textposition='top center',
+            textfont=dict(size=11, color='black'),
+            name="Pattern" if first else None,
+            showlegend=first,
+            hovertemplate="Patterns: %{text}<extra></extra>"
         ))
-    fig.update_layout(width=width, height=height)  # <-- Set size here
-    st.plotly_chart(fig, use_container_width=False)  # Set to False to use your custom size
+        first = False
+
+    fig.update_layout(width=width, height=height)
+    st.plotly_chart(fig, use_container_width=False)
 
 
 def main():
@@ -174,7 +205,7 @@ def main():
 
     filename = uploaded_file.name
     stock_ticker = filename.split('_')[0].upper() if '_' in filename else os.path.splitext(filename)[0].upper()
-    st.markdown(f"### Stock Ticker: `{stock_ticker}`")
+    st.markdown(f"### Stock Ticker: {stock_ticker}")
 
     if st.session_state.get('filename') != filename:
         df = load_df(uploaded_file)
