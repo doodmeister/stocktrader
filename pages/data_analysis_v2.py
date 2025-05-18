@@ -142,7 +142,7 @@ def plot_technical_indicators(
     st.caption("Bollinger Bands visualize volatility.")
 
 
-def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[str, Any]], width: int = 900, height: int = 500):
+def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[str, Any]], width: int = 1400, height: int = 800):
     """Render Plotly candlestick chart with markers and adjustable size."""
     st.markdown("""
     ### 🕯️ Candlestick Chart with Pattern Markers
@@ -267,37 +267,26 @@ def main():
         bb_std = st.number_input("BB Std Dev", 1, 4, 2)
 
     st.markdown("""
-    **Indicator Settings Explained:**
+    ### 📚 Understanding Technical Indicators
 
-    - **RSI Period**:  
-      Sets the lookback window for the Relative Strength Index (RSI), a momentum oscillator that measures the speed and change of price movements.  
-      - *Lower values* make RSI more sensitive (more signals, more noise).  
-      - *Higher values* smooth out RSI (fewer, but stronger signals).
+    Technical indicators are mathematical tools that help traders interpret stock price charts and make sense of market trends, momentum, and volatility. Here’s what the key indicators in this dashboard mean:
 
-    - **MACD Fast / Slow**:  
-      Control the short-term (fast) and long-term (slow) moving averages for the MACD (Moving Average Convergence Divergence) indicator.  
-      - *Lower fast period* reacts more quickly to price changes.  
-      - *Higher slow period* smooths out the MACD line.  
-      - Adjusting these can help you spot trend changes earlier or filter out noise.
+    **Relative Strength Index (RSI):**  
+    The RSI is a momentum oscillator that measures the speed and magnitude of recent price changes. It ranges from 0 to 100. Values above 70 typically indicate that a stock is “overbought” (it may be due for a pullback), while values below 30 suggest it’s “oversold” (it may be due for a bounce). RSI helps traders spot potential reversals or confirm trends.
 
-    - **BB Period / BB Std Dev**:  
-      Set the window and width for Bollinger Bands, which measure price volatility.  
-      - *BB Period* is the number of bars used for the moving average.  
-      - *BB Std Dev* controls how wide the bands are (higher = wider bands, capturing more volatility).  
-      - Tighter bands (lower std dev) can signal breakouts; wider bands (higher std dev) can help avoid false signals.
+    **MACD (Moving Average Convergence Divergence):**  
+    MACD shows the relationship between two moving averages of price (usually 12-period and 26-period). When the MACD line crosses above its “signal line,” it’s often seen as a bullish (buy) sign; when it crosses below, it can be bearish (sell). MACD is used to spot changes in trend direction and momentum.
 
-    - **Fib Lookback**:  
-      Sets how many bars back to search for the highest high and lowest low when calculating the Fibonacci extension price target.  
-      - *Shorter lookback* focuses on recent swings and may give more reactive targets.  
-      - *Longer lookback* considers a broader trend and may give more stable, longer-term targets.
+    **Bollinger Bands:**  
+    Bollinger Bands consist of three lines plotted over the price: a simple moving average (middle band) and two bands set a certain number of standard deviations above and below (upper and lower bands). When price approaches the upper band, the stock may be considered “expensive” or overbought; when it nears the lower band, it may be “cheap” or oversold. Bollinger Bands expand during volatile periods and contract when the market is calm.
 
-    - **Fib Extension**:  
-      The Fibonacci multiplier used to project the price target beyond the recent swing high.  
-      - *Common values*: 0.618 (the “golden ratio”), 1.0, 1.618, etc.  
-      - *Higher values* project more aggressive targets.  
-      - *Lower values* are more conservative.
+    **ATR (Average True Range):**  
+    ATR measures how much a stock typically moves during a given period. Higher ATR means more volatility; lower ATR means less. ATR doesn’t indicate direction, just the degree of price movement, and is often used to set stop-losses or gauge trading risk.
 
-    *Tip: Adjust these settings to match your trading style or to experiment with different market conditions!*
+    **Combined Technical Signal:**  
+    This dashboard also calculates a “composite signal,” which blends the information from RSI, MACD, and Bollinger Bands into a single score from -1 (bearish) to +1 (bullish). This helps provide a quick sense of overall market conditions based on several indicators working together.
+
+    *Note: No indicator can predict the future with certainty. They are best used as guides, not guarantees, and should always be combined with sound risk management.*
     """)
 
     # Plot indicators

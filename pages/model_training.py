@@ -369,7 +369,7 @@ def save_trained_model(
 
         # Save with a filename that matches your model, e.g.:
         model_basename = Path(save_path).stem
-        preproc_path = f"{model_basename}_preprocessing.json"
+        preproc_path = f"data/{model_basename}_preprocessing.json"
         save_preprocessing_config(preprocessing_config, path=preproc_path)
 
         logger.info("Model saving step completed")
