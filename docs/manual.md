@@ -6,7 +6,7 @@ A robust, automated trading platform for E*Trade, featuring technical analysis, 
 
 ## Table of Contents
 
-1. [Quick Start](#quick-start)
+1. [Quick Start](#1-quick-start)
 2. [Prerequisites](#prerequisites)
 3. [Installation](#installation)
 4. [Configuration](#configuration)
@@ -26,6 +26,7 @@ git clone https://github.com/<your-org>/etrade-bot.git
 cd etrade-bot
 docker-compose up -d
 ```
+
 - Visit [http://localhost:8501](http://localhost:8501) for the dashboard.
 
 ---
@@ -54,6 +55,7 @@ cd etrade-bot
 ### 3.2 Set Up Python Environment
 
 **Windows:**
+
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
@@ -61,6 +63,7 @@ where python
 ```
 
 **Linux/macOS:**
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -190,7 +193,6 @@ stocktrader/
 - **Neural networks (LSTM and CNN architectures) for pattern classification
 - **Probability scoring with model confidence metrics
 
-
 ### Technical Analysis
 
 Core Indicators: RSI, MACD, Bollinger Bands, Volume, ATR, EMAs
@@ -210,6 +212,7 @@ Daily Loss Limits: Auto-shutdown to prevent excessive losses
 - **Model Management:** Automated training, versioning, metrics, persistence
 
 ### Dashboard
+
 Live Portfolio Monitoring: Real-time P&L, open positions
 Pattern Scanner: Visual display of detected patterns
 Strategy Builder: Visual interface for strategy creation
@@ -223,6 +226,7 @@ Backtest Visualization: Equity curves, trade history, metrics
 ```bash
 streamlit run streamlit_dashboard.py
 ```
+
 ---
 
 ## 8. Development
@@ -265,9 +269,10 @@ docker run -p 8501:8501 -v $(pwd)/data:/app/data etrade-bot
 Licensed under MIT © 2025
 
 ---
-## Change Log
-### Version 1.0.0 (2025-05-01)
 
+## Change Log
+
+### Version 1.0.0 (2025-05-01)
 
 Change Log: Substantive Improvements
 Repository and Project Name Consistency:
@@ -304,6 +309,7 @@ Added network and system diagnostic commands.
 Included log viewing instructions.
 
 ---
+
 ## Suggestions for Further Improvement
 
 Add Screenshots of Dashboard: Include annotated screenshots of the Streamlit interface showing key features like pattern detection, backtesting results, and portfolio management to help users understand the visual interface.
