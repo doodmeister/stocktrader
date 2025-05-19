@@ -125,11 +125,14 @@ stocktrader/
 │   ├── etrade_candlestick_bot.py     # E*TRADE API trading logic
 │   ├── etrade_client_factory.py      # E*TRADE client initialization
 │   ├── indicators.py                 # Technical indicators
+│   ├── chatgpt.py                    # GPT-4/LLM helpers
 │   ├── model_manager.py              # Model persistence/versioning
-│   ├── technials/
+│   ├── technicals/
 │   │   ├── performance_utils.py      # Pattern detection, dashboard state
 │   │   ├── risk_manager.py           # Position sizing & risk controls
-│   │   └── indicators.py             # Technical indicators
+│   │   └── indicators.py             # Stateless technical indicator functions
+│       ├── technical_analysis.py     # TechnicalAnalysis class: scoring, price targets
+│       └── risk_manager.py           # Position sizing & risk controls
 │   ├── notifier.py                   # Notification system
 │   ├── data_validator.py             # Input validation helpers
 │   ├── data_downloader.py            # Data download utilities
@@ -140,26 +143,23 @@ stocktrader/
 │   ├── patterns_nn.py                # PatternNN model definition
 │   └── pattern_utils.py              # Pattern utilities
 ├── train/
-│   ├── model_training_pipeline.py    # ML training pipeline
-│   ├── model_manager.py              # Model persistence/versioning
+│   ├── deeplearning_config.py        # Classic ML training
+│   └── deeplearning_trainer.py       # Deep learning training scripts
+│   ├── model_training_pipeline.py    # Orchestrates end-to-end ML pipeline
+│   ├── model_manager.py              # Model persistence/versioning/saving
 │   ├── ml_trainer.py                 # Classic ML training
 │   ├── ml_config.py                  # ML config
-│   └── deeplearning_trainer.py       # Candlestick pattern deep learning model training
+│   └── feature_engineering.py        # Feature engineering (uses technical_analysis)
 ├── pages/                            # Streamlit multi-page app
-│   ├── live_dashboard.py             # Real-time monitoring
-│   ├── data_dashboard.py             # Data visualization dashboard
-│   ├── data_analysis.py              # Data analysis tools
+│   ├── advanced_ai_trade.py          # Real-time AI based trading
+│   ├── data_dashboard.py             # Streamlit dashboard for data downloading
+│   ├── data_analysis_v2.py           # Data analysis tools
 │   ├── model_training.py             # ML pipeline UI
+│   ├── model_visualizer.py           # Model visualizer
 │   ├── nn_backtest.py                # Neural net backtesting
 │   ├── classic_strategy_backtest.py  # Classic strategy backtesting
 │   ├── patterns.py                   # Pattern editor UI
-│   └── settings.py                   # System configuration UI
-├── data/                             # Data storage and loaders
-│   ├── data_loader.py
-│   ├── io.py
-│   └── model_trainer.py
 ├── models/                           # Saved models
-│   └── patterns_nn.py
 ├── tests/                            # Unit & integration tests
 ├── Dockerfile                        # Docker build file
 ├── docker-compose.yml                # Docker Compose for deployment
@@ -177,31 +177,6 @@ stocktrader/
    streamlit run streamlit_dashboard.py
    ```
 
-2. **Pattern Detection (CLI)**  
-   ```bash
-   python patterns.py --symbol AAPL --start 2025-01-01 --end 2025-04-30
-   ```
-   _Note: The script is `patterns.py`, not `pattern_detection.py`._
-
-3. **Strategy Backtesting**  
-   ```bash
-   python backtest.py --strategy ml --symbols AAPL,MSFT
-   ```
-
-4. **ML Model Training**  
-   ```bash
-   python training/train_model.py --config training/config.yaml
-   ```
-
-5. **Alert System Testing**  
-   ```bash
-   python utils/notifier_test.py
-   ```
-
-6. **Test Suite Execution**  
-   ```bash
-   pytest --cov=stocktrader
-   ```
 
 ---
 
