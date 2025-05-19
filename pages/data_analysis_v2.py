@@ -10,7 +10,7 @@ from collections import defaultdict  # <-- Move this here
 from patterns.patterns import CandlestickPatterns
 from utils.technicals.technical_analysis import TechnicalAnalysis
 from utils.technicals.indicators import add_bollinger_bands, compute_price_stats, compute_return_stats
-from utils.dashboard_utils import initialize_dashboard_session_state
+from core.dashboard_utils import initialize_dashboard_session_state
 from utils.security import get_openai_api_key
 from utils.chatgpt import get_chatgpt_insight as _get_chatgpt_insight
 

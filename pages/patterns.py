@@ -18,7 +18,7 @@ from patterns.pattern_utils import (
     validate_python_code
 )
 from patterns.patterns import PatternDetectionError, CandlestickPatterns
-from utils.dashboard_utils import initialize_dashboard_session_state
+from core.dashboard_utils import initialize_dashboard_session_state
 
 # ─── Logging Setup ─────────────────────────────────────────────────────────────
 logger = setup_logger(__name__)

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from utils.backtester import run_backtest  # Ensure this function is properly defined in backtester.py
-from utils.dashboard_utils import initialize_dashboard_session_state
+from core.dashboard_utils import initialize_dashboard_session_state
 from utils.logger import setup_logger
 
 # Configure logging

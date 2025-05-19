@@ -10,7 +10,7 @@ from typing import Callable, Optional
 
 from train.model_manager import ModelManager, load_latest_model
 from patterns.patterns_nn import PatternNN
-from utils.dashboard_utils import initialize_dashboard_session_state
+from core.dashboard_utils import initialize_dashboard_session_state
 from utils.backtester import run_backtest_wrapper
 
 # --- Logging Setup ---

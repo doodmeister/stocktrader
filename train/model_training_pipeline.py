@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
 import json
 import pandas as pd
-from utils.etrade_candlestick_bot import ETradeClient
+from core.etrade_candlestick_bot import ETradeClient
 from patterns.patterns_nn import PatternNN
 from train.model_manager import ModelManager, ModelMetadata
 from train.ml_config import MLConfig

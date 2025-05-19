@@ -1,6 +1,6 @@
 from utils.logger import setup_logger
 from typing import Optional
-from utils.etrade_candlestick_bot import ETradeClient
+from core.etrade_candlestick_bot import ETradeClient
 
 logger = setup_logger(__name__)
 

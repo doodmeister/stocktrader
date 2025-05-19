@@ -13,7 +13,7 @@ from utils.data_downloader import (
     download_stock_data,
     clear_cache
 )
-from utils.dashboard_utils import initialize_dashboard_session_state
+from core.dashboard_utils import initialize_dashboard_session_state
 
 # Configure logging for the dashboard module
 logger = setup_logger(__name__)

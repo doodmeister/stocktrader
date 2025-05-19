@@ -19,12 +19,12 @@ from pydantic import BaseModel, Field, validator
 
 
 # Local imports
-from utils.etrade_candlestick_bot import ETradeClient
+from core.etrade_candlestick_bot import ETradeClient
 from utils.technicals.indicators import add_technical_indicators
 from utils.config.validation import validate_symbol, safe_request
 from utils.security import get_api_credentials
-from utils.etrade_client_factory import create_etrade_client
-from utils.dashboard_utils import initialize_dashboard_session_state
+from core.etrade_client_factory import create_etrade_client
+from core.dashboard_utils import initialize_dashboard_session_state
 from utils.live_inference import make_trade_decision
 from patterns.pattern_utils import add_candlestick_pattern_features
 
