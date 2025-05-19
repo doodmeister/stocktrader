@@ -10,7 +10,7 @@ logger = setup_logger(__name__)
 st.set_page_config(
     page_title="StockTrader Dashboard",
     page_icon="📊",
-    layout="centered"
+    layout="wide"
 )
 
 st.title("📊 Welcome to StockTrader Dashboard")
