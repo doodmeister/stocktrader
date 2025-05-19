@@ -11,7 +11,7 @@ from utils.config.notification_settings_ui import render_notification_settings
 from utils.etrade_candlestick_bot import ETradeClient
 from patterns.patterns import CandlestickPatterns
 from patterns.patterns_nn import PatternNN
-from utils.technicals.risk_manager import RiskManager
+from utils.technicals.risk_manager_v2 import RiskManager
 from utils.notifier import Notifier
 from utils.technicals.indicators import TechnicalIndicators
 from utils.etrade_client_factory import create_etrade_client
