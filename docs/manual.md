@@ -127,55 +127,52 @@ SLACK_CHANNEL=#trading-alerts  # Channel to post alerts to
 
 ```
 stocktrader/
-├── streamlit_dashboard.py       # Web dashboard entry point (Streamlit)
-├── backtester.py                # Strategy backtesting engine
-├── ml_pipeline.py               # ML model training & inference pipeline
-├── pattern_detection.py         # CLI tool for pattern detection
-│
+├── streamlit_dashboard.py            # Main Streamlit dashboard entry point
 ├── utils/
-│   ├── etrade_api.py            # E*TRADE API wrapper
-│   ├── indicators.py            # Technical indicators (RSI, MACD, etc.)
-│   ├── model_manager.py         # Model management utilities
-│   ├── validation.py            # Input/config validation helpers
-│   ├── getuservar.py            # E*TRADE OAuth helper
-│   └── validate_config.py       # Configuration validation tool
-│
-├── core/
-│   ├── trading_logic.py         # Core trading strategy logic
-│   ├── risk_manager.py          # Position sizing and risk controls
-│   └── notifier.py              # Notification system (email, SMS, Slack)
-│
-├── data/
-│   ├── data_loader.py           # Market data acquisition
-│   ├── io.py                    # Data I/O utilities
-│   └── data_dashboard.py        # Data management interface
-│
+│   ├── etrade_candlestick_bot.py     # E*TRADE API trading logic
+│   ├── etrade_client_factory.py      # E*TRADE client initialization
+│   ├── indicators.py                 # Technical indicators
+│   ├── chatgpt.py                    # GPT-4/LLM helpers
+│   ├── model_manager.py              # Model persistence/versioning
+│   ├── technicals/
+│   │   ├── performance_utils.py      # Pattern detection, dashboard state
+│   │   ├── risk_manager.py           # Position sizing & risk controls
+│   │   └── indicators.py             # Stateless technical indicator functions
+│       ├── technical_analysis.py     # TechnicalAnalysis class: scoring, price targets
+│       └── risk_manager.py           # Position sizing & risk controls
+│   ├── notifier.py                   # Notification system
+│   ├── data_validator.py             # Input validation helpers
+│   ├── data_downloader.py            # Data download utilities
+│   ├── dashboard_utils.py            # Shared dashboard/session state logic
+│   └── security.py                   # Credential management
+├── patterns/
+│   ├── patterns.py                   # Candlestick pattern detection
+│   ├── patterns_nn.py                # PatternNN model definition
+│   └── pattern_utils.py              # Pattern utilities
 ├── train/
-│   └── training_pipeline.py     # ML model training workflow
-│
-├── models/
-│   ├── patterns_nn.py           # Neural network for pattern recognition
-│   └── random_forest.py         # Random forest classifier
-│
-├── patterns.py                  # Candlestick pattern detection library
-│
-├── pages/                       # Streamlit dashboard pages
-│   ├── live_dashboard.py        # Real-time monitoring
-│   ├── backtest.py              # Backtesting interface
-│   ├── model_training.py        # ML training interface
-│   └── settings.py              # System configuration
-│
-├── tests/                       # Test suite
-│   ├── test_indicators.py
-│   ├── test_patterns.py
-│   ├── test_etrade_api.py
-│   └── test_risk_manager.py
-│
-├── logs/                        # Application logs
-├── .env.example                 # Example environment configuration
-├── requirements.txt             # Python dependencies
-├── docker-compose.yml           # Docker service definitions
-└── Dockerfile                   # Container build instructions
+│   ├── deeplearning_config.py        # Classic ML training
+│   └── deeplearning_trainer.py       # Deep learning training scripts
+│   ├── model_training_pipeline.py    # Orchestrates end-to-end ML pipeline
+│   ├── model_manager.py              # Model persistence/versioning/saving
+│   ├── ml_trainer.py                 # Classic ML training
+│   ├── ml_config.py                  # ML config
+│   └── feature_engineering.py        # Feature engineering (uses technical_analysis)
+├── pages/                            # Streamlit multi-page app
+│   ├── advanced_ai_trade.py          # Real-time AI based trading
+│   ├── data_dashboard.py             # Streamlit dashboard for data downloading
+│   ├── data_analysis_v2.py           # Data analysis tools
+│   ├── model_training.py             # ML pipeline UI
+│   ├── model_visualizer.py           # Model visualizer
+│   ├── nn_backtest.py                # Neural net backtesting
+│   ├── classic_strategy_backtest.py  # Classic strategy backtesting
+│   ├── patterns.py                   # Pattern editor UI
+├── models/                           # Saved models
+├── tests/                            # Unit & integration tests
+├── Dockerfile                        # Docker build file
+├── docker-compose.yml                # Docker Compose for deployment
+├── requirements.txt                  # Python dependencies
+├── requirements-dev.txt              # Dev dependencies
+└── env.example                       # Example environment config
 ```
 
 ---
