@@ -16,7 +16,7 @@ def get_chatgpt_insight(summary: str) -> str:
     """
     try:
         response = openai.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4.1",
             messages=[
                 {
                     "role": "system",

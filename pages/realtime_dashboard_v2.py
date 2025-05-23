@@ -181,7 +181,7 @@ if "stock_data" in st.session_state:
                 try:
                     openai.api_key = get_openai_api_key()
                     response = openai.chat.completions.create(
-                        model="gpt-4o",
+                        model="gpt-4.1",
                         messages=[
                             {"role": "user", "content": prompt}
                         ],
