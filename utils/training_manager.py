@@ -14,7 +14,7 @@ from train.ml_config import MLConfig
 from train.deeplearning_config import TrainingConfig
 from train.deeplearning_trainer import PatternModelTrainer
 from patterns.patterns_nn import PatternNN
-from patterns.patterns import CandlestickPatterns
+from patterns.patterns.py import CandlestickPatterns
 from utils.logger import setup_logger
 from utils.notifier import Notifier
 

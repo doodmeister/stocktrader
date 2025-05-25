@@ -20,20 +20,17 @@ Architecture:
 - Performance optimizations with caching
 """
 
-import functools
 import hashlib
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Protocol
+from typing import Any, Dict, Optional, Protocol
 from dataclasses import dataclass, field
 from enum import Enum
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objs as go
 import streamlit as st
-from pydantic import ValidationError as PydanticValidationError
 
 # Project imports
 from core.dashboard_utils import (

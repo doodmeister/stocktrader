@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+from patterns.pattern_utils import get_pattern_names, get_pattern_method
+from typing import Optional, List
 
 def compute_technical_features(df):
     """
@@ -35,8 +37,6 @@ def compute_technical_features(df):
     df = df.fillna(0)
     return df
 
-from patterns.pattern_utils import get_pattern_names, get_pattern_method
-from typing import Optional, List
 
 def add_candlestick_pattern_features(df: pd.DataFrame, selected_patterns: Optional[List[str]] = None) -> pd.DataFrame:
     """

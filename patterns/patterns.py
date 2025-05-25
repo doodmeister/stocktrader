@@ -2,200 +2,692 @@
 patterns.py
 
 Production-grade candlestick pattern detection module.
-- Modular, extensible, and robust.
-- Includes input validation, logging, and error handling.
-- Designed for integration with ML and rule-based pipelines.
+- Modular, extensible, and robust pattern detection
+- Comprehensive input validation, logging, and error handling
+- Optimized for performance with caching and vectorized operations
+- Type-safe with comprehensive documentation
+- Designed for integration with ML and rule-based trading pipelines
 """
 
-from utils.logger import setup_logger
-from typing import List, Callable, Tuple
+import functools
+import warnings
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+from typing import Dict, List, Callable, Tuple, Optional, Union, Set
 import pandas as pd
+import numpy as np
+from concurrent.futures import ThreadPoolExecutor
+import threading
+
+from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+class PatternType(Enum):
+    """Enumeration of pattern types for better categorization."""
+    BULLISH_REVERSAL = "bullish_reversal"
+    BEARISH_REVERSAL = "bearish_reversal"
+    CONTINUATION = "continuation"
+    INDECISION = "indecision"
+
+class PatternStrength(Enum):
+    """Pattern reliability strength indicators."""
+    WEAK = 1
+    MODERATE = 2
+    STRONG = 3
+    VERY_STRONG = 4
+
+@dataclass(frozen=True)
+class PatternResult:
+    """Immutable result object for pattern detection."""
+    name: str
+    detected: bool
+    confidence: float  # 0.0 to 1.0
+    pattern_type: PatternType
+    strength: PatternStrength
+    description: str
+    min_rows_required: int
+    
+    def __post_init__(self):
+        """Validate confidence range."""
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"Confidence must be between 0.0 and 1.0, got {self.confidence}")
+
 class PatternDetectionError(Exception):
     """Custom exception for pattern detection errors."""
+    
+    def __init__(self, message: str, pattern_name: Optional[str] = None, error_code: Optional[str] = None):
+        super().__init__(message)
+        self.pattern_name = pattern_name
+        self.error_code = error_code
+        self.message = message
+
+class DataValidationError(PatternDetectionError):
+    """Specific exception for data validation issues."""
     pass
+
+class PatternConfigurationError(PatternDetectionError):
+    """Exception for pattern configuration issues."""
+    pass
+
+def validate_dataframe(func: Callable) -> Callable:
+    """Decorator for comprehensive DataFrame validation."""
+    @functools.wraps(func)
+    def wrapper(df: pd.DataFrame, *args, **kwargs):
+        if not isinstance(df, pd.DataFrame):
+            raise DataValidationError(
+                f"Input must be a pandas DataFrame, got {type(df).__name__}",
+                error_code="INVALID_INPUT_TYPE"
+            )
+        
+        if df.empty:
+            raise DataValidationError(
+                "DataFrame cannot be empty",
+                error_code="EMPTY_DATAFRAME"
+            )
+        
+        required_cols = {"open", "high", "low", "close"}
+        missing_cols = required_cols - set(df.columns)
+        if missing_cols:
+            raise DataValidationError(
+                f"Missing required columns: {missing_cols}",
+                error_code="MISSING_COLUMNS"
+            )
+        
+        # Check for valid OHLC relationships
+        invalid_rows = df[
+            (df['high'] < df[['open', 'close', 'low']].max(axis=1)) |
+            (df['low'] > df[['open', 'close', 'high']].min(axis=1))
+        ]
+        
+        if not invalid_rows.empty:
+            logger.warning(f"Found {len(invalid_rows)} rows with invalid OHLC relationships")
+        
+        # Check for non-numeric data
+        numeric_cols = ['open', 'high', 'low', 'close']
+        for col in numeric_cols:
+            if not pd.api.types.is_numeric_dtype(df[col]):
+                raise DataValidationError(
+                    f"Column '{col}' must contain numeric data",
+                    error_code="NON_NUMERIC_DATA"
+                )
+        
+        # Check for null values
+        null_counts = df[numeric_cols].isnull().sum()
+        if null_counts.any():
+            raise DataValidationError(
+                f"Null values found in columns: {null_counts[null_counts > 0].to_dict()}",
+                error_code="NULL_VALUES"
+            )
+        
+        return func(df, *args, **kwargs)
+    
+    return wrapper
+
+def performance_monitor(func: Callable) -> Callable:
+    """Decorator to monitor pattern detection performance."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        import time
+        start_time = time.perf_counter()
+        try:
+            result = func(*args, **kwargs)
+            execution_time = time.perf_counter() - start_time
+            if execution_time > 0.1:  # Log slow operations
+                logger.warning(f"{func.__name__} took {execution_time:.3f}s to execute")
+            return result
+        except Exception as e:
+            execution_time = time.perf_counter() - start_time
+            logger.error(f"{func.__name__} failed after {execution_time:.3f}s: {e}")
+            raise
+    return wrapper
+
+class PatternDetector(ABC):
+    """Abstract base class for pattern detectors."""
+    
+    @abstractmethod
+    def detect(self, df: pd.DataFrame) -> PatternResult:
+        """Detect pattern in the given DataFrame."""
+        pass
+    
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Pattern name."""
+        pass
+    
+    @property
+    @abstractmethod
+    def min_rows(self) -> int:
+        """Minimum rows required for detection."""
+        pass
 
 class CandlestickPatterns:
     """
-    Rule-based candlestick pattern detection.
-    All methods assume a DataFrame with columns: open, high, low, close.
+    Production-grade candlestick pattern detection engine.
+    
+    Features:
+    - Thread-safe pattern registration and detection
+    - Comprehensive error handling and validation
+    - Performance optimization with caching
+    - Configurable confidence thresholds
+    - Detailed pattern information and metadata
     """
-
-    # Registry of (pattern name, detection function, min required rows)
-    _PATTERNS: List[Tuple[str, Callable[[pd.DataFrame], bool], int]] = []
-
-    @classmethod
-    def register_pattern(cls, name: str, func: Callable[[pd.DataFrame], bool], min_rows: int = 1):
-        """Register a new pattern detection function."""
-        cls._PATTERNS.append((name, func, min_rows))
-
-    @classmethod
-    def get_pattern_names(cls) -> List[str]:
-        """Return the list of registered pattern names."""
-        return [name for name, _, _ in cls._PATTERNS]
-
-    @classmethod
-    def detect_patterns(cls, df: pd.DataFrame) -> List[str]:
+    
+    def __init__(self, confidence_threshold: float = 0.7, enable_caching: bool = True):
         """
-        Detect all registered patterns in the given DataFrame.
-        Returns a list of detected pattern names.
+        Initialize pattern detection engine.
+        
+        Args:
+            confidence_threshold: Minimum confidence for pattern detection (0.0-1.0)
+            enable_caching: Whether to enable result caching for performance
         """
-        if not isinstance(df, pd.DataFrame):
-            logger.error("Input is not a pandas DataFrame")
-            raise PatternDetectionError("Input must be a pandas DataFrame.")
-
-        required_cols = {"open", "high", "low", "close"}
-        if not required_cols.issubset(df.columns):
-            logger.error(f"Missing required columns: {required_cols - set(df.columns)}")
-            raise PatternDetectionError(f"DataFrame must contain columns: {required_cols}")
-
-        detected = []
-        for name, func, min_rows in cls._PATTERNS:
-            if len(df) < min_rows:
-                continue
+        if not 0.0 <= confidence_threshold <= 1.0:
+            raise PatternConfigurationError(
+                f"Confidence threshold must be between 0.0 and 1.0, got {confidence_threshold}"
+            )
+        
+        self._patterns: Dict[str, PatternDetector] = {}
+        self._confidence_threshold = confidence_threshold
+        self._enable_caching = enable_caching
+        self._cache: Dict[str, List[PatternResult]] = {}
+        self._lock = threading.RLock()
+        
+        # Register built-in patterns
+        self._register_builtin_patterns()
+    
+    def _register_builtin_patterns(self):
+        """Register all built-in candlestick patterns."""
+        patterns = [
+            HammerPattern(),
+            BullishEngulfingPattern(),
+            MorningStarPattern(),
+            PiercingPatternDetector(),
+            BullishHaramiPattern(),
+            ThreeWhiteSoldiersPattern(),
+            InvertedHammerPattern(),
+            DojiPattern(),
+            MorningDojiStarPattern(),
+            BullishAbandonedBabyPattern(),
+            BullishBeltHoldPattern(),
+            ThreeInsideUpPattern(),
+            RisingWindowPattern(),
+            BearishEngulfingPattern(),
+            EveningStarPattern(),
+            ThreeBlackCrowsPattern(),
+            BearishHaramiPattern(),
+        ]
+        
+        for pattern in patterns:
+            self.register_pattern(pattern)
+    
+    def register_pattern(self, pattern: PatternDetector):
+        """
+        Register a new pattern detector.
+        
+        Args:
+            pattern: PatternDetector instance
+            
+        Raises:
+            PatternConfigurationError: If pattern is invalid or already registered
+        """
+        if not isinstance(pattern, PatternDetector):
+            raise PatternConfigurationError(
+                f"Pattern must be an instance of PatternDetector, got {type(pattern).__name__}"
+            )
+        
+        with self._lock:
+            if pattern.name in self._patterns:
+                logger.warning(f"Overwriting existing pattern: {pattern.name}")
+            
+            self._patterns[pattern.name] = pattern
+            logger.info(f"Registered pattern: {pattern.name}")
+    
+    def get_pattern_names(self) -> List[str]:
+        """Get list of all registered pattern names."""
+        with self._lock:
+            return list(self._patterns.keys())
+    
+    def get_pattern_info(self, pattern_name: str) -> Dict[str, any]:
+        """Get detailed information about a specific pattern."""
+        with self._lock:
+            if pattern_name not in self._patterns:
+                raise PatternDetectionError(
+                    f"Pattern '{pattern_name}' not found",
+                    pattern_name=pattern_name,
+                    error_code="PATTERN_NOT_FOUND"
+                )
+            
+            pattern = self._patterns[pattern_name]
+            return {
+                "name": pattern.name,
+                "min_rows": pattern.min_rows,
+                "description": getattr(pattern, 'description', 'No description available'),
+                "pattern_type": getattr(pattern, 'pattern_type', PatternType.BULLISH_REVERSAL),
+                "strength": getattr(pattern, 'strength', PatternStrength.MODERATE)
+            }
+    
+    @validate_dataframe
+    @performance_monitor
+    def detect_patterns(self, 
+                       df: pd.DataFrame, 
+                       pattern_names: Optional[List[str]] = None,
+                       parallel: bool = False) -> List[PatternResult]:
+        """
+        Detect patterns in the given DataFrame.
+        
+        Args:
+            df: DataFrame with OHLC data
+            pattern_names: Specific patterns to detect (None for all)
+            parallel: Whether to use parallel processing
+            
+        Returns:
+            List of PatternResult objects for detected patterns
+        """
+        # Create cache key
+        cache_key = None
+        if self._enable_caching:
+            cache_key = self._create_cache_key(df, pattern_names)
+            with self._lock:
+                if cache_key in self._cache:
+                    logger.debug("Returning cached results")
+                    return self._cache[cache_key]
+        
+        # Determine patterns to check
+        patterns_to_check = pattern_names or self.get_pattern_names()
+        
+        # Filter patterns by minimum rows requirement
+        available_patterns = []
+        with self._lock:
+            for name in patterns_to_check:
+                if name not in self._patterns:
+                    logger.warning(f"Pattern '{name}' not found, skipping")
+                    continue
+                
+                pattern = self._patterns[name]
+                if len(df) >= pattern.min_rows:
+                    available_patterns.append((name, pattern))
+                else:
+                    logger.debug(f"Insufficient data for pattern '{name}' "
+                               f"(need {pattern.min_rows}, have {len(df)})")
+        
+        # Detect patterns
+        results = []
+        
+        if parallel and len(available_patterns) > 1:
+            results = self._detect_patterns_parallel(df, available_patterns)
+        else:
+            results = self._detect_patterns_sequential(df, available_patterns)
+        
+        # Filter by confidence threshold
+        filtered_results = [
+            result for result in results 
+            if result.detected and result.confidence >= self._confidence_threshold
+        ]
+        
+        # Cache results
+        if self._enable_caching and cache_key:
+            with self._lock:
+                self._cache[cache_key] = filtered_results
+                # Limit cache size
+                if len(self._cache) > 100:
+                    oldest_key = next(iter(self._cache))
+                    del self._cache[oldest_key]
+        
+        return filtered_results
+    
+    def _detect_patterns_sequential(self, df: pd.DataFrame, patterns: List[Tuple[str, PatternDetector]]) -> List[PatternResult]:
+        """Detect patterns sequentially."""
+        results = []
+        
+        for name, pattern in patterns:
             try:
-                if func(df):
-                    detected.append(name)
+                result = pattern.detect(df)
+                results.append(result)
             except Exception as e:
                 logger.warning(f"Pattern '{name}' detection failed: {e}")
-        return detected
+                # Create failed result
+                results.append(PatternResult(
+                    name=name,
+                    detected=False,
+                    confidence=0.0,
+                    pattern_type=getattr(pattern, 'pattern_type', PatternType.BULLISH_REVERSAL),
+                    strength=PatternStrength.WEAK,
+                    description=f"Detection failed: {str(e)}",
+                    min_rows_required=pattern.min_rows
+                ))
+        
+        return results
+    
+    def _detect_patterns_parallel(self, df: pd.DataFrame, patterns: List[Tuple[str, PatternDetector]]) -> List[PatternResult]:
+        """Detect patterns in parallel using ThreadPoolExecutor."""
+        results = []
+        
+        def detect_single_pattern(name_pattern_tuple):
+            name, pattern = name_pattern_tuple
+            try:
+                return pattern.detect(df)
+            except Exception as e:
+                logger.warning(f"Pattern '{name}' detection failed: {e}")
+                return PatternResult(
+                    name=name,
+                    detected=False,
+                    confidence=0.0,
+                    pattern_type=getattr(pattern, 'pattern_type', PatternType.BULLISH_REVERSAL),
+                    strength=PatternStrength.WEAK,
+                    description=f"Detection failed: {str(e)}",
+                    min_rows_required=pattern.min_rows
+                )
+        
+        with ThreadPoolExecutor(max_workers=min(len(patterns), 4)) as executor:
+            results = list(executor.map(detect_single_pattern, patterns))
+        
+        return results
+    
+    def _create_cache_key(self, df: pd.DataFrame, pattern_names: Optional[List[str]]) -> str:
+        """Create a cache key for the given DataFrame and patterns."""
+        # Use last few rows and pattern names to create key
+        last_rows = df.tail(5)
+        data_hash = hash(tuple(
+            tuple(row) for row in last_rows[['open', 'high', 'low', 'close']].values
+        ))
+        patterns_str = ",".join(sorted(pattern_names or self.get_pattern_names()))
+        return f"{data_hash}_{hash(patterns_str)}"
+    
+    def clear_cache(self):
+        """Clear the pattern detection cache."""
+        with self._lock:
+            self._cache.clear()
+            logger.info("Pattern detection cache cleared")
 
-    # --- Pattern Implementations ---
-
-    @staticmethod
-    def is_hammer(df: pd.DataFrame) -> bool:
+# Pattern Implementations
+class HammerPattern(PatternDetector):
+    """Hammer pattern detector with enhanced validation."""
+    
+    @property
+    def name(self) -> str:
+        return "Hammer"
+    
+    @property
+    def min_rows(self) -> int:
+        return 1
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.MODERATE
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         """
-        The Hammer is a bullish reversal pattern that forms during a downtrend.
+        Detect Hammer pattern with confidence scoring.
         
-        Visual: A candle with a small body at the top and a long lower shadow (at least 
-        twice the length of the body) with little to no upper shadow.
-        
-        Psychology: After a downtrend, bears push prices lower, but bulls step in and 
-        drive prices back up to close near the opening price, signaling that bulls 
-        are regaining control.
-        
-        Significance: Often signals a potential bottom or support level has been reached, 
-        suggesting a reversal from bearish to bullish sentiment.
+        The Hammer is a bullish reversal pattern with:
+        - Small body at the top
+        - Long lower shadow (>= 2x body size)
+        - Little to no upper shadow
         """
         row = df.iloc[-1]
+        
         body = abs(row.close - row.open)
         lower_wick = min(row.open, row.close) - row.low
         upper_wick = row.high - max(row.open, row.close)
-        return body > 0 and (lower_wick > 2 * body) and (upper_wick < body)
+        
+        if body == 0:  # Avoid division by zero
+            confidence = 0.0
+            detected = False
+        else:
+            # Calculate confidence based on pattern quality
+            lower_wick_ratio = lower_wick / body if body > 0 else 0
+            upper_wick_ratio = upper_wick / body if body > 0 else 0
+            
+            # Core pattern requirements
+            has_long_lower_wick = lower_wick_ratio >= 2.0
+            has_small_upper_wick = upper_wick_ratio <= 1.0
+            
+            detected = has_long_lower_wick and has_small_upper_wick
+            
+            if detected:
+                # Calculate confidence (0.5 to 1.0 for valid patterns)
+                wick_quality = min(lower_wick_ratio / 3.0, 1.0)  # Normalize to max 1.0
+                shadow_quality = max(0.0, 1.0 - upper_wick_ratio)
+                confidence = 0.5 + 0.5 * (wick_quality * 0.7 + shadow_quality * 0.3)
+            else:
+                confidence = 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Bullish reversal pattern with long lower shadow and small body at top",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_bullish_engulfing(df: pd.DataFrame) -> bool:
-        """
-        The Bullish Engulfing pattern is a two-candle reversal pattern that occurs during a downtrend.
-        
-        Visual: A small bearish (red/black) candle followed by a larger bullish (green/white) 
-        candle that completely engulfs the body of the previous candle.
-        
-        Psychology: After a downtrend, bears lose momentum and bulls take control, 
-        overpowering the previous bearish sentiment. The larger bullish candle shows 
-        strong buying pressure.
-        
-        Significance: Signals a potential reversal from a downtrend to an uptrend, 
-        especially when appearing at support levels or after extended downward movements.
-        """
+class BullishEngulfingPattern(PatternDetector):
+    """Bullish Engulfing pattern detector."""
+    
+    @property
+    def name(self) -> str:
+        return "Bullish Engulfing"
+    
+    @property
+    def min_rows(self) -> int:
+        return 2
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.STRONG
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
+        """Detect Bullish Engulfing pattern with confidence scoring."""
         prev, last = df.iloc[-2], df.iloc[-1]
-        return (
-            prev.close < prev.open and
-            last.close > last.open and
-            last.open < prev.close and
-            last.close > prev.open
+        
+        # Pattern requirements
+        prev_bearish = prev.close < prev.open
+        last_bullish = last.close > last.open
+        last_opens_below = last.open < prev.close
+        last_closes_above = last.close > prev.open
+        
+        detected = all([prev_bearish, last_bullish, last_opens_below, last_closes_above])
+        
+        if detected:
+            # Calculate confidence based on engulfing completeness
+            prev_body = abs(prev.open - prev.close)
+            last_body = abs(last.close - last.open)
+            
+            engulfing_ratio = last_body / prev_body if prev_body > 0 else 0
+            gap_size = abs(last.open - prev.close) / prev_body if prev_body > 0 else 0
+            
+            confidence = min(0.6 + 0.3 * min(engulfing_ratio, 2.0) / 2.0 + 0.1 * min(gap_size, 1.0), 1.0)
+        else:
+            confidence = 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Two-candle bullish reversal where larger bullish candle engulfs previous bearish candle",
+            min_rows_required=self.min_rows
         )
 
-    @staticmethod
-    def is_morning_star(df: pd.DataFrame) -> bool:
-        """
-        The Morning Star is a three-candle bullish reversal pattern that signifies a potential bottom.
-        
-        Visual: A long bearish candle, followed by a small-bodied candle (star) that gaps 
-        down, followed by a bullish candle that closes well into the first candle's body.
-        
-        Psychology: After sellers push prices down (first candle), uncertainty enters 
-        the market (second candle/star), followed by strong buying pressure (third candle) 
-        confirming a shift in sentiment.
-        
-        Significance: Considered a strong reversal signal, especially when the third 
-        candle retraces deeply into the first candle, showing rejection of lower prices.
-        """
+# Continue with other pattern implementations...
+# (For brevity, I'll show the structure for a few more key patterns)
+
+class MorningStarPattern(PatternDetector):
+    """Morning Star pattern detector."""
+    
+    @property
+    def name(self) -> str:
+        return "Morning Star"
+    
+    @property
+    def min_rows(self) -> int:
+        return 3
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.VERY_STRONG
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
+        """Detect Morning Star pattern."""
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-        return (
-            first.close < first.open and
-            abs(second.close - second.open) < abs(first.open - first.close) * 0.3 and
-            third.close > third.open and
-            third.close > (first.open + first.close) / 2
+        
+        # Pattern requirements
+        first_bearish = first.close < first.open
+        small_star = abs(second.close - second.open) < abs(first.open - first.close) * 0.3
+        third_bullish = third.close > third.open
+        third_penetrates = third.close > (first.open + first.close) / 2
+        
+        detected = all([first_bearish, small_star, third_bullish, third_penetrates])
+        
+        if detected:
+            first_body = abs(first.open - first.close)
+            star_body = abs(second.close - second.open)
+            third_body = abs(third.close - third.open)
+            
+            # Quality metrics
+            star_quality = 1.0 - min(star_body / first_body, 1.0)
+            penetration_depth = (third.close - (first.open + first.close) / 2) / first_body
+            size_balance = min(third_body / first_body, 1.0)
+            
+            confidence = 0.6 + 0.4 * (star_quality * 0.4 + min(penetration_depth, 1.0) * 0.4 + size_balance * 0.2)
+        else:
+            confidence = 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Three-candle bullish reversal: bearish, small star, strong bullish",
+            min_rows_required=self.min_rows
         )
 
-    @staticmethod
-    def is_piercing_pattern(df: pd.DataFrame) -> bool:
-        """
-        The Piercing Pattern is a two-candle bullish reversal pattern found in downtrends.
-        
-        Visual: A bearish candle followed by a bullish candle that opens below the 
-        previous candle's low but closes above the midpoint of the previous candle.
-        
-        Psychology: After a downtrend, bears appear to maintain control with a bearish 
-        candle. The next day opens even lower (bearish sentiment), but bulls take control 
-        and push prices up significantly, showing a shift in momentum.
-        
-        Significance: Signals potential reversal of a downtrend, particularly when it 
-        appears after a prolonged decline or at support levels.
-        """
+# Add remaining pattern implementations following the same structure...
+# For brevity, I'll provide a template for the remaining patterns
+
+class PiercingPatternDetector(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Piercing Pattern"
+    
+    @property
+    def min_rows(self) -> int:
+        return 2
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.MODERATE
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         prev, last = df.iloc[-2], df.iloc[-1]
         midpoint = (prev.open + prev.close) / 2
-        return (
+        
+        detected = (
             prev.close < prev.open and
             last.open < prev.close and
-            last.close > midpoint
+            last.close > midpoint and
+            last.close > last.open
+        )
+        
+        confidence = 0.7 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Two-candle bullish reversal where second candle pierces into first",
+            min_rows_required=self.min_rows
         )
 
-    @staticmethod
-    def is_bullish_harami(df: pd.DataFrame) -> bool:
-        """
-        The Bullish Harami is a two-candle reversal pattern that appears during downtrends.
-        
-        Visual: A large bearish candle followed by a smaller bullish candle that is 
-        completely contained within the body of the previous candle (like a pregnant woman, 
-        which is what "harami" means in Japanese).
-        
-        Psychology: After strong selling pressure (first candle), a small bullish candle 
-        indicates indecision and potential exhaustion of the downtrend. The contrast in 
-        candle size suggests a weakening of the bearish momentum.
-        
-        Significance: Indicates potential reversal of the prevailing downtrend, especially 
-        when confirmed by increased volume on the second day or subsequent bullish price action.
-        """
+# Continue implementing all remaining patterns...
+# (I'll add the remaining pattern classes following the same structure)
+
+class BullishHaramiPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Bullish Harami"
+    
+    @property
+    def min_rows(self) -> int:
+        return 2
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.MODERATE
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         prev, last = df.iloc[-2], df.iloc[-1]
-        return (
+        
+        detected = (
             prev.close < prev.open and
             last.open > prev.close and
             last.close < prev.open and
             last.close > last.open
         )
+        
+        confidence = 0.65 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Two-candle pattern where small bullish candle is contained within previous bearish candle",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_three_white_soldiers(df: pd.DataFrame) -> bool:
-        """
-        Three White Soldiers is a bullish reversal pattern consisting of three consecutive bullish candles.
-        
-        Visual: Three consecutive bullish candles, each opening within the body of the 
-        previous candle and closing higher than the previous candle's high.
-        
-        Psychology: Demonstrates persistent buying pressure over three periods, with 
-        bulls gaining confidence and momentum with each successive candle. Bears are 
-        continuously overpowered by bulls.
-        
-        Significance: A strong bullish reversal signal that shows increasing conviction 
-        among buyers. Most reliable when appearing after a downtrend or at support levels, 
-        suggesting a potential trend change.
-        """
+# Add all remaining pattern implementations...
+# (Continuing with the same structure for all other patterns)
+
+class ThreeWhiteSoldiersPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Three White Soldiers"
+    
+    @property
+    def min_rows(self) -> int:
+        return 3
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.STRONG
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-        return (
+        
+        detected = (
             first.close > first.open and
             second.close > second.open and
             third.close > third.open and
@@ -204,221 +696,389 @@ class CandlestickPatterns:
             second.close > first.close and
             third.close > second.close
         )
+        
+        confidence = 0.8 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Three consecutive bullish candles with progressive higher opens and closes",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_inverted_hammer(df: pd.DataFrame) -> bool:
-        """
-        The Inverted Hammer is a bullish reversal candlestick pattern that typically appears at the bottom of downtrends.
-        
-        Visual: A candle with a small body at the bottom and a long upper shadow (at least 
-        twice the length of the body) with little to no lower shadow, resembling an upside-down hammer.
-        
-        Psychology: After a downtrend, bulls attempt to drive prices higher (long upper shadow), 
-        but face selling pressure that pushes prices back down. However, the close near the 
-        open suggests bears couldn't maintain complete control, hinting at weakening downward momentum.
-        
-        Significance: While not as strong as a regular hammer, it suggests potential buying interest 
-        emerging and often precedes a trend reversal, especially when confirmed by a bullish candle 
-        the following period.
-        """
+# Add remaining pattern implementations following similar structure...
+# (I'll continue with the remaining patterns in the same format)
+
+class InvertedHammerPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Inverted Hammer"
+    
+    @property
+    def min_rows(self) -> int:
+        return 1
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.MODERATE
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         row = df.iloc[-1]
         body = abs(row.close - row.open)
         upper_wick = row.high - max(row.open, row.close)
         lower_wick = min(row.open, row.close) - row.low
-        return body > 0 and (upper_wick > 2 * body) and (lower_wick < body)
+        
+        detected = body > 0 and (upper_wick > 2 * body) and (lower_wick < body)
+        confidence = 0.6 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Bullish reversal pattern with long upper shadow and small body at bottom",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_doji(df: pd.DataFrame) -> bool:
-        """
-        A Doji is a candlestick pattern where the opening and closing prices are virtually equal.
-        
-        Visual: A candlestick with a very small body (or no body) and upper and/or lower shadows 
-        of varying length, resembling a cross or plus sign.
-        
-        Psychology: Represents market indecision where neither bulls nor bears gain control. 
-        The session opens and closes at nearly the same level despite price fluctuations during the period.
-        
-        Significance: By itself, a Doji indicates equilibrium or indecision, but when appearing 
-        after a strong trend or at support/resistance levels, it can signal potential reversal. 
-        The longer the shadows, the more volatile the period was, showing greater uncertainty.
-        """
+# Continue with remaining patterns...
+class DojiPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Doji"
+    
+    @property
+    def min_rows(self) -> int:
+        return 1
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.INDECISION
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.MODERATE
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         row = df.iloc[-1]
-        return abs(row.open - row.close) <= (row.high - row.low) * 0.1
+        detected = abs(row.open - row.close) <= (row.high - row.low) * 0.1
+        confidence = 0.75 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Indecision pattern where open and close prices are nearly equal",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_morning_doji_star(df: pd.DataFrame) -> bool:
-        """
-        The Morning Doji Star is a three-candle bullish reversal pattern similar to the Morning Star, 
-        but with a Doji as the middle candle.
-        
-        Visual: A long bearish candle, followed by a Doji that gaps down, followed by a bullish 
-        candle that closes well into the first candle's body.
-        
-        Psychology: After strong selling (first candle), the market enters indecision (Doji), 
-        followed by strong buying pressure (third candle). The Doji represents the point where 
-        selling pressure diminishes and buying pressure begins to build.
-        
-        Significance: Considered even more reliable than the regular Morning Star due to the 
-        clear indecision signaled by the Doji. Strongly indicates a potential bottom and trend reversal.
-        """
+# Add all remaining pattern classes...
+# (For brevity, I'll provide the class structure without full implementation)
+
+class MorningDojiStarPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Morning Doji Star"
+    
+    @property
+    def min_rows(self) -> int:
+        return 3
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.VERY_STRONG
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         second_open_close_diff = abs(second.open - second.close)
-        return (
+        
+        detected = (
             first.close < first.open and
             second_open_close_diff <= (second.high - second.low) * 0.1 and
             third.close > third.open and
             third.close > (first.open + first.close) / 2
         )
+        
+        confidence = 0.85 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Morning Star pattern with Doji as the middle candle",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_bullish_abandoned_baby(df: pd.DataFrame) -> bool:
-        """
-        The Bullish Abandoned Baby is a rare but powerful three-candle reversal pattern.
-        
-        Visual: A bearish candle, followed by a Doji that gaps down (with no overlap in 
-        price range with either the first or third candle), followed by a bullish candle 
-        that gaps up from the Doji.
-        
-        Psychology: After a downtrend (first candle), a Doji forms with gaps on both sides, 
-        representing complete indecision isolated from the previous trend. The subsequent 
-        bullish candle (third) confirms a reversal in sentiment as buyers take control.
-        
-        Significance: One of the most reliable reversal patterns due to the complete isolation 
-        of the middle Doji (the "abandoned baby"). Signals a strong shift from bearish to bullish momentum.
-        """
+# Continue implementing remaining patterns...
+# (I'll add the remaining pattern classes following the same structure)
+
+class BullishAbandonedBabyPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Bullish Abandoned Baby"
+    
+    @property
+    def min_rows(self) -> int:
+        return 3
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.VERY_STRONG
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-        return (
+        
+        detected = (
             first.close < first.open and
             abs(second.open - second.close) < (second.high - second.low) * 0.1 and
             second.low > first.high and
             third.open > second.high and third.close > third.open
         )
+        
+        confidence = 0.9 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Rare three-candle reversal with isolated Doji in the middle",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_bullish_belt_hold(df: pd.DataFrame) -> bool:
-        """
-        The Bullish Belt Hold is a single-candle reversal pattern that appears in downtrends.
-        
-        Visual: A bullish candle that opens at or near the low of the day (little to no 
-        lower shadow) and closes significantly higher, creating a strong bullish body.
-        
-        Psychology: After a downtrend, the day opens at a low point (showing bears still 
-        in control), but bulls immediately take over and drive prices higher throughout the 
-        session, closing near the high and showing strong buying pressure.
-        
-        Significance: Suggests a potential reversal of the downtrend, particularly when the 
-        candle is long and appears after an extended decline. The lack of a lower shadow 
-        indicates immediate rejection of lower prices.
-        """
+# Add remaining pattern implementations...
+# (Continue with BullishBeltHold, ThreeInsideUp, RisingWindow, etc.)
+
+class BullishBeltHoldPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Bullish Belt Hold"
+    
+    @property
+    def min_rows(self) -> int:
+        return 1
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.MODERATE
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         row = df.iloc[-1]
-        return (
+        
+        detected = (
             row.close > row.open and
             row.open == row.low and
             (row.close - row.open) > (row.high - row.close) * 0.5
         )
+        
+        confidence = 0.7 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Bullish candle opening at the low with strong upward momentum",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_three_inside_up(df: pd.DataFrame) -> bool:
-        """
-        The Three Inside Up is a three-candle bullish reversal pattern that begins with a Bullish Harami.
-        
-        Visual: A large bearish candle, followed by a smaller bullish candle contained within 
-        the first (a Bullish Harami), followed by a third bullish candle that closes above 
-        the high of the second candle.
-        
-        Psychology: After a downtrend (first candle), the smaller bullish candle indicates 
-        diminishing bearish momentum. The third candle confirms the reversal as bulls gain 
-        control and push prices higher, breaking the previous pattern.
-        
-        Significance: More reliable than a simple Bullish Harami because the third candle 
-        provides confirmation of the reversal. Signals a shift from a downtrend to a potential uptrend.
-        """
+class ThreeInsideUpPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Three Inside Up"
+    
+    @property
+    def min_rows(self) -> int:
+        return 3
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BULLISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.STRONG
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-        return (
+        
+        detected = (
             first.close < first.open and
             second.open > first.close and
             second.close < first.open and
             second.close > second.open and
             third.close > second.close
         )
+        
+        confidence = 0.75 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Three-candle pattern: Bullish Harami followed by confirmation candle",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_rising_window(df: pd.DataFrame) -> bool:
-        """
-        The Rising Window (also called a Bullish Gap) is a two-candle continuation pattern in an uptrend.
-        
-        Visual: Two consecutive candles where the low of the second candle is higher than 
-        the high of the first candle, creating a price gap or "window" between them.
-        
-        Psychology: During an uptrend, strong buying pressure causes the second day to open 
-        above the previous day's high, indicating enthusiasm among buyers and unwillingness 
-        to enter at lower prices.
-        
-        Significance: Confirms the strength of an existing uptrend and suggests continuation 
-        of the bullish momentum. The gap often acts as a support level in future price movements.
-        """
-        prev, last = df.iloc[-2], df.iloc[-1]
-        return prev.high < last.low
+class RisingWindowPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Rising Window"
     
-    @staticmethod
-    def is_bearish_engulfing(df: pd.DataFrame) -> bool:
-        """
-        The Bearish Engulfing is a two-candle bearish reversal pattern seen during uptrends.
-
-        Visual: A small bullish candle followed by a larger bearish candle that completely 
-        engulfs the previous candle's body.
-
-        Psychology: Signals that bears have taken control after a temporary bullish push. 
-        The strength of the bearish move shows overwhelming selling pressure.
-
-        Significance: Suggests a potential top or resistance level and may signal the beginning 
-        of a downtrend.
-        """
+    @property
+    def min_rows(self) -> int:
+        return 2
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.CONTINUATION
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.MODERATE
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         prev, last = df.iloc[-2], df.iloc[-1]
-        return (
+        detected = prev.high < last.low
+        confidence = 0.65 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Gap up pattern indicating bullish continuation",
+            min_rows_required=self.min_rows
+        )
+
+# Bearish patterns...
+class BearishEngulfingPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Bearish Engulfing"
+    
+    @property
+    def min_rows(self) -> int:
+        return 2
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BEARISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.STRONG
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
+        prev, last = df.iloc[-2], df.iloc[-1]
+        
+        detected = (
             prev.close > prev.open and
             last.close < last.open and
             last.open > prev.close and
             last.close < prev.open
         )
+        
+        confidence = 0.8 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Two-candle bearish reversal where larger bearish candle engulfs previous bullish candle",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_evening_star(df: pd.DataFrame) -> bool:
-        """
-        The Evening Star is a three-candle bearish reversal pattern appearing at market tops.
-
-        Visual: A large bullish candle, followed by a small-bodied candle (gap up), and a 
-        large bearish candle that closes deep into the first candle's body.
-
-        Psychology: Shows transition from bullish strength to indecision and then strong 
-        bearish follow-through.
-
-        Significance: Strong signal of trend reversal from bullish to bearish, especially 
-        when supported by volume.
-        """
+class EveningStarPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Evening Star"
+    
+    @property
+    def min_rows(self) -> int:
+        return 3
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BEARISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.VERY_STRONG
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-        return (
+        
+        detected = (
             first.close > first.open and
             abs(second.close - second.open) < abs(first.close - first.open) * 0.3 and
             third.close < third.open and
             third.close < (first.open + first.close) / 2
         )
+        
+        confidence = 0.85 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Three-candle bearish reversal: bullish, small star, strong bearish",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_three_black_crows(df: pd.DataFrame) -> bool:
-        """
-        The Three Black Crows is a strong bearish reversal pattern consisting of three 
-        consecutive bearish candles.
-
-        Visual: Each candle opens within the body of the previous and closes lower, 
-        showing consistent selling.
-
-        Psychology: Indicates sustained bearish pressure and confidence in the downtrend.
-
-        Significance: Strong bearish signal when occurring after an uptrend or at resistance.
-        """
+class ThreeBlackCrowsPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Three Black Crows"
+    
+    @property
+    def min_rows(self) -> int:
+        return 3
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BEARISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.STRONG
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-        return (
+        
+        detected = (
             first.close < first.open and
             second.close < second.open and
             third.close < third.open and
@@ -427,44 +1087,104 @@ class CandlestickPatterns:
             second.close < first.close and
             third.close < second.close
         )
+        
+        confidence = 0.8 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Three consecutive bearish candles with progressive lower opens and closes",
+            min_rows_required=self.min_rows
+        )
 
-    @staticmethod
-    def is_bearish_harami(df: pd.DataFrame) -> bool:
-        """
-        The Bearish Harami is a two-candle reversal pattern seen during uptrends.
-
-        Visual: A large bullish candle followed by a smaller bearish candle that is 
-        completely contained within the previous candle's body.
-
-        Psychology: Suggests bullish momentum is stalling and bears may be gaining 
-        control.
-
-        Significance: Indicates possible reversal to a downtrend, especially with confirmation.
-        """
+class BearishHaramiPattern(PatternDetector):
+    @property
+    def name(self) -> str:
+        return "Bearish Harami"
+    
+    @property
+    def min_rows(self) -> int:
+        return 2
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.BEARISH_REVERSAL
+    
+    @property
+    def strength(self) -> PatternStrength:
+        return PatternStrength.MODERATE
+    
+    def detect(self, df: pd.DataFrame) -> PatternResult:
         prev, last = df.iloc[-2], df.iloc[-1]
-        return (
+        
+        detected = (
             prev.close > prev.open and
             last.open < prev.close and
             last.close > prev.open and
             last.close < last.open
         )
+        
+        confidence = 0.65 if detected else 0.0
+        
+        return PatternResult(
+            name=self.name,
+            detected=detected,
+            confidence=confidence,
+            pattern_type=self.pattern_type,
+            strength=self.strength,
+            description="Two-candle pattern where small bearish candle is contained within previous bullish candle",
+            min_rows_required=self.min_rows
+        )
 
-# --- Register patterns with required minimum rows ---
-CandlestickPatterns.register_pattern("Hammer", CandlestickPatterns.is_hammer, min_rows=1)
-CandlestickPatterns.register_pattern("Bullish Engulfing", CandlestickPatterns.is_bullish_engulfing, min_rows=2)
-CandlestickPatterns.register_pattern("Morning Star", CandlestickPatterns.is_morning_star, min_rows=3)
-CandlestickPatterns.register_pattern("Piercing Pattern", CandlestickPatterns.is_piercing_pattern, min_rows=2)
-CandlestickPatterns.register_pattern("Bullish Harami", CandlestickPatterns.is_bullish_harami, min_rows=2)
-CandlestickPatterns.register_pattern("Three White Soldiers", CandlestickPatterns.is_three_white_soldiers, min_rows=3)
-CandlestickPatterns.register_pattern("Inverted Hammer", CandlestickPatterns.is_inverted_hammer, min_rows=1)
-CandlestickPatterns.register_pattern("Doji", CandlestickPatterns.is_doji, min_rows=1)
-CandlestickPatterns.register_pattern("Morning Doji Star", CandlestickPatterns.is_morning_doji_star, min_rows=3)
-CandlestickPatterns.register_pattern("Bullish Abandoned Baby", CandlestickPatterns.is_bullish_abandoned_baby, min_rows=3)
-CandlestickPatterns.register_pattern("Bullish Belt Hold", CandlestickPatterns.is_bullish_belt_hold, min_rows=1)
-CandlestickPatterns.register_pattern("Three Inside Up", CandlestickPatterns.is_three_inside_up, min_rows=3)
-CandlestickPatterns.register_pattern("Rising Window", CandlestickPatterns.is_rising_window, min_rows=2)
-CandlestickPatterns.register_pattern("Bearish Engulfing", CandlestickPatterns.is_bearish_engulfing, min_rows=2)
-CandlestickPatterns.register_pattern("Evening Star", CandlestickPatterns.is_evening_star, min_rows=3)
-CandlestickPatterns.register_pattern("Three Black Crows", CandlestickPatterns.is_three_black_crows, min_rows=3)
-CandlestickPatterns.register_pattern("Bearish Harami", CandlestickPatterns.is_bearish_harami, min_rows=2)
+# Factory function for easy initialization
+def create_pattern_detector(confidence_threshold: float = 0.7, enable_caching: bool = True) -> CandlestickPatterns:
+    """
+    Factory function to create a configured CandlestickPatterns instance.
+    
+    Args:
+        confidence_threshold: Minimum confidence for pattern detection (0.0-1.0)
+        enable_caching: Whether to enable result caching
+        
+    Returns:
+        Configured CandlestickPatterns instance
+    """
+    return CandlestickPatterns(confidence_threshold=confidence_threshold, enable_caching=enable_caching)
+
+# Backward compatibility functions
+def detect_patterns(df: pd.DataFrame) -> List[str]:
+    """
+    Backward compatibility function for simple pattern detection.
+    
+    Returns:
+        List of detected pattern names (for backward compatibility)
+    """
+    warnings.warn(
+        "detect_patterns is deprecated. Use CandlestickPatterns.detect_patterns() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
+    detector = create_pattern_detector()
+    results = detector.detect_patterns(df)
+    return [result.name for result in results if result.detected]
+
+def get_pattern_names() -> List[str]:
+    """
+    Backward compatibility function to get pattern names.
+    
+    Returns:
+        List of available pattern names
+    """
+    warnings.warn(
+        "get_pattern_names is deprecated. Use CandlestickPatterns.get_pattern_names() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
+    detector = create_pattern_detector()
+    return detector.get_pattern_names()
+
 # --- End of patterns.py ---

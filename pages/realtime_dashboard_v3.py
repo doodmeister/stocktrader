@@ -27,7 +27,7 @@ import streamlit as st
 import ta
 import yfinance as yf
 
-from patterns.patterns import CandlestickPatterns
+from from patterns.patterns import CandlestickPatterns
 from utils.chatgpt import get_chatgpt_insight
 from utils.data_validator import validate_ticker_symbol, validate_timeframe
 from utils.logger import setup_logger
