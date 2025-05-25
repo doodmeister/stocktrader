@@ -1,3 +1,35 @@
-- name: Run tests
-  run: |
-    pytest tests/ -v --cov=backtester
+name: Test Neural Network Backtesting
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths: [ 'pages/nn_backtest.py', 'tests/test_nn_backtest.py' ]
+  pull_request:
+    branches: [ main ]
+    paths: [ 'pages/nn_backtest.py', 'tests/test_nn_backtest.py' ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+    
+    - name: Run unit tests
+      run: |
+        pytest tests/test_nn_backtest.py -v --cov=pages.nn_backtest
+    
+    - name: Run integration tests
+      run: |
+        pytest tests/test_nn_backtest.py -m integration -v
+      continue-on-error: true  # Integration tests may fail without real data

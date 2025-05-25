@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: pytest-simple-trade
+        name: pytest-simple-trade
+        entry: pytest tests/test_simple_trade.py
+        language: system
+        pass_filenames: false

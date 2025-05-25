@@ -1,65 +1,11 @@
 """
-Data validation utilities for the trading dashboard.
+Data validation utilities for stock data and user inputs.
+
+Provides validation for symbol formats, date ranges, and data integrity.
 """
-
 import re
-import logging
-from typing import List, Optional
 from datetime import date
-
-logger = logging.getLogger(__name__)
-
-def validate_ticker_symbol(ticker: str) -> bool:
-    """
-    Validate ticker symbol format.
-    
-    Args:
-        ticker: Stock ticker symbol
-        
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    if not ticker or not isinstance(ticker, str):
-        return False
-        
-    # Basic ticker validation: 1-5 alphanumeric characters
-    pattern = r'^[A-Z]{1,5}$'
-    return bool(re.match(pattern, ticker.upper().strip()))
-
-
-def validate_timeframe(timeframe: str) -> bool:
-    """
-    Validate timeframe format.
-    
-    Args:
-        timeframe: Time period string
-        
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    valid_timeframes = ['1d', '1wk', '1mo', '1y', 'max']
-    return timeframe in valid_timeframes
-
-
-def sanitize_input(input_str: str, max_length: int = 100) -> str:
-    """
-    Sanitize user input string.
-    
-    Args:
-        input_str: Input string to sanitize
-        max_length: Maximum allowed length
-        
-    Returns:
-        str: Sanitized string
-    """
-    if not input_str:
-        return ""
-        
-    # Remove potentially dangerous characters
-    sanitized = re.sub(r'[<>"\']', '', str(input_str))
-    
-    # Limit length
-    return sanitized[:max_length].strip()
+from typing import List, Optional
 
 
 class DataValidator:
