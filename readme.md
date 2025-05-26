@@ -121,18 +121,21 @@ Python 3.10 is the rcommended version for this project. Ensure you have Python a
 ```
 stocktrader/
 ├── streamlit_dashboard.py            # Main Streamlit dashboard entry point
+├── core/                             # Core business logic
+│   ├── __init__.py
+│   ├── dashboard_utils.py            # Dashboard session state management
+│   ├── etrade_candlestick_bot.py     # Automated trading engine with pattern detection & risk management
+│   └── risk_manager.py               # Position sizing & risk controls
 ├── utils/
 │   ├── etrade_candlestick_bot.py     # E*TRADE API trading logic
 │   ├── etrade_client_factory.py      # E*TRADE client initialization
 │   ├── indicators.py                 # Technical indicators
 │   ├── chatgpt.py                    # GPT-4/LLM helpers
-│   ├── model_manager.py              # Model persistence/versioning
 │   ├── technicals/
 │   │   ├── performance_utils.py      # Pattern detection, dashboard state
 │   │   ├── risk_manager.py           # Position sizing & risk controls
 │   │   └── indicators.py             # Stateless technical indicator functions
 │       ├── technical_analysis.py     # TechnicalAnalysis class: scoring, price targets
-│       └── risk_manager.py           # Position sizing & risk controls
 │   ├── notifier.py                   # Notification system
 │   ├── data_validator.py             # Input validation helpers
 │   ├── data_downloader.py            # Data download utilities
@@ -166,6 +169,11 @@ stocktrader/
 ├── requirements.txt                  # Python dependencies
 ├── requirements-dev.txt              # Dev dependencies
 └── env.example                       # Example environment config
+├── .github/                          # GitHub workflows and templates
+│   └── workflows/
+├── .pytest_cache/                    # Pytest cache directory
+├── __pycache__/                      # Python bytecode cache
+├── .pre-commit-config.yaml           # Pre-commit hooks configuration
 ```
 
 ---

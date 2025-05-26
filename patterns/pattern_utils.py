@@ -35,11 +35,10 @@ def write_patterns_file(content: str) -> Optional[Exception]:
     except Exception as e:
         return e
 
-def get_pattern_names() -> List[str]:
-    """
-    Return the list of all registered pattern names.
-    """
-    return CandlestickPatterns.get_pattern_names()
+def get_pattern_names():
+    """Get list of available pattern names."""
+    patterns_instance = CandlestickPatterns()
+    return patterns_instance.get_pattern_names()
 
 def get_pattern_method(pattern_name: str) -> Optional[Callable]:
     """

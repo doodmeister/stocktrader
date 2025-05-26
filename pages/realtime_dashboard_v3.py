@@ -27,7 +27,7 @@ import streamlit as st
 import ta
 import yfinance as yf
 
-from from patterns.patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns
 from utils.chatgpt import get_chatgpt_insight
 from utils.data_validator import validate_ticker_symbol, validate_timeframe
 from utils.logger import setup_logger
@@ -79,7 +79,7 @@ class DataProcessor:
             return pd.Series()
 
     @staticmethod
-    @st.cache_data(ttl=CACHE_TTL, show_spinner=False, key=cache_key_builder)
+    @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
     def fetch_stock_data(ticker: str, period: str, interval: str) -> pd.DataFrame:
         """
         Fetch stock data with caching and error handling.
@@ -337,6 +337,9 @@ class PatternDetector:
             high_col = processor.find_column(data, 'high')
             low_col = processor.find_column(data, 'low')
             
+            # Create CandlestickPatterns instance
+            patterns_detector = CandlestickPatterns()
+            
             # Pattern detection with sliding window
             for i in range(len(data)):
                 window = data.iloc[max(0, i-4):i+1].copy()
@@ -354,15 +357,33 @@ class PatternDetector:
                     continue
                     
                 try:
-                    detected = CandlestickPatterns.detect_patterns(normalized_window)
-                    for pattern in detected:
-                        if pattern in selected_patterns:
-                            detected_patterns.append({
-                                "index": i,
-                                "pattern": pattern,
-                                "datetime": data['datetime'].iloc[i],
-                                "confidence": 1.0  # Default confidence
-                            })
+                    # Fix: Call detect_patterns on instance with df parameter
+                    pattern_results = patterns_detector.detect_patterns(df=normalized_window)
+                    
+                    # Handle the results based on what your CandlestickPatterns returns
+                    if isinstance(pattern_results, list):
+                        # If it returns a list of PatternResult objects
+                        for result in pattern_results:
+                            if hasattr(result, 'detected') and hasattr(result, 'name'):
+                                if result.detected and result.name in selected_patterns:
+                                    detected_patterns.append({
+                                        "index": i,
+                                        "pattern": result.name,
+                                        "datetime": data['datetime'].iloc[i],
+                                        "confidence": getattr(result, 'confidence', 1.0)
+                                    })
+                    elif isinstance(result, str) and result in selected_patterns:
+                        # If it returns a list of pattern names
+                        detected_patterns.append({
+                            "index": i,
+                            "pattern": result,
+                            "datetime": data['datetime'].iloc[i],
+                            "confidence": 1.0
+                        })
+                else:
+                    # If it returns something else, handle accordingly
+                    logger.warning(f"Unexpected pattern detection result type: {type(pattern_results)}")
+                    
                 except Exception as pattern_error:
                     logger.warning(f"Pattern detection error at index {i}: {pattern_error}")
                     continue
@@ -626,9 +647,10 @@ def render_main_dashboard():
         chart_type = st.selectbox('Chart Type', VALID_CHART_TYPES)
         indicators = st.multiselect('Technical Indicators', VALID_INDICATORS)
         
-        # Pattern selection
+        # Pattern selection - fix: create instance of CandlestickPatterns
         try:
-            pattern_names = CandlestickPatterns.get_pattern_names()
+            patterns_instance = CandlestickPatterns()
+            pattern_names = patterns_instance.get_pattern_names()
             selected_patterns = st.multiselect(
                 "Patterns to scan for", 
                 pattern_names, 

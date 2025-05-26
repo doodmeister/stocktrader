@@ -32,7 +32,6 @@ from core.etrade_candlestick_bot import ETradeClient
 from utils.technicals.indicators import add_technical_indicators
 from utils.config.validation import validate_symbol, safe_request
 from utils.security import get_api_credentials
-from core.etrade_client_factory import create_etrade_client
 from core.dashboard_utils import initialize_dashboard_session_state
 from utils.live_inference import make_trade_decision
 from patterns.pattern_utils import add_candlestick_pattern_features
@@ -255,6 +254,7 @@ def render_sidebar() -> Optional[DashboardConfig]:
 def render_credentials_sidebar() -> Optional[Dict[str, str]]:
     """
     Render credentials input with enhanced security and validation.
+    Uses utils/security.py as the primary credential source.
     
     Returns:
         Dict containing validated credentials or None if invalid/incomplete
@@ -262,10 +262,49 @@ def render_credentials_sidebar() -> Optional[Dict[str, str]]:
     st.sidebar.header("🔑 API Credentials")
     
     try:
-        # Load environment credentials as defaults
+        # Load environment credentials as defaults from utils/security.py
         env_creds = get_api_credentials()
         
-        # Credential inputs with enhanced security
+        # Check if we have complete credentials from environment
+        required_env_fields = ['consumer_key', 'consumer_secret', 'oauth_token', 'oauth_token_secret', 'account_id']
+        env_complete = all(env_creds.get(field, '').strip() for field in required_env_fields)
+        
+        if env_complete:
+            st.sidebar.success("✅ Using credentials from environment (.env file)")
+            
+            # Show which environment is being used
+            sandbox_mode = env_creds.get('sandbox', 'true').lower() == 'true'
+            env_type = "Sandbox" if sandbox_mode else "Live"
+            st.sidebar.info(f"🌐 Environment: {env_type}")
+            
+            # For live trading, still require confirmation
+            if not sandbox_mode:
+                st.sidebar.warning("⚠️ LIVE TRADING MODE")
+                live_trading_confirmed = st.sidebar.checkbox(
+                    "I understand this is LIVE trading with real money",
+                    value=False,
+                    key="env_live_confirm"
+                )
+                if not live_trading_confirmed:
+                    st.sidebar.error("Live trading requires explicit confirmation")
+                    return None
+            
+            # Return credentials with corrected key name
+            return {
+                'consumer_key': env_creds['consumer_key'],
+                'consumer_secret': env_creds['consumer_secret'],
+                'oauth_token': env_creds['oauth_token'],
+                'oauth_token_secret': env_creds['oauth_token_secret'],
+                'account_id': env_creds['account_id'],
+                'use_sandbox': env_creds.get('sandbox', 'true')  # Keep consistent key name
+            }
+        else:
+            st.sidebar.info("💡 No complete credentials in environment - enter manually")
+        
+        # Manual credential input (fallback if environment is incomplete)
+        st.sidebar.subheader("Manual Entry")
+        
+        # Credential inputs with environment defaults
         consumer_key = st.sidebar.text_input(
             "Consumer Key", 
             value=env_creds.get('consumer_key', ''), 
@@ -296,11 +335,12 @@ def render_credentials_sidebar() -> Optional[Dict[str, str]]:
             help="E*Trade Account ID"
         )
         
-        # Environment selection
+        # Environment selection with environment default
+        default_env = "Sandbox" if env_creds.get('sandbox', 'true').lower() == 'true' else "Live"
         env = st.sidebar.radio(
             "Environment", 
             ["Sandbox", "Live"], 
-            index=0,
+            index=0 if default_env == "Sandbox" else 1,
             help="Sandbox for testing, Live for real trading"
         )
         use_sandbox = (env == "Sandbox")
@@ -328,14 +368,14 @@ def render_credentials_sidebar() -> Optional[Dict[str, str]]:
         if not live_trading_confirmed:
             return None
         
-        # Build credentials dictionary
+        # Build credentials dictionary with consistent key naming
         creds = {
             'consumer_key': consumer_key.strip(),
             'consumer_secret': consumer_secret.strip(),
             'oauth_token': oauth_token.strip(),
             'oauth_token_secret': oauth_token_secret.strip(),
             'account_id': account_id.strip(),
-            'use_sandbox': str(use_sandbox).lower()
+            'use_sandbox': str(use_sandbox).lower()  # Consistent with utils/security.py
         }
         
         st.sidebar.success("✅ Credentials validated")
@@ -981,7 +1021,17 @@ def _initialize_etrade_client(credentials: Optional[Dict[str, str]], session: Tr
     client = None
     if credentials:
         try:
-            client = create_etrade_client(credentials)
+            # Convert 'use_sandbox' to boolean directly
+            sandbox_mode = str(credentials.get('use_sandbox', 'true')).lower() == 'true'
+            
+            client = ETradeClient(
+                consumer_key=credentials.get('consumer_key', ''),
+                consumer_secret=credentials.get('consumer_secret', ''),
+                oauth_token=credentials.get('oauth_token', ''),
+                oauth_token_secret=credentials.get('oauth_token_secret', ''),
+                account_id=credentials.get('account_id', ''),
+                sandbox=sandbox_mode
+            )
             session.client = client
             session.credentials = credentials
             st.success("✅ Connected to E*Trade API")

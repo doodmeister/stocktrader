@@ -24,8 +24,8 @@ from patterns.pattern_utils import (
     read_patterns_file,
     get_pattern_names, 
     get_pattern_method,
-    validate_python_code,
-    PatternBackupManager
+    validate_python_code
+    # Removed PatternBackupManager - not available
 )
 from patterns.patterns import CandlestickPatterns  # Use existing detection
 from utils.technicals.performance_utils import PatternDetector  # Use existing detector
@@ -58,8 +58,8 @@ class PatternEditorUI:
     def __init__(self):
         # Use existing classes, no custom implementations
         self.data_validator = DataValidator()
-        self.backup_manager = PatternBackupManager()
-        # No custom PatternDetector or PatternValidator needed!
+        # Remove backup_manager since PatternBackupManager doesn't exist
+        # self.backup_manager = PatternBackupManager()
 
     def _analyze_single_pattern(self, pattern_name: str, df: pd.DataFrame):
         """Analyze single pattern using existing business logic."""

@@ -39,7 +39,7 @@ from core.dashboard_utils import (
     handle_streamlit_error,
     cache_key_builder
 )
-from core.etrade_client_factory import create_etrade_client
+from core.etrade_candlestick_bot import ETradeClient  # Direct import instead of factory
 from core.risk_manager_v2 import RiskManager
 from patterns.patterns import CandlestickPatterns
 from patterns.patterns_nn import PatternNN
@@ -50,7 +50,7 @@ from utils.config.notification_settings_ui import render_notification_settings
 from utils.data_validator import DataValidator
 from utils.logger import setup_logger
 from utils.notifier import Notifier
-from utils.security import get_api_credentials
+from utils.security import get_api_credentials, validate_credentials, get_sandbox_mode  # Use security utilities
 from utils.technicals.indicators import TechnicalIndicators
 from utils.decorators import handle_exceptions, handle_dashboard_exceptions
 from utils.training_manager import TrainingManager
@@ -277,6 +277,147 @@ class SessionStateManager:
         """Check flag without resetting it."""
         return st.session_state.get(flag_name, False)
     
+    @classmethod
+    def get_symbols(cls) -> list:
+        """Get current symbols."""
+        return st.session_state.get(cls.SYMBOLS, ["AAPL", "MSFT"])
+    
+    @classmethod
+    def set_symbols(cls, symbols: list) -> None:
+        """Set symbols."""
+        st.session_state[cls.SYMBOLS] = symbols
+    
+    @classmethod
+    def get_risk_params(cls) -> RiskParameters:
+        """Get current risk parameters."""
+        params_dict = st.session_state.get(cls.RISK_PARAMS, {})
+        return RiskParameters(**params_dict)
+    
+    @classmethod
+    def set_risk_params(cls, params: RiskParameters) -> None:
+        """Set risk parameters."""
+        st.session_state[cls.RISK_PARAMS] = params.__dict__
+
+
+def render_credentials_sidebar() -> Optional[Dict[str, str]]:
+    """
+    Render credentials input using utils/security.py as primary source.
+    Returns validated credentials or None if invalid/incomplete.
+    """
+    st.sidebar.header("🔑 API Credentials")
+    
+    try:
+        # Load environment credentials from utils/security.py
+        env_creds = get_api_credentials()
+        
+        # Check if we have complete credentials from environment
+        if validate_credentials(env_creds):
+            st.sidebar.success("✅ Using credentials from environment (.env file)")
+            
+            # Show which environment is being used
+            sandbox_mode = get_sandbox_mode(env_creds)
+            env_type = "Sandbox" if sandbox_mode else "Live"
+            st.sidebar.info(f"🌐 Environment: {env_type}")
+            
+            # For live trading, still require confirmation
+            if not sandbox_mode:
+                st.sidebar.warning("⚠️ LIVE TRADING MODE")
+                live_trading_confirmed = st.sidebar.checkbox(
+                    "I understand this is LIVE trading with real money",
+                    value=False,
+                    key="env_live_confirm"
+                )
+                if not live_trading_confirmed:
+                    st.sidebar.error("Live trading requires explicit confirmation")
+                    return None
+            
+            # Return credentials - no need for key name conversion since we use utils/security.py
+            return env_creds
+        else:
+            st.sidebar.info("💡 No complete credentials in environment - enter manually")
+        
+        # Manual credential input (fallback if environment is incomplete)
+        st.sidebar.subheader("Manual Entry")
+        
+        # Credential inputs with environment defaults
+        consumer_key = st.sidebar.text_input(
+            "Consumer Key", 
+            value=env_creds.get('consumer_key', ''), 
+            type="password",
+            help="E*Trade API Consumer Key"
+        )
+        consumer_secret = st.sidebar.text_input(
+            "Consumer Secret", 
+            value=env_creds.get('consumer_secret', ''), 
+            type="password",
+            help="E*Trade API Consumer Secret"
+        )
+        oauth_token = st.sidebar.text_input(
+            "OAuth Token", 
+            value=env_creds.get('oauth_token', ''), 
+            type="password",
+            help="E*Trade OAuth Token"
+        )
+        oauth_token_secret = st.sidebar.text_input(
+            "OAuth Token Secret", 
+            value=env_creds.get('oauth_token_secret', ''), 
+            type="password",
+            help="E*Trade OAuth Token Secret"
+        )
+        account_id = st.sidebar.text_input(
+            "Account ID", 
+            value=env_creds.get('account_id', ''),
+            help="E*Trade Account ID"
+        )
+        
+        # Environment selection with environment default
+        default_env = "Sandbox" if get_sandbox_mode(env_creds) else "Live"
+        env = st.sidebar.radio(
+            "Environment", 
+            ["Sandbox", "Live"], 
+            index=0 if default_env == "Sandbox" else 1,
+            help="Sandbox for testing, Live for real trading"
+        )
+        use_sandbox = (env == "Sandbox")
+        
+        # Live trading confirmation
+        live_trading_confirmed = True
+        if not use_sandbox:
+            st.sidebar.warning("⚠️ LIVE TRADING MODE")
+            live_trading_confirmed = st.sidebar.checkbox(
+                "I understand this is LIVE trading with real money",
+                value=False
+            )
+            
+            if not live_trading_confirmed:
+                st.sidebar.error("Live trading requires explicit confirmation")
+        
+        # Build credentials dictionary
+        manual_creds = {
+            'consumer_key': consumer_key.strip(),
+            'consumer_secret': consumer_secret.strip(),
+            'oauth_token': oauth_token.strip(),
+            'oauth_token_secret': oauth_token_secret.strip(),
+            'account_id': account_id.strip(),
+            'sandbox': str(use_sandbox).lower()  # Match utils/security.py format
+        }
+        
+        # Validate credentials completeness
+        if not validate_credentials(manual_creds):
+            st.sidebar.info("💡 Enter all credentials to enable trading features")
+            return None
+        
+        if not live_trading_confirmed:
+            return None
+        
+        st.sidebar.success("✅ Credentials validated")
+        return manual_creds
+        
+    except Exception as e:
+        st.sidebar.error(f"Credential validation error: {e}")
+        logger.exception("Error in render_credentials_sidebar")
+        return None
+
 
 class AlertManager:
     """Centralized alert management with validation, persistence, and rate limiting."""
@@ -362,6 +503,15 @@ class AlertManager:
             logger.error(f"Failed to add pattern alert: {e}")
             raise DashboardError(f"Failed to add pattern alert: {e}")
     
+    def _validate_and_normalize_symbol(self, symbol: str) -> str:
+        """Validate and normalize a stock symbol."""
+        if not symbol or not symbol.strip():
+            raise DashboardValidationError("Symbol cannot be empty")
+        symbol = symbol.upper().strip()
+        if not symbol.isalpha() or len(symbol) > 10:
+            raise DashboardValidationError("Invalid symbol format")
+        return symbol
+
 
 class EnhancedModelManager:
     """Enhanced model management with caching, validation, and error recovery."""
@@ -423,6 +573,26 @@ class EnhancedModelManager:
         SessionStateManager.set_flag(SessionStateManager.CACHE_CLEARED)
         
         logger.info("Model cache cleared")
+    
+    def _load_pattern_nn_model(self):
+        """Load PatternNN model."""
+        try:
+            model = PatternNN()
+            metadata = {"type": "PatternNN", "loaded_at": datetime.now()}
+            return model, metadata
+        except Exception as e:
+            logger.error(f"Failed to load PatternNN: {e}")
+            return None, None
+    
+    def _load_sklearn_model(self, model_type: str):
+        """Load sklearn model."""
+        try:
+            model = self.model_manager.load_model(model_type)
+            metadata = {"type": "sklearn", "model_file": model_type, "loaded_at": datetime.now()}
+            return model, metadata
+        except Exception as e:
+            logger.error(f"Failed to load sklearn model {model_type}: {e}")
+            return None, None
 
 
 class TradingDashboard:
@@ -450,8 +620,26 @@ class TradingDashboard:
         
         # E*Trade client (initialized on credential validation)
         self.etrade_client: Optional[ClientProtocol] = None
+        self.training_manager = None
         
         logger.info("Dashboard initialized successfully")
+
+    def _setup_page_config(self) -> None:
+        """Configure Streamlit page settings."""
+        st.set_page_config(
+            page_title="Advanced AI Trading Dashboard",
+            page_icon="📈",
+            layout="wide",
+            initial_sidebar_state="expanded"
+        )
+
+    def _safe_init_component(self, component_class, component_name: str):
+        """Safely initialize a component with error handling."""
+        try:
+            return component_class()
+        except Exception as e:
+            logger.error(f"Failed to initialize {component_name}: {e}")
+            return None
 
     @handle_exceptions
     def run(self) -> None:
@@ -509,6 +697,126 @@ class TradingDashboard:
         # Check for cache clearing
         if SessionStateManager.get_flag(SessionStateManager.CACHE_CLEARED):
             st.success("✅ Cache cleared successfully!")
+
+    def _render_sidebar(self) -> Optional[Dict[str, str]]:
+        """Render sidebar controls and return credentials."""
+        st.sidebar.title("🤖 AI Trading Dashboard")
+        
+        # Get credentials using our dedicated function
+        credentials = render_credentials_sidebar()
+        
+        # Only render other controls if we have credentials
+        if credentials:
+            self._render_symbol_management()
+            self._render_risk_management()
+            self._render_model_section()
+            
+            # Settings section
+            with st.sidebar.expander("⚙️ Settings"):
+                self._render_settings()
+        
+        return credentials
+
+    def _render_main_dashboard(self) -> None:
+        """Render the main dashboard content."""
+        st.title("📈 Advanced AI Trading Dashboard")
+        
+        if not self.etrade_client:
+            st.info("🔗 Connect your E*Trade credentials in the sidebar to begin trading")
+            return
+        
+        # Main dashboard content goes here
+        st.success("🚀 Dashboard connected and ready!")
+        
+        # Placeholder for additional dashboard content
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Portfolio Value", "$50,000", "+2.5%")
+        
+        with col2:
+            st.metric("Daily P&L", "+$1,250", "+2.5%")
+        
+        with col3:
+            st.metric("Open Positions", "3", "+1")
+
+    @handle_exceptions
+    def _initialize_etrade_client(self, credentials: Dict[str, str]) -> None:
+        """Initialize E*Trade client directly using credentials from utils/security.py."""
+        try:
+            # Check if connection status actually changed
+            current_status = st.session_state.get(SessionStateManager.CONNECTION_STATUS, False)
+            
+            # Validate credentials before creating client
+            if not validate_credentials(credentials):
+                raise DashboardError("Invalid credential format")
+            
+            # Get sandbox mode using utils/security.py
+            sandbox_mode = get_sandbox_mode(credentials)
+            
+            # Create client directly
+            self.etrade_client = ETradeClient(
+                consumer_key=credentials['consumer_key'],
+                consumer_secret=credentials['consumer_secret'],
+                oauth_token=credentials['oauth_token'],
+                oauth_token_secret=credentials['oauth_token_secret'],
+                account_id=credentials['account_id'],
+                sandbox=sandbox_mode
+            )
+            
+            if self.etrade_client:
+                # Test connection
+                try:
+                    # Simple test call to verify connection
+                    test_symbols = SessionStateManager.get_symbols()
+                    if test_symbols:
+                        test_quote = self.etrade_client.get_quote(test_symbols[0])
+                        if test_quote.empty:
+                            logger.warning("Connection test returned empty data")
+                except Exception as e:
+                    logger.warning(f"Connection test failed: {e}")
+                
+                new_status = True
+                st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
+                
+                # Only set flag if status actually changed
+                if new_status != current_status:
+                    SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
+                
+                env_type = "Sandbox" if sandbox_mode else "Live"
+                logger.info(f"E*Trade client initialized successfully ({env_type})")
+            else:
+                new_status = False
+                st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
+                
+                # Only set flag if status actually changed
+                if new_status != current_status:
+                    SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
+                
+                st.error("❌ Failed to initialize E*Trade client")
+                
+        except DashboardError as e:
+            logger.error(f"E*Trade client initialization failed: {e}")
+            new_status = False
+            st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
+            
+            # Only set flag if status actually changed
+            current_status = st.session_state.get(SessionStateManager.CONNECTION_STATUS, False)
+            if new_status != current_status:
+                SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
+            
+            st.error(f"❌ Connection failed: {e}")
+        except Exception as e:
+            logger.exception(f"Unexpected error initializing E*Trade client: {e}")
+            new_status = False
+            st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
+            
+            # Only set flag if status actually changed
+            current_status = st.session_state.get(SessionStateManager.CONNECTION_STATUS, False)
+            if new_status != current_status:
+                SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
+            
+            st.error("❌ Connection failed: Unexpected error")
 
     def _setup_conditional_auto_refresh(self) -> None:
         """Set up auto-refresh only when needed and not during user interactions."""
@@ -607,8 +915,6 @@ class TradingDashboard:
                 # Set flag instead of immediate rerun
                 SessionStateManager.set_flag(SessionStateManager.SYMBOLS_UPDATED)
                 
-                # Don't call st.rerun() here - let the flag handler show the message
-                
             except DashboardValidationError as e:
                 st.sidebar.error(f"Validation error: {e}")
             except Exception as e:
@@ -631,7 +937,7 @@ class TradingDashboard:
             step=0.1,
             help="Maximum position size as percentage of portfolio",
             format="%.1f",
-            key="risk_max_position"  # Add key to prevent conflicts
+            key="risk_max_position"
         ) / 100.0
         
         # Stop loss control
@@ -666,9 +972,6 @@ class TradingDashboard:
             help="Maximum correlation between positions",
             key="risk_correlation"
         )
-        
-        # Real-time risk assessment
-        self._display_risk_assessment(max_position, stop_loss_atr, max_daily_loss)
         
         # Update risk parameters only when values actually change
         try:
@@ -745,268 +1048,31 @@ class TradingDashboard:
                 except Exception as e:
                     logger.error(f"Cache clear error: {e}")
                     st.sidebar.error("❌ Clear failed")
+
+    def _render_settings(self) -> None:
+        """Render settings controls."""
+        st.checkbox("Enable Debug Mode", key="debug_mode")
+        st.checkbox("Paper Trading Mode", value=True, key="paper_trading")
         
-        # Training controls
-        st.sidebar.markdown("#### 🎯 Training")
+        if st.button("Reset Settings"):
+            self._reset_settings()
         
-        # Training backend selection
-        training_backend = st.sidebar.selectbox(
-            "Training Method",
-            ["MLPipeline (Complete)", "Direct Trainer"],
-            help="Choose training approach",
-            key="training_backend"
-        )
-        
-        training_enabled = bool(self.etrade_client and SessionStateManager.get_symbols())
-        training_in_progress = st.session_state.get(SessionStateManager.TRAINING_STATUS, False)
-        
-        if st.sidebar.button("Train New Model", 
-                           disabled=not training_enabled or training_in_progress,
-                           help="Train new model with current data",
-                           key="train_model_btn"):
-            if training_enabled:
-                self._handle_model_training_with_backend(training_backend)
-            else:
-                st.sidebar.warning("⚠️ Connect to E*Trade and add symbols first")
-        
-        if training_in_progress:
-            st.sidebar.info("🔄 Training in progress...")
-    
-    def _handle_model_training_with_backend(self, backend: str) -> None:
-        """Handle training with backend selection."""
-        if not self.training_manager:
-            self.training_manager = TrainingManager(
-                etrade_client=self.etrade_client,
-                model_dir="models/"
-            )
-        
-        symbols = SessionStateManager.get_symbols()
-        
+        if st.button("Clear All Caches"):
+            self._clear_all_caches()
+
+    def _reset_settings(self) -> None:
+        """Reset all settings to defaults."""
         try:
-            st.session_state[SessionStateManager.TRAINING_STATUS] = True
+            # Reset risk parameters to defaults
+            default_risk = RiskParameters()
+            SessionStateManager.set_risk_params(default_risk)
             
-            with st.spinner(f"Training with {backend}... This may take several minutes"):
-                if backend.startswith("MLPipeline"):
-                    # Use complete MLPipeline
-                    config = MLConfig(
-                        seq_len=10,
-                        epochs=20,
-                        batch_size=32,
-                        learning_rate=0.001,
-                        test_size=0.2,
-                        random_state=42,
-                        device="cuda" if torch.cuda.is_available() else "cpu",
-                        model_dir=Path("models/"),
-                        symbols=symbols
-                    )
-                    result = self.training_manager.train_model(
-                        symbols=symbols,
-                        backend="MLPipeline",
-                        config=config
-                    )
-                else:
-                    # Use direct trainer
-                    config = TrainingConfig(
-                        epochs=20,
-                        seq_len=10,
-                        learning_rate=0.001,
-                        batch_size=32,
-                        validation_split=0.2,
-                        early_stopping_patience=5,
-                        min_patterns=100
-                    )
-                    result = self.training_manager.train_model(
-                        symbols=symbols,
-                        backend="PatternModelTrainer",
-                        config=config
-                    )
-                
-                if result.success:
-                    st.session_state[SessionStateManager.MODEL] = result.model
-                    self.model_manager.current_model = result.model
-                    SessionStateManager.set_flag(SessionStateManager.TRAINING_COMPLETE)
-                    st.session_state['training_metrics'] = result.metrics
-                    logger.info(f"{result.backend} training completed with {result.data_points} data points")
-                else:
-                    st.sidebar.error(f"❌ {result.backend} training failed: {result.error_message}")
-                    
+            # Set flag instead of immediate success message
+            SessionStateManager.set_flag(SessionStateManager.SETTINGS_CHANGED)
+            
         except Exception as e:
-            logger.exception(f"Training error: {e}")
-            st.sidebar.error(f"❌ Training failed: Unexpected error")
-        finally:
-            st.session_state[SessionStateManager.TRAINING_STATUS] = False
-
-    @handle_exceptions
-    def _initialize_etrade_client(self, credentials: Dict[str, str]) -> None:
-        """Initialize E*Trade client with comprehensive error handling."""
-        try:
-            # Check if connection status actually changed
-            current_status = st.session_state.get(SessionStateManager.CONNECTION_STATUS, False)
-            
-            # Validate credentials before creating client
-            if not self._validate_credential_format(credentials):
-                raise DashboardError("Invalid credential format")
-            
-            # Create client with timeout and retry logic
-            self.etrade_client = create_etrade_client(credentials)
-            
-            if self.etrade_client:
-                # Test connection
-                try:
-                    # Simple test call to verify connection
-                    test_symbols = SessionStateManager.get_symbols()
-                    if test_symbols:
-                        test_quote = self.etrade_client.get_quote(test_symbols[0])
-                        if test_quote.empty:
-                            logger.warning("Connection test returned empty data")
-                except Exception as e:
-                    logger.warning(f"Connection test failed: {e}")
-                
-                new_status = True
-                st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
-                
-                # Only set flag if status actually changed
-                if new_status != current_status:
-                    SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
-                
-                logger.info("E*Trade client initialized successfully")
-            else:
-                new_status = False
-                st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
-                
-                # Only set flag if status actually changed
-                if new_status != current_status:
-                    SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
-                
-                st.error("❌ Failed to initialize E*Trade client")
-                
-        except DashboardError as e:
-            logger.error(f"E*Trade client initialization failed: {e}")
-            new_status = False
-            st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
-            
-            # Only set flag if status actually changed
-            if new_status != current_status:
-                SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
-            
-            st.error(f"❌ Connection failed: {e}")
-        except Exception as e:
-            logger.exception(f"Unexpected error initializing E*Trade client: {e}")
-            new_status = False
-            st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
-            
-            # Only set flag if status actually changed
-            if new_status != current_status:
-                SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
-            
-            st.error("❌ Connection failed: Unexpected error")
-
-    @handle_exceptions
-    def _place_order(self, symbol: str, side: str, quantity: int, order_type: str, 
-                     limit_price: Optional[float], risk_params: RiskParameters) -> None:
-        """Place an order with comprehensive risk validation."""
-        try:
-            # Risk management validation
-            if not self.risk_manager.validate_order(symbol, quantity, side):
-                st.error("❌ Order rejected by risk management")
-                return
-            
-            # Calculate position size validation
-            account_value = self._get_account_value()
-            if account_value:
-                position_value = quantity * (limit_price or self._get_current_price(symbol))
-                position_pct = position_value / account_value
-                
-                if position_pct > risk_params.max_position_size:
-                    st.error(f"❌ Position size {position_pct:.1%} exceeds limit {risk_params.max_position_size:.1%}")
-                    return
-            
-            # Place order
-            with st.spinner("Placing order..."):
-                order_result = self.etrade_client.place_order(
-                    symbol=symbol,
-                    side=side,
-                    quantity=quantity,
-                    order_type=order_type,
-                    limit_price=limit_price
-                )
-                
-                if order_result:
-                    # Set flag instead of immediate success message
-                    SessionStateManager.set_flag(SessionStateManager.ORDER_PLACED)
-                    
-                    # Store order result for display
-                    st.session_state['last_order_result'] = order_result
-                    
-                    # Send notification
-                    self.notifier.send_order_notification({
-                        "symbol": symbol,
-                        "side": side,
-                        "quantity": quantity,
-                        "order_type": order_type,
-                        "limit_price": limit_price,
-                        "timestamp": datetime.now().isoformat(),
-                        "result": order_result
-                    })
-                else:
-                    st.error("❌ Order placement failed")
-                    
-        except Exception as e:
-            logger.error(f"Order placement error: {e}")
-            st.error(f"❌ Order failed: {e}")
-
-    def _render_price_alerts(self) -> None:
-        """Render price alert configuration."""
-        alert_cols = st.columns([2, 1, 1, 1])
-        
-        symbols = SessionStateManager.get_symbols()
-        symbol = alert_cols[0].selectbox("Symbol", symbols, key="price_alert_symbol")
-        condition = alert_cols[1].selectbox("Condition", ["Above", "Below"], key="price_alert_condition")
-        
-        # Get current price for reference
-        current_price = self._get_current_price(symbol) if symbol else 0.0
-        
-        price_threshold = alert_cols[2].number_input(
-            f"Price (Current: ${current_price:.2f})",
-            min_value=0.01,
-            value=current_price if current_price > 0 else 100.0,
-            step=0.01,
-            key="price_alert_threshold"
-        )
-        
-        if alert_cols[3].button("Add Price Alert", key="add_price_alert_btn"):
-            try:
-                success = self.alert_manager.add_price_alert(
-                    symbol, condition.lower(), price_threshold
-                )
-                if success:
-                    # Flag is set in alert_manager.add_price_alert()
-                    # Don't call st.rerun() here
-                    pass
-            except Exception as e:
-                st.error(f"❌ Failed to add alert: {e}")
-
-    def _render_pattern_alerts(self) -> None:
-        """Render pattern alert configuration."""
-        pattern_cols = st.columns([2, 2, 1])
-        
-        symbols = SessionStateManager.get_symbols()
-        symbol = pattern_cols[0].selectbox("Symbol", symbols, key="pattern_alert_symbol")
-        
-        available_patterns = CandlestickPatterns.get_pattern_names()
-        pattern = pattern_cols[1].selectbox("Pattern", available_patterns, key="pattern_alert_pattern")
-        
-        if pattern_cols[2].button("Add Pattern Alert", key="add_pattern_alert_btn"):
-            try:
-                success = self.alert_manager.add_pattern_alert(symbol, pattern)
-                if success:
-                    # Flag is set in alert_manager.add_pattern_alert()
-                    # Don't call st.rerun() here
-                    pass
-                else:
-                    st.info(f"ℹ️ Alert already exists for {pattern} on {symbol}")
-            except Exception as e:
-                st.error(f"❌ Failed to add pattern alert: {e}")
+            logger.error(f"Settings reset error: {e}")
+            st.error("Failed to reset settings")
 
     def _clear_all_caches(self) -> None:
         """Clear all application caches."""
@@ -1029,143 +1095,6 @@ class TradingDashboard:
             logger.error(f"Cache clear error: {e}")
             st.error("Failed to clear caches")
 
-    def _export_settings(self) -> None:
-        """Export current settings as JSON."""
-        try:
-            # Collect exportable settings (exclude sensitive data)
-            settings = {
-                "refresh_interval": st.session_state.get('refresh_interval', DEFAULT_REFRESH_INTERVAL),
-                "chart_periods": st.session_state.get('chart_periods', "1 day"),
-                "enable_data_validation": st.session_state.get('enable_data_validation', True),
-                "require_order_confirmation": st.session_state.get('require_order_confirmation', True),
-                "paper_trading": st.session_state.get('paper_trading', True),
-                "model_confidence_threshold": st.session_state.get('model_confidence_threshold', 0.7),
-                "pattern_sensitivity": st.session_state.get('pattern_sensitivity', "Medium"),
-                "auto_retrain": st.session_state.get('auto_retrain', False),
-                "session_timeout": st.session_state.get('session_timeout', 60),
-                "api_rate_limit": st.session_state.get('api_rate_limit', 60),
-                "log_level": st.session_state.get('log_level', "INFO"),
-                "enable_trade_logging": st.session_state.get('enable_trade_logging', True),
-                "log_retention_days": st.session_state.get('log_retention_days', 30),
-                "debug_mode": st.session_state.get('debug_mode', False),
-                "exported_at": datetime.now().isoformat(),
-                "symbols": SessionStateManager.get_symbols(),
-                "risk_params": st.session_state.get(SessionStateManager.RISK_PARAMS, {})
-            }
-            
-            import json
-            settings_json = json.dumps(settings, indent=2)
-            
-            st.download_button(
-                label="📥 Download Settings",
-                data=settings_json,
-                file_name=f"etrade_dashboard_settings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json",
-                key="export_settings_btn"
-            )
-            
-        except Exception as e:
-            logger.error(f"Settings export error: {e}")
-            st.error("Failed to export settings")
-
-    def _import_settings(self, uploaded_file) -> None:
-        """Import settings from uploaded JSON file."""
-        try:
-            import json
-            
-            settings = json.load(uploaded_file)
-            
-            # Validate settings structure
-            if not isinstance(settings, dict):
-                raise ValueError("Invalid settings format")
-            
-            # Apply non-sensitive settings
-            safe_settings = [
-                'refresh_interval', 'chart_periods', 'enable_data_validation',
-                'require_order_confirmation', 'paper_trading', 'model_confidence_threshold',
-                'pattern_sensitivity', 'auto_retrain', 'session_timeout', 'api_rate_limit',
-                'log_level', 'enable_trade_logging', 'log_retention_days', 'debug_mode'
-            ]
-            
-            applied_count = 0
-            for key in safe_settings:
-                if key in settings:
-                    st.session_state[key] = settings[key]
-                    applied_count += 1
-            
-            # Import symbols if available
-            if 'symbols' in settings and settings['symbols']:
-                try:
-                    SessionStateManager.set_symbols(settings['symbols'])
-                    applied_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to import symbols: {e}")
-            
-            # Import risk parameters if available
-            if 'risk_params' in settings and settings['risk_params']:
-                try:
-                    risk_params = RiskParameters(**settings['risk_params'])
-                    SessionStateManager.set_risk_params(risk_params)
-                    applied_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to import risk parameters: {e}")
-            
-            # Set flag instead of immediate success message and rerun
-            SessionStateManager.set_flag(SessionStateManager.SETTINGS_CHANGED)
-            st.session_state['settings_import_count'] = applied_count
-            
-        except Exception as e:
-            logger.error(f"Settings import error: {e}")
-            st.error(f"Failed to import settings: {e}")
-
-    def _reset_settings(self) -> None:
-        """Reset all settings to defaults."""
-        try:
-            # List of settings to reset
-            settings_to_reset = [
-                'refresh_interval', 'chart_periods', 'enable_data_validation',
-                'require_order_confirmation', 'paper_trading', 'model_confidence_threshold',
-                'pattern_sensitivity', 'auto_retrain', 'session_timeout', 'api_rate_limit',
-                'log_level', 'enable_trade_logging', 'log_retention_days', 'debug_mode'
-            ]
-            
-            # Reset to default values
-            defaults = {
-                'refresh_interval': DEFAULT_REFRESH_INTERVAL,
-                'chart_periods': "1 day",
-                'enable_data_validation': True,
-                'require_order_confirmation': True,
-                'paper_trading': True,
-                'model_confidence_threshold': 0.7,
-                'pattern_sensitivity': "Medium",
-                'auto_retrain': False,
-                'session_timeout': 60,
-                'api_rate_limit': 60,
-                'log_level': "INFO",
-                'enable_trade_logging': True,
-                'log_retention_days': 30,
-                'debug_mode': False
-            }
-            
-            for key in settings_to_reset:
-                if key in defaults:
-                    st.session_state[key] = defaults[key]
-                elif key in st.session_state:
-                    del st.session_state[key]
-            
-            # Reset risk parameters to defaults
-            default_risk = RiskParameters()
-            SessionStateManager.set_risk_params(default_risk)
-            
-            # Set flag instead of immediate success message
-            SessionStateManager.set_flag(SessionStateManager.SETTINGS_CHANGED)
-            
-        except Exception as e:
-            logger.error(f"Settings reset error: {e}")
-            st.error("Failed to reset settings")
-
-
-# ...existing code...
 
 if __name__ == "__main__":
     """Main entry point for the trading dashboard application."""

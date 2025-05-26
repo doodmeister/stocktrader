@@ -470,6 +470,9 @@ def main():
 
         # Always use the central credential loader
         creds = get_api_credentials()
+        
+        # Convert 'sandbox' to boolean directly
+        sandbox_mode = str(creds.get('sandbox', 'true')).lower() == 'true'
 
         client = ETradeClient(
             consumer_key=creds['consumer_key'],
@@ -477,7 +480,7 @@ def main():
             oauth_token=creds['oauth_token'],
             oauth_token_secret=creds['oauth_token_secret'],
             account_id=creds['account_id'],
-            sandbox=str(creds.get('use_sandbox', 'true')).lower() == 'true'
+            sandbox=sandbox_mode
         )
 
         symbols = os.getenv('SYMBOLS', 'AAPL,MSFT,GOOG').split(',')
