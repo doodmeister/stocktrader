@@ -98,7 +98,25 @@ Python 3.10 is the rcommended version for this project. Ensure you have Python a
    ```bash
    pip install -r requirements.txt
    ```
+3.1 ** install TA_Lib
 
+Use Precompiled Wheel (Recommended)
+You can download a precompiled .whl for your Python version and Windows, then pip install it directly. This avoids all C build headaches.
+
+Go to:
+Unofficial Windows Binaries for Python Extension Packages
+
+Find the matching .whl for your Python version and system architecture (e.g. TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl for Python 3.10, 64-bit).
+
+Download it.
+
+In your terminal, navigate to the download directory and run:
+
+sh
+Copy
+Edit
+pip install TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl
+(replace with the filename you downloaded!)
 ---
 
 ## Configuration

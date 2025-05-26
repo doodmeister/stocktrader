@@ -1,310 +1,820 @@
-"""ModelTrainer Module
+"""
+Enhanced ModelTrainer Module
 
-Handles feature engineering, model training, evaluation and persistence of ML models
-for stock market prediction using a standardized pipeline approach with robust
-validation, error handling, and performance optimizations.
+A production-grade ML training pipeline for stock market prediction that combines
+technical analysis with candlestick pattern recognition. Features robust validation,
+error handling, performance optimizations, and comprehensive logging.
+
+Key Features:
+- Vectorized feature engineering for optimal performance
+- Time-series aware cross-validation
+- Comprehensive input validation and error handling
+- Model versioning and metadata tracking
+- Memory-efficient processing for large datasets
+- Configurable feature selection and hyperparameters
 """
 
-from utils.logger import setup_logger
+import asyncio
+import functools
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Tuple, Dict, Optional, Any
-from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import os
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
-from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import (
-    accuracy_score, confusion_matrix, classification_report,
-    precision_recall_fscore_support
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    precision_recall_fscore_support,
+    roc_auc_score
 )
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+
+from train.feature_engineering import FeatureEngineer
 from train.model_manager import ModelManager, ModelMetadata
-from patterns.pattern_utils import get_pattern_names, get_pattern_method
-from train.feature_engineering import add_candlestick_pattern_features
+from utils.logger import setup_logger
+
+# Suppress sklearn warnings for cleaner logs
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
 logger = setup_logger(__name__)
 
+
 class ModelError(Exception):
+    """Base exception for model-related errors."""
     pass
+
 
 class ValidationError(ModelError):
+    """Exception raised for data validation errors."""
     pass
 
+
+class TrainingError(ModelError):
+    """Exception raised during model training."""
+    pass
+
+
 class ModelType(Enum):
+    """Supported model types for training."""
     RANDOM_FOREST = "random_forest"
+    GRADIENT_BOOSTING = "gradient_boosting"
+    LOGISTIC_REGRESSION = "logistic_regression"
+
 
 @dataclass
 class FeatureConfig:
-    PRICE_FEATURES: List[str] = field(default_factory=lambda: ['open', 'high', 'low', 'close', 'volume'])
-    ROLLING_WINDOWS: List[int] = field(default_factory=lambda: [5, 10, 20])
+    """Configuration for feature engineering pipeline.
+    
+    Attributes:
+        PRICE_FEATURES: Base OHLCV columns required for analysis
+        ROLLING_WINDOWS: Window sizes for rolling statistics
+        TARGET_HORIZON: Periods ahead for target prediction
+        use_candlestick_patterns: Whether to include pattern features
+        selected_patterns: Specific patterns to use (None = all available)
+        use_technical_indicators: Whether to include technical indicators
+        max_features: Maximum number of features to select
+        feature_selection_method: Method for feature selection
+    """
+    PRICE_FEATURES: List[str] = field(default_factory=lambda: [
+        'open', 'high', 'low', 'close', 'volume'
+    ])
+    ROLLING_WINDOWS: List[int] = field(default_factory=lambda: [5, 10, 20, 50])
     TARGET_HORIZON: int = 1
     use_candlestick_patterns: bool = True
     selected_patterns: Optional[List[str]] = None
+    use_technical_indicators: bool = True
+    max_features: Optional[int] = None
+    feature_selection_method: str = "importance"
+    
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        if self.TARGET_HORIZON < 1:
+            raise ValueError("TARGET_HORIZON must be >= 1")
+        if not self.ROLLING_WINDOWS or any(w < 2 for w in self.ROLLING_WINDOWS):
+            raise ValueError("ROLLING_WINDOWS must contain values >= 2")
+        if self.max_features is not None and self.max_features < 1:
+            raise ValueError("max_features must be >= 1")
+
 
 @dataclass
 class TrainingParams:
+    """Hyperparameters for model training.
+    
+    Attributes:
+        model_type: Type of model to train
+        n_estimators: Number of trees for ensemble methods
+        max_depth: Maximum tree depth
+        min_samples_split: Minimum samples required to split
+        min_samples_leaf: Minimum samples required at leaf node
+        random_state: Random seed for reproducibility
+        n_jobs: Number of parallel jobs (-1 for all cores)
+        cv_folds: Number of cross-validation folds
+        test_size: Fraction of data for final validation
+        early_stopping: Whether to use early stopping
+        validation_split: Fraction for validation during training
+    """
+    model_type: ModelType = ModelType.RANDOM_FOREST
     n_estimators: int = 100
-    max_depth: int = 10
-    min_samples_split: int = 2
+    max_depth: Optional[int] = 10
+    min_samples_split: int = 5
+    min_samples_leaf: int = 2
     random_state: int = 42
     n_jobs: int = -1
-    cv_folds: int = 3
+    cv_folds: int = 5
+    test_size: float = 0.2
+    early_stopping: bool = False
+    validation_split: float = 0.1
+    
+    def __post_init__(self):
+        """Validate parameters after initialization."""
+        if self.cv_folds < 2:
+            raise ValueError("cv_folds must be >= 2")
+        if not 0.1 <= self.test_size <= 0.5:
+            raise ValueError("test_size must be between 0.1 and 0.5")
+        if not 0.05 <= self.validation_split <= 0.3:
+            raise ValueError("validation_split must be between 0.05 and 0.3")
 
-def add_candlestick_pattern_features(df: pd.DataFrame, selected_patterns: Optional[List[str]] = None) -> pd.DataFrame:
-    pattern_names = selected_patterns or get_pattern_names()
-    for pattern in pattern_names:
-        method = get_pattern_method(pattern)
-        if method is None:
-            logger.warning(f"No detection method found for pattern: {pattern}")
-            continue
-        min_rows = 3
-        try:
-            from patterns.patterns import CandlestickPatterns
-            for name, _, mr in CandlestickPatterns._PATTERNS:
-                if name == pattern:
-                    min_rows = mr
-                    break
-        except Exception:
-            pass
-        results = []
-        for i in range(len(df)):
-            if i + 1 < min_rows:
-                results.append(0)
-                continue
-            window = df.iloc[i + 1 - min_rows : i + 1]
-            try:
-                detected = int(method(window)) if method else 0
-            except Exception:
-                detected = 0
-            results.append(detected)
-        df[pattern.replace(" ", "")] = results
-    return df
 
 class ModelTrainer:
-    def __init__(self, config: Any, feature_config: Optional[FeatureConfig] = None, training_params: Optional[TrainingParams] = None):
+    """
+    Production-grade ML trainer for stock market prediction.
+    
+    Combines technical analysis, candlestick patterns, and machine learning
+    for robust signal generation. Features comprehensive validation,
+    performance optimization, and model management capabilities.
+    
+    Example:
+        ```python
+        config = load_config()
+        trainer = ModelTrainer(config)
+        
+        # Train model with custom parameters
+        pipeline, metrics, cm, report = trainer.train_model(
+            df=stock_data,
+            params=TrainingParams(n_estimators=200, max_depth=15)
+        )
+        
+        # Save with version tracking
+        model_path = trainer.save_model_with_manager(
+            pipeline, "AAPL", "1d", metrics
+        )
+        ```
+    """
+    
+    def __init__(
+        self,
+        config: Any,
+        feature_config: Optional[FeatureConfig] = None,
+        training_params: Optional[TrainingParams] = None,
+        max_workers: Optional[int] = None
+    ):
+        """
+        Initialize ModelTrainer with configuration.
+        
+        Args:
+            config: Application configuration object
+            feature_config: Feature engineering configuration
+            training_params: Default training parameters
+            max_workers: Maximum worker threads for parallel processing
+        """
         self.config = config
         self.feature_config = feature_config or FeatureConfig()
         self.default_params = training_params or TrainingParams()
+        self.max_workers = max_workers or min(4, (os.cpu_count() or 1))
+        
+        # Initialize feature engineer
+        self.feature_engineer = FeatureEngineer(self.feature_config)
+        
+        # Model directory setup
+        self.model_dir = Path(getattr(config, 'MODEL_DIR', 'models'))
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Performance tracking
+        self._training_start_time = None
+        self._memory_usage = {}
+        
+        logger.info(f"ModelTrainer initialized with {self.max_workers} workers")
 
     def validate_input_data(self, df: pd.DataFrame) -> None:
+        """
+        Comprehensive validation of input DataFrame.
+        
+        Args:
+            df: Input DataFrame to validate
+            
+        Raises:
+            ValidationError: If data doesn't meet requirements
+        """
         if df.empty:
             raise ValidationError("Input DataFrame is empty")
+            
+        # Check required columns
         required_columns = [col.lower() for col in self.feature_config.PRICE_FEATURES]
-        missing_columns = [col for col in required_columns if col not in df.columns]
+        df_columns_lower = [col.lower() for col in df.columns]
+        missing_columns = [col for col in required_columns if col not in df_columns_lower]
+        
         if missing_columns:
-            raise ValidationError(f"Missing required columns: {missing_columns}")
+            raise ValidationError(
+                f"Missing required columns: {missing_columns}. "
+                f"Available columns: {list(df.columns)}"
+            )
+        
+        # Validate index
         if not isinstance(df.index, pd.DatetimeIndex):
-            raise ValidationError("DataFrame index must be DatetimeIndex")
-        if df['close'].isna().all():
-            raise ValidationError("Column 'close' contains only NaNs")
-        if not all(np.issubdtype(df[col].dtype, np.number) for col in required_columns):
-            raise ValidationError(f"One or more required columns are not numeric: {required_columns}")
-        if df.isna().any().any():
-            logger.warning(f"DataFrame contains NaN values. Rows with NaN: {df.isna().any(axis=1).sum()}")
-        if not np.isfinite(df.values).all():
-            raise ValueError("Input data contains NaN, infinity, or values too large for dtype('float64').")
+            try:
+                df.index = pd.to_datetime(df.index)
+            except Exception as e:
+                raise ValidationError(f"Cannot convert index to DatetimeIndex: {e}")
+        
+        # Check for sufficient data
+        min_required_rows = (
+            max(self.feature_config.ROLLING_WINDOWS) + 
+            self.feature_config.TARGET_HORIZON + 
+            self.default_params.cv_folds * 10  # Minimum samples per fold
+        )
+        
+        if len(df) < min_required_rows:
+            raise ValidationError(
+                f"Insufficient data: {len(df)} rows provided, "
+                f"minimum {min_required_rows} required"
+            )
+        
+        # Validate numeric columns
+        for col in required_columns:
+            actual_col = next((c for c in df.columns if c.lower() == col), None)
+            if actual_col and not pd.api.types.is_numeric_dtype(df[actual_col]):
+                raise ValidationError(f"Column '{actual_col}' must be numeric")
+        
+        # Check for data quality issues
+        close_col = next((c for c in df.columns if c.lower() == 'close'), 'close')
+        if close_col in df.columns:
+            if df[close_col].isna().all():
+                raise ValidationError("Close price column contains only NaN values")
+            
+            if (df[close_col] <= 0).any():
+                logger.warning("Found non-positive close prices - will be filtered")
+        
+        # Memory usage check
+        memory_mb = df.memory_usage(deep=True).sum() / 1024**2
+        if memory_mb > 1000:  # 1GB threshold
+            logger.warning(f"Large dataset detected: {memory_mb:.1f}MB")
+            
+        # Data quality metrics
+        nan_pct = (df.isna().sum() / len(df) * 100).max()
+        if nan_pct > 10:
+            logger.warning(f"High missing data percentage: {nan_pct:.1f}%")
+        
+        logger.info(
+            f"Data validation passed: {len(df)} rows, {len(df.columns)} columns, "
+            f"{memory_mb:.1f}MB memory usage"
+        )
+
+    @functools.lru_cache(maxsize=128)
+    def _get_cached_feature_columns(self, column_tuple: tuple) -> List[str]:
+        """Cache feature column computation for performance."""
+        return self.feature_engineer.get_feature_columns(list(column_tuple))
 
     def feature_engineering(self, df: pd.DataFrame) -> pd.DataFrame:
-        result_df = df.copy()
-        result_df.columns = [c.lower() for c in result_df.columns]
-        available_windows = [
-            w for w in self.feature_config.ROLLING_WINDOWS
-            if w < len(result_df) - self.feature_config.TARGET_HORIZON
-        ]
-        if not available_windows:
-            raise ValidationError(
-                f"Not enough data points. Got {len(result_df)}, need at least "
-                f"{min(self.feature_config.ROLLING_WINDOWS) + self.feature_config.TARGET_HORIZON + 1} "
-                f"for feature engineering."
-            )
-        for window in available_windows:
-            window_features = self._calc_rolling_features(result_df, window)
-            for name, series in window_features.items():
-                result_df[f"{name}_{window}"] = series.replace([np.inf, -np.inf], np.nan)
-        if self.feature_config.use_candlestick_patterns:
-            result_df = add_candlestick_pattern_features(result_df, self.feature_config.selected_patterns)
-        result_df['target'] = (
-            result_df['close'].shift(-self.feature_config.TARGET_HORIZON) > result_df['close']
-        ).astype(int)
-        result_df = result_df.dropna()
-        logger.info(f"Feature-engineered data shape: {result_df.shape}")
-        logger.debug(f"Feature-engineered data statistics:\n{result_df.describe()}")
-        return result_df
-
-    def _calc_rolling_features(self, df: pd.DataFrame, window: int) -> Dict[str, pd.Series]:
-        features = {}
-        features['close_pct_change'] = df['close'].pct_change(window)
-        features['close_std'] = df['close'].rolling(window).std()
-        features['volume_pct_change'] = df['volume'].pct_change(window)
-        features['volume_std'] = df['volume'].rolling(window).std()
-        features['price_volume_corr'] = df['close'].rolling(window).corr(df['volume'])
-        features['sma'] = df['close'].rolling(window).mean()
-        if window > 1:
-            ema_fast = df['close'].ewm(span=window//2, adjust=False).mean()
-            ema_slow = df['close'].ewm(span=window, adjust=False).mean()
-            features['macd'] = ema_fast - ema_slow
-        return features
-
-    def get_feature_columns(self, df: pd.DataFrame) -> List[str]:
-        feature_cols = []
-        for window in self.feature_config.ROLLING_WINDOWS:
-            for feat in [
-                'close_pct_change', 'close_std', 'volume_pct_change',
-                'volume_std', 'price_volume_corr', 'sma', 'macd'
-            ]:
-                col_name = f"{feat}_{window}"
-                if col_name in df.columns:
-                    feature_cols.append(col_name)
-        if self.feature_config.use_candlestick_patterns:
-            all_patterns = self.feature_config.selected_patterns or get_pattern_names()
-            for pattern in all_patterns:
-                col_name = pattern.replace(" ", "")
-                if col_name in df.columns:
-                    feature_cols.append(col_name)
-        return feature_cols
-
-    def train_model(self, df: pd.DataFrame, params: Optional[TrainingParams] = None) -> Tuple[Pipeline, Dict[str, Dict[str, float]], np.ndarray, str]:
-        logger.info(f"Starting training for {len(df)} rows with params: {params}")
+        """
+        Perform comprehensive feature engineering with performance optimization.
+        
+        Args:
+            df: Input DataFrame with OHLCV data
+            
+        Returns:
+            DataFrame with engineered features and target variable
+            
+        Raises:
+            ValidationError: If feature engineering fails
+        """
         try:
+            logger.info("Starting feature engineering...")
+            start_time = datetime.now()
+            
+            # Normalize column names
+            result_df = df.copy()
+            result_df.columns = [c.lower() for c in result_df.columns]
+            
+            # Remove invalid data
+            numeric_cols = result_df.select_dtypes(include=[np.number]).columns
+            result_df = result_df[result_df[numeric_cols] > 0].copy()
+            
+            if len(result_df) < max(self.feature_config.ROLLING_WINDOWS) * 2:
+                raise ValidationError("Insufficient valid data after cleaning")
+            
+            # Delegate to FeatureEngineer for consistency
+            result_df = self.feature_engineer.engineer_features(result_df)
+            
+            # Create target variable
+            close_col = 'close'
+            if close_col not in result_df.columns:
+                raise ValidationError("Missing 'close' column for target creation")
+            
+            # Forward-looking target (buy signal)
+            future_returns = (
+                result_df[close_col].shift(-self.feature_config.TARGET_HORIZON) / 
+                result_df[close_col] - 1
+            )
+            
+            # Binary classification: positive return = 1, negative = 0
+            result_df['target'] = (future_returns > 0).astype(int)
+            result_df['future_return'] = future_returns  # Keep for analysis
+            
+            # Remove rows with missing target
+            result_df = result_df.dropna(subset=['target'])
+            
+            # Feature selection if configured
+            if self.feature_config.max_features:
+                result_df = self._select_top_features(result_df)
+            
+            processing_time = (datetime.now() - start_time).total_seconds()
+            logger.info(
+                f"Feature engineering completed in {processing_time:.2f}s. "
+                f"Final shape: {result_df.shape}"
+            )
+            
+            return result_df
+            
+        except Exception as e:
+            logger.exception("Feature engineering failed")
+            raise ValidationError(f"Feature engineering failed: {str(e)}") from e
+
+    def _select_top_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Select top features based on importance or correlation."""
+        try:
+            feature_cols = [col for col in df.columns if col not in ['target', 'future_return']]
+            
+            if len(feature_cols) <= self.feature_config.max_features:
+                return df
+            
+            if self.feature_config.feature_selection_method == "correlation":
+                # Select features with highest correlation to target
+                correlations = df[feature_cols].corrwith(df['target']).abs()
+                top_features = correlations.nlargest(self.feature_config.max_features).index.tolist()
+            else:
+                # Use random forest feature importance
+                rf = RandomForestClassifier(
+                    n_estimators=50, 
+                    random_state=self.default_params.random_state,
+                    n_jobs=1  # Limit for feature selection
+                )
+                
+                X_sample = df[feature_cols].fillna(0)
+                y_sample = df['target']
+                
+                rf.fit(X_sample, y_sample)
+                importances = pd.Series(rf.feature_importances_, index=feature_cols)
+                top_features = importances.nlargest(self.feature_config.max_features).index.tolist()
+            
+            selected_cols = top_features + ['target', 'future_return']
+            logger.info(f"Selected {len(top_features)} top features from {len(feature_cols)}")
+            
+            return df[selected_cols]
+            
+        except Exception as e:
+            logger.warning(f"Feature selection failed: {e}. Using all features.")
+            return df
+
+    def _create_model_pipeline(self, params: TrainingParams) -> Pipeline:
+        """Create ML pipeline based on model type."""
+        if params.model_type == ModelType.RANDOM_FOREST:
+            model = RandomForestClassifier(
+                n_estimators=params.n_estimators,
+                max_depth=params.max_depth,
+                min_samples_split=params.min_samples_split,
+                min_samples_leaf=params.min_samples_leaf,
+                random_state=params.random_state,
+                n_jobs=params.n_jobs,
+                class_weight='balanced'  # Handle class imbalance
+            )
+        else:
+            raise ValueError(f"Unsupported model type: {params.model_type}")
+        
+        return Pipeline([
+            ("scaler", StandardScaler()),
+            ("classifier", model)
+        ])
+
+    def train_model(
+        self,
+        df: pd.DataFrame,
+        params: Optional[TrainingParams] = None
+    ) -> Tuple[Pipeline, Dict[str, Any], np.ndarray, str]:
+        """
+        Train ML model with comprehensive validation and monitoring.
+        
+        Args:
+            df: Training data DataFrame
+            params: Training parameters (uses defaults if None)
+            
+        Returns:
+            Tuple of (trained_pipeline, metrics_dict, confusion_matrix, classification_report)
+            
+        Raises:
+            TrainingError: If training fails
+        """
+        self._training_start_time = datetime.now()
+        params = params or self.default_params
+        
+        try:
+            logger.info(f"Starting model training with {len(df)} samples")
+            
+            # Validate and prepare data
             self.validate_input_data(df)
             features_df = self.feature_engineering(df)
-            logger.debug(f"Feature-engineered data shape: {features_df.shape}")
-            feature_cols = self.get_feature_columns(features_df)
+            
+            # Get feature columns
+            feature_cols = [col for col in features_df.columns 
+                          if col not in ['target', 'future_return']]
+            
             if not feature_cols:
-                raise ValidationError("No feature columns available after feature engineering.")
-            X = features_df[feature_cols]
+                raise ValidationError("No feature columns available after engineering")
+            
+            X = features_df[feature_cols].fillna(0)  # Handle any remaining NaNs
             y = features_df['target']
-            if len(X) < 5:
-                raise ValidationError(f"Not enough samples after feature engineering: {len(X)} rows.")
-            if y.nunique() < 2:
-                raise ValidationError("Target column has only one class — cannot train a classifier.")
-            pipeline = Pipeline([
-                ("scaler", StandardScaler()),
-                ("clf", RandomForestClassifier(
-                    n_estimators=params.n_estimators,
-                    max_depth=params.max_depth,
-                    min_samples_split=params.min_samples_split,
-                    random_state=params.random_state,
-                    n_jobs=params.n_jobs
-                ))
-            ])
-            tscv = TimeSeriesSplit(n_splits=min(params.cv_folds, max(2, len(X) // 2)))
-            cv_metrics = []
-            for train_idx, test_idx in tscv.split(X):
-                X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-                y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-                pipeline.fit(X_train, y_train)
-                y_pred = pipeline.predict(X_test)
-                fold_metrics = self._calculate_metrics(y_test, y_pred)
-                cv_metrics.append(fold_metrics)
+            
+            # Check class balance
+            class_counts = y.value_counts()
+            minority_class_pct = class_counts.min() / len(y) * 100
+            
+            if minority_class_pct < 5:
+                logger.warning(
+                    f"Severe class imbalance: minority class {minority_class_pct:.1f}%"
+                )
+            
+            logger.info(f"Class distribution: {dict(class_counts)}")
+            
+            # Create and train pipeline
+            pipeline = self._create_model_pipeline(params)
+            
+            # Time series cross-validation
+            cv_metrics = self._cross_validate_model(X, y, pipeline, params)
+            
+            # Final training on full dataset
+            logger.info("Training final model on full dataset...")
             pipeline.fit(X, y)
-            y_pred_final = pipeline.predict(X)
-            final_metrics = self._calculate_metrics(y, y_pred_final)
-            cm = confusion_matrix(y, y_pred_final)
-            report = classification_report(y, y_pred_final)
-            metrics_dict = self._aggregate_metrics(cv_metrics)
-            metrics_dict['final_metrics'] = final_metrics
-            logger.info(f"Model training completed. Final accuracy: {final_metrics['accuracy']:.4f}")
+            
+            # Final predictions and metrics
+            y_pred = pipeline.predict(X)
+            y_proba = pipeline.predict_proba(X)[:, 1] if hasattr(pipeline, 'predict_proba') else None
+            
+            final_metrics = self._calculate_comprehensive_metrics(y, y_pred, y_proba)
+            cm = confusion_matrix(y, y_pred)
+            report = classification_report(y, y_pred, zero_division=0)
+            
+            # Aggregate all metrics
+            metrics_dict = {
+                'cv_metrics': cv_metrics,
+                'final_metrics': final_metrics,
+                'training_info': {
+                    'training_samples': len(X),
+                    'n_features': len(feature_cols),
+                    'feature_names': feature_cols,
+                    'class_distribution': dict(class_counts),
+                    'training_time_seconds': (datetime.now() - self._training_start_time).total_seconds()
+                }
+            }
+            
+            logger.info(
+                f"Training completed successfully. "
+                f"Final accuracy: {final_metrics['accuracy']:.4f}, "
+                f"AUC: {final_metrics.get('auc', 'N/A')}"
+            )
+            
             return pipeline, metrics_dict, cm, report
+            
         except Exception as e:
-            logger.exception(f"Error during model training: {e}")
-            raise ModelError(f"Model training failed: {str(e)}") from e
+            logger.exception("Model training failed")
+            raise TrainingError(f"Training failed: {str(e)}") from e
 
-    def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+    def _cross_validate_model(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        pipeline: Pipeline,
+        params: TrainingParams
+    ) -> Dict[str, Dict[str, float]]:
+        """Perform time series cross-validation with comprehensive metrics."""
+        logger.info(f"Starting {params.cv_folds}-fold time series cross-validation...")
+        
+        # Adjust CV folds if necessary
+        max_folds = min(params.cv_folds, len(X) // 50)  # At least 50 samples per fold
+        if max_folds < params.cv_folds:
+            logger.warning(
+                f"Reducing CV folds from {params.cv_folds} to {max_folds} "
+                f"due to insufficient data"
+            )
+        
+        tscv = TimeSeriesSplit(n_splits=max(2, max_folds))
+        cv_metrics = []
+        
+        with ThreadPoolExecutor(max_workers=min(self.max_workers, max_folds)) as executor:
+            future_to_fold = {}
+            
+            for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):
+                future = executor.submit(
+                    self._train_and_evaluate_fold,
+                    X.iloc[train_idx].copy(),
+                    y.iloc[train_idx].copy(),
+                    X.iloc[test_idx].copy(),
+                    y.iloc[test_idx].copy(),
+                    pipeline,
+                    fold
+                )
+                future_to_fold[future] = fold
+            
+            for future in as_completed(future_to_fold):
+                fold = future_to_fold[future]
+                try:
+                    fold_metrics = future.result()
+                    cv_metrics.append(fold_metrics)
+                    logger.debug(f"Fold {fold} completed with accuracy: {fold_metrics['accuracy']:.4f}")
+                except Exception as e:
+                    logger.warning(f"Fold {fold} failed: {e}")
+        
+        if not cv_metrics:
+            raise TrainingError("All CV folds failed")
+        
+        return self._aggregate_cv_metrics(cv_metrics)
+
+    def _train_and_evaluate_fold(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_test: pd.DataFrame,
+        y_test: pd.Series,
+        pipeline: Pipeline,
+        fold: int
+    ) -> Dict[str, float]:
+        """Train and evaluate a single CV fold."""
+        try:
+            # Create fresh pipeline for this fold
+            fold_pipeline = self._create_model_pipeline(self.default_params)
+            fold_pipeline.fit(X_train, y_train)
+            
+            y_pred = fold_pipeline.predict(X_test)
+            y_proba = (fold_pipeline.predict_proba(X_test)[:, 1] 
+                      if hasattr(fold_pipeline, 'predict_proba') else None)
+            
+            return self._calculate_comprehensive_metrics(y_test, y_pred, y_proba)
+            
+        except Exception as e:
+            logger.warning(f"Error in fold {fold}: {e}")
+            raise
+
+    def _calculate_comprehensive_metrics(
+        self,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        y_proba: Optional[np.ndarray] = None
+    ) -> Dict[str, float]:
+        """Calculate comprehensive performance metrics."""
         precision, recall, f1, _ = precision_recall_fscore_support(
             y_true, y_pred, average='binary', zero_division=0
         )
-        return {
+        
+        metrics = {
             'accuracy': accuracy_score(y_true, y_pred),
             'precision': precision,
             'recall': recall,
             'f1': f1
         }
+        
+        # Add AUC if probabilities available
+        if y_proba is not None and len(np.unique(y_true)) > 1:
+            try:
+                metrics['auc'] = roc_auc_score(y_true, y_proba)
+            except Exception as e:
+                logger.debug(f"Could not calculate AUC: {e}")
+        
+        return metrics
 
-    def _aggregate_metrics(self, metric_list: List[Dict[str, float]]) -> Dict[str, Dict[str, float]]:
-        result = {'mean': {}, 'std': {}}
+    def _aggregate_cv_metrics(self, cv_metrics: List[Dict[str, float]]) -> Dict[str, Dict[str, float]]:
+        """Aggregate cross-validation metrics with statistics."""
+        result = {'mean': {}, 'std': {}, 'min': {}, 'max': {}}
+        
         all_keys = set()
-        for metrics in metric_list:
+        for metrics in cv_metrics:
             all_keys.update(metrics.keys())
+        
         for key in all_keys:
-            values = [m.get(key, 0) for m in metric_list]
+            values = [m.get(key, 0) for m in cv_metrics]
             result['mean'][key] = np.mean(values)
             result['std'][key] = np.std(values)
+            result['min'][key] = np.min(values)
+            result['max'][key] = np.max(values)
+        
         return result
 
-    def save_model(self, pipeline: Pipeline, symbol: str, interval: str) -> Path:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{symbol}_{interval}_{timestamp}.joblib"
-        filepath = self.config.MODEL_DIR / filename
+    def save_model_with_manager(
+        self,
+        pipeline: Pipeline,
+        symbol: str,
+        interval: str,
+        metrics: Optional[Dict] = None,
+        backend: str = "Classic ML (RandomForest)"
+    ) -> str:
+        """
+        Save model using ModelManager with comprehensive metadata.
+        
+        Args:
+            pipeline: Trained pipeline to save
+            symbol: Trading symbol
+            interval: Time interval
+            metrics: Training metrics
+            backend: Model backend identifier
+            
+        Returns:
+            Path to saved model
+        """
         try:
-            joblib.dump(pipeline, filepath)
-            if not filepath.exists():
-                raise ModelError(f"Model file not found after save: {filepath}")
-            logger.info(f"Pipeline saved successfully to {filepath}")
-            return filepath
+            model_manager = ModelManager(base_directory=str(self.model_dir))
+            version = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Prepare feature information
+            dummy_df = pd.DataFrame(columns=self.feature_config.PRICE_FEATURES)
+            expected_features = self.feature_engineer.get_feature_columns(
+                dummy_df.columns.tolist()
+            )
+            
+            # Extract accuracy from metrics
+            accuracy = None
+            if metrics:
+                final_metrics = metrics.get('final_metrics', {})
+                cv_metrics = metrics.get('cv_metrics', {})
+                accuracy = (final_metrics.get('accuracy') or 
+                          cv_metrics.get('mean', {}).get('accuracy'))
+            
+            metadata = ModelMetadata(
+                version=version,
+                saved_at=datetime.now().isoformat(),
+                accuracy=accuracy,
+                parameters={
+                    "symbol": symbol,
+                    "interval": interval,
+                    "model_type": self.default_params.model_type.value,
+                    "features": expected_features,
+                    "feature_config": {
+                        "rolling_windows": self.feature_config.ROLLING_WINDOWS,
+                        "target_horizon": self.feature_config.TARGET_HORIZON,
+                        "use_patterns": self.feature_config.use_candlestick_patterns,
+                        "use_indicators": self.feature_config.use_technical_indicators,
+                        "selected_patterns": self.feature_config.selected_patterns
+                    },
+                    "training_params": {
+                        "n_estimators": self.default_params.n_estimators,
+                        "max_depth": self.default_params.max_depth,
+                        "cv_folds": self.default_params.cv_folds
+                    },
+                    "metrics": metrics
+                },
+                framework_version="sklearn"
+            )
+            
+            save_path = model_manager.save_model(
+                model=pipeline,
+                metadata=metadata,
+                backend=backend
+            )
+            
+            logger.info(f"Model saved successfully to: {save_path}")
+            return save_path
+            
         except Exception as e:
-            logger.exception(f"Error saving pipeline: {e}")
-            raise ModelError(f"Failed to save pipeline: {e}") from e
+            logger.exception("Failed to save model")
+            raise ModelError(f"Model save failed: {str(e)}") from e
 
-    def save_model_with_manager(self, pipeline: Pipeline, symbol: str, interval: str, metrics: dict = None, backend: str = "Classic ML (RandomForest)") -> str:
-        model_manager = ModelManager(base_directory=str(self.config.MODEL_DIR))
-        version = datetime.now().strftime("%Y%m%d_%H%M%S")
-        expected_features = self.get_feature_columns(pd.DataFrame(columns=self.feature_config.PRICE_FEATURES))
-        metadata = ModelMetadata(
-            version=version,
-            saved_at=datetime.now().isoformat(),
-            accuracy=metrics.get("accuracy") if metrics else None,
-            parameters={
-                "symbol": symbol,
-                "interval": interval,
-                "features": expected_features,
-                "rolling_windows": self.feature_config.ROLLING_WINDOWS,
-                "patterns": self.feature_config.selected_patterns if self.feature_config.use_candlestick_patterns else []
-            },
-            framework_version="sklearn"
-        )
-        logger.info(f"Saving model with backend: {backend}")
-        save_path = model_manager.save_model(
-            model=pipeline,
-            metadata=metadata,
-            backend=backend
-        )
-        logger.info(f"Model saved to: {save_path}")
-        return save_path
-
-    def load_model(self, model_path: Path) -> Pipeline:
+    def load_model(self, model_path: Union[str, Path]) -> Pipeline:
+        """
+        Load model with validation.
+        
+        Args:
+            model_path: Path to model file
+            
+        Returns:
+            Loaded pipeline
+            
+        Raises:
+            ModelError: If loading fails
+        """
         try:
+            model_path = Path(model_path)
+            if not model_path.exists():
+                raise ModelError(f"Model file not found: {model_path}")
+            
             pipeline = joblib.load(model_path)
+            
+            # Validate loaded pipeline
             if not hasattr(pipeline, "predict"):
-                raise ModelError("Loaded pipeline does not implement predict().")
-            logger.info(f"Pipeline loaded from {model_path}")
+                raise ModelError("Loaded object is not a valid pipeline")
+            
+            logger.info(f"Model loaded successfully from: {model_path}")
             return pipeline
+            
         except Exception as e:
-            logger.exception(f"Error loading pipeline: {e}")
-            raise ModelError(f"Failed to load pipeline: {e}") from e
+            logger.exception("Failed to load model")
+            raise ModelError(f"Model loading failed: {str(e)}") from e
 
-    def predict(self, df: pd.DataFrame, model_path: Path) -> pd.Series:
-        pipeline = self.load_model(model_path)
-        fe_df = self.feature_engineering(df)
-        feature_cols = self.get_feature_columns(fe_df)
-        if not feature_cols:
-            raise ValidationError("No feature columns found during predict()")
-        X = fe_df[feature_cols]
-        preds = pipeline.predict(X)
-        return pd.Series(preds, index=fe_df.index, name="model_signal")
+    def predict(self, df: pd.DataFrame, model_path: Union[str, Path]) -> pd.Series:
+        """
+        Generate predictions using trained model.
+        
+        Args:
+            df: Input DataFrame
+            model_path: Path to trained model
+            
+        Returns:
+            Series with predictions
+        """
+        try:
+            pipeline = self.load_model(model_path)
+            features_df = self.feature_engineering(df)
+            
+            feature_cols = [col for col in features_df.columns 
+                          if col not in ['target', 'future_return']]
+            
+            if not feature_cols:
+                raise ValidationError("No feature columns found for prediction")
+            
+            X = features_df[feature_cols].fillna(0)
+            predictions = pipeline.predict(X)
+            
+            return pd.Series(
+                predictions,
+                index=features_df.index,
+                name="model_signal"
+            )
+            
+        except Exception as e:
+            logger.exception("Prediction failed")
+            raise ModelError(f"Prediction failed: {str(e)}") from e
 
-    def predict_proba(self, df: pd.DataFrame, model_path: Path) -> pd.Series:
-        pipeline = self.load_model(model_path)
-        if not hasattr(pipeline, "predict_proba"):
-            raise ModelError("Loaded pipeline does not implement predict_proba().")
-        fe_df = self.feature_engineering(df)
-        feature_cols = self.get_feature_columns(fe_df)
-        if not feature_cols:
-            raise ValidationError("No feature columns found during predict_proba()")
-        X = fe_df[feature_cols]
-        proba = pipeline.predict_proba(X)[:, 1]
-        return pd.Series(proba, index=fe_df.index, name="model_buy_proba")
+    def predict_proba(self, df: pd.DataFrame, model_path: Union[str, Path]) -> pd.Series:
+        """
+        Generate prediction probabilities.
+        
+        Args:
+            df: Input DataFrame
+            model_path: Path to trained model
+            
+        Returns:
+            Series with buy probabilities
+        """
+        try:
+            pipeline = self.load_model(model_path)
+            
+            if not hasattr(pipeline, "predict_proba"):
+                raise ModelError("Model does not support probability prediction")
+            
+            features_df = self.feature_engineering(df)
+            feature_cols = [col for col in features_df.columns 
+                          if col not in ['target', 'future_return']]
+            
+            X = features_df[feature_cols].fillna(0)
+            probabilities = pipeline.predict_proba(X)[:, 1]
+            
+            return pd.Series(
+                probabilities,
+                index=features_df.index,
+                name="model_buy_proba"
+            )
+            
+        except Exception as e:
+            logger.exception("Probability prediction failed")
+            raise ModelError(f"Probability prediction failed: {str(e)}") from e
+
+    def get_model_info(self, model_path: Union[str, Path]) -> Dict[str, Any]:
+        """Get information about a saved model."""
+        try:
+            model_manager = ModelManager(base_directory=str(self.model_dir))
+            return model_manager.get_model_info(str(model_path))
+        except Exception as e:
+            logger.warning(f"Could not retrieve model info: {e}")
+            return {}
+
+    def cleanup_old_models(self, keep_latest: int = 5) -> None:
+        """Clean up old model files, keeping only the latest N."""
+        try:
+            model_files = list(self.model_dir.glob("*.joblib"))
+            if len(model_files) <= keep_latest:
+                return
+            
+            # Sort by modification time and remove oldest
+            model_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            for old_model in model_files[keep_latest:]:
+                old_model.unlink()
+                logger.info(f"Removed old model: {old_model}")
+                
+        except Exception as e:
+            logger.warning(f"Model cleanup failed: {e}")

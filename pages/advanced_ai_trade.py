@@ -40,7 +40,7 @@ from core.dashboard_utils import (
     cache_key_builder
 )
 from core.etrade_candlestick_bot import ETradeClient  # Direct import instead of factory
-from core.risk_manager_v2 import RiskManager
+from core.risk_manager_v2 import RiskManager, RiskConfigManager
 from patterns.patterns import CandlestickPatterns
 from patterns.patterns_nn import PatternNN
 from train.deeplearning_config import TrainingConfig
@@ -53,7 +53,6 @@ from utils.notifier import Notifier
 from utils.security import get_api_credentials, validate_credentials, get_sandbox_mode  # Use security utilities
 from utils.technicals.indicators import TechnicalIndicators
 from utils.decorators import handle_exceptions, handle_dashboard_exceptions
-from utils.training_manager import TrainingManager
 from train.ml_config import MLConfig
 import torch
 
@@ -138,10 +137,10 @@ class AlertConfig:
 @dataclass
 class RiskParameters:
     """Risk management parameters with validation."""
-    max_position_size: float = 0.02  # 2% default
-    stop_loss_atr: float = 2.0
-    max_daily_loss: float = 0.05  # 5% max daily loss
-    position_correlation_limit: float = 0.3
+    max_position_size: float = field(default_factory=lambda: RiskConfigManager.get_max_loss_percent())
+    stop_loss_atr: float = field(default_factory=lambda: RiskConfigManager.get_default_atr_multiplier())
+    max_daily_loss: float = field(default_factory=lambda: RiskConfigManager.get_max_daily_loss())
+    position_correlation_limit: float = field(default_factory=lambda: RiskConfigManager.get_max_correlation_exposure())
     
     def __post_init__(self):
         """Validate risk parameters."""
@@ -622,6 +621,9 @@ class TradingDashboard:
         self.etrade_client: Optional[ClientProtocol] = None
         self.training_manager = None
         
+        # Initialize risk manager with environment configuration
+        self.risk_manager = RiskManager(load_from_env=True)
+        
         logger.info("Dashboard initialized successfully")
 
     def _setup_page_config(self) -> None:
@@ -926,16 +928,26 @@ class TradingDashboard:
         """Render risk management controls with real-time validation."""
         st.sidebar.markdown("### ⚖️ Risk Management")
         
+        # Display current configuration from environment
+        with st.sidebar.expander("📊 Current Risk Configuration", expanded=False):
+            config = self.risk_manager.get_configuration_summary()
+            st.write(f"**Max Positions:** {config['max_positions']}")
+            st.write(f"**Max Daily Loss:** {config['max_daily_loss']*100:.1f}%")
+            st.write(f"**Max Order Value:** ${config['max_order_value']:,.0f}")
+            st.write(f"**Max Position %:** {config['max_position_pct']*100:.1f}%")
+            st.write(f"**Default ATR Period:** {config['default_atr_period']}")
+            st.write(f"**Default ATR Multiplier:** {config['default_atr_multiplier']}")
+        
         current_params = SessionStateManager.get_risk_params()
         
         # Position size control with dynamic limits
         max_position = st.sidebar.slider(
             "Max Position Size (%)",
             min_value=MIN_POSITION_SIZE * 100,
-            max_value=MAX_POSITION_SIZE * 100,
+            max_value=min(MAX_POSITION_SIZE * 100, config['max_position_pct'] * 100),
             value=current_params.max_position_size * 100,
             step=0.1,
-            help="Maximum position size as percentage of portfolio",
+            help=f"Maximum position size (Environment limit: {config['max_position_pct']*100:.1f}%)",
             format="%.1f",
             key="risk_max_position"
         ) / 100.0
@@ -947,7 +959,7 @@ class TradingDashboard:
             max_value=10.0,
             value=current_params.stop_loss_atr,
             step=0.1,
-            help="Stop loss distance as ATR multiple",
+            help=f"Stop loss distance as ATR multiple (Default: {config['default_atr_multiplier']})",
             key="risk_stop_loss"
         )
         
@@ -955,10 +967,10 @@ class TradingDashboard:
         max_daily_loss = st.sidebar.slider(
             "Max Daily Loss (%)",
             min_value=1.0,
-            max_value=50.0,
+            max_value=min(50.0, config['max_daily_loss'] * 100),
             value=current_params.max_daily_loss * 100,
             step=0.5,
-            help="Maximum allowed daily portfolio loss",
+            help=f"Maximum allowed daily portfolio loss (Environment limit: {config['max_daily_loss']*100:.1f}%)",
             key="risk_daily_loss"
         ) / 100.0
         
@@ -969,7 +981,7 @@ class TradingDashboard:
             max_value=1.0,
             value=current_params.position_correlation_limit,
             step=0.05,
-            help="Maximum correlation between positions",
+            help=f"Maximum correlation between positions (Default: {config['max_correlation_exposure']})",
             key="risk_correlation"
         )
         
@@ -985,8 +997,7 @@ class TradingDashboard:
             # Only update if parameters actually changed
             if new_params.__dict__ != current_params.__dict__:
                 SessionStateManager.set_risk_params(new_params)
-                if self.risk_manager:
-                    self.risk_manager = RiskManager(max_position_pct=max_position)
+                # Risk manager configuration comes from environment, no need to recreate
                 
                 # Set flag instead of showing immediate success message
                 SessionStateManager.set_flag(SessionStateManager.SETTINGS_CHANGED)

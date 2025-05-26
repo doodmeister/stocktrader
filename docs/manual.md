@@ -7,7 +7,7 @@ A robust, automated trading platform for E*Trade, featuring technical analysis, 
 ## Table of Contents
 
 1. [Quick Start](#1-quick-start)
-2. [Prerequisites](#prerequisites)
+2. [Prerequisites](#2-prerequisites)
 3. [Installation](#installation)
 4. [Configuration](#configuration)
 5. [Architecture](#architecture)
