@@ -1,3 +1,4 @@
+<!-- filepath: c:\dev\stocktrader\docs\manual.md -->
 # E*Trade Candlestick Trading Bot & Dashboard
 
 A robust, automated trading platform for E*Trade, featuring technical analysis, machine learning, risk management, and a Streamlit dashboard.
@@ -8,14 +9,14 @@ A robust, automated trading platform for E*Trade, featuring technical analysis, 
 
 1. [Quick Start](#1-quick-start)
 2. [Prerequisites](#2-prerequisites)
-3. [Installation](#installation)
-4. [Configuration](#configuration)
-5. [Architecture](#architecture)
-6. [Features](#features)
-7. [Usage](#usage)
-8. [Development](#development)
-9. [Troubleshooting](#troubleshooting)
-10. [Support](#support)
+3. [Installation](#3-installation)
+4. [Configuration](#4-configuration)
+5. [Architecture](#5-architecture)
+6. [Features](#6-features)
+7. [Usage](#7-usage)
+8. [Development](#8-development)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Support](#10-support)
 
 ---
 
@@ -25,6 +26,7 @@ A robust, automated trading platform for E*Trade, featuring technical analysis, 
 git clone https://github.com/<your-org>/etrade-bot.git
 cd etrade-bot
 docker-compose up -d
+```plaintext
 ```
 
 - Visit [http://localhost:8501](http://localhost:8501) for the dashboard.
@@ -76,7 +78,14 @@ which python
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 python -c "import streamlit; import pandas; import torch"
-```
+
+install talib:
+You can download a precompiled .whl for your Python version and Windows, then pip install it directly. This avoids all C build headaches.
+Find the matching .whl for your Python version and system architecture (e.g. TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl for Python 3.10, 64-bit).
+Download it.
+In your terminal, navigate to the download directory and run:
+
+pip install TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl```
 
 ### 3.4 Configure Environment
 
