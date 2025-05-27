@@ -17,7 +17,8 @@ from core.dashboard_utils import (
     normalize_dataframe_columns,
     render_file_upload_section,
     show_success_with_actions,
-    handle_streamlit_error
+    handle_streamlit_error,
+    setup_page
 )
 
 from patterns.pattern_utils import (
@@ -34,6 +35,13 @@ from utils.data_validator import DataValidator
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
+
+# Initialize the page (setup_page returns a logger, but we already have one)
+setup_page(
+    title="🕯️ Candlestick Patterns Editor",
+    logger_name=__name__,
+    sidebar_title="Pattern Tools"
+)
 
 # UI Configuration only
 MAX_FILE_SIZE_MB = 10
@@ -311,7 +319,22 @@ def main():
         # Show pattern documentation, signatures, etc.
         
     with tab3:
-        st.header("✏️ Code Editor")
-        # Use existing read_patterns_file(), validate_python_code()
+        st.header("✏️ Code Editor")        # Use existing read_patterns_file(), validate_python_code()
         # For editing the patterns.py file
+
+class PatternsManagementDashboard:
+    def __init__(self):
+        pass
+    
+    def run(self):
+        """Main dashboard application entry point."""
+        main()
+
+# Execute the main function
+if __name__ == "__main__":
+    try:
+        dashboard = PatternsManagementDashboard()
+        dashboard.run()
+    except Exception as e:
+        handle_streamlit_error(e, "Patterns Management Dashboard")
 

@@ -1,9 +1,13 @@
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+import re
+import functools
+import time
 
 import pandas as pd
 import streamlit as st
+import plotly.graph_objects as go  # Add missing import
 
 from utils.config.config import DashboardConfig
 from utils.data_validator import DataValidator
@@ -28,13 +32,65 @@ from core.dashboard_utils import (
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
 
+# Initialize the page at module level (like data_dashboard_v2.py)
+setup_page(
+    title="📈 Stock Data Download Dashboard", 
+    logger_name=__name__,
+    sidebar_title="Dashboard Controls"
+)
+
+# Add local DataValidator class if the import is failing
+class DataValidator:
+    def __init__(self):
+        self._symbol_pattern = re.compile(r'^[A-Z0-9.-]{1,10}$')
+    
+    def validate_symbol(self, symbol: str) -> str:
+        if not symbol:
+            raise ValueError("Symbol cannot be empty")
+            
+        symbol = symbol.strip().upper()
+        
+        if not self._symbol_pattern.match(symbol):
+            raise ValueError(f"Invalid symbol format: {symbol}")
+        
+        if len(symbol) > 10:
+            raise ValueError("Symbol too long (max 10 characters)")
+            
+        if not any(c.isalpha() for c in symbol):
+            raise ValueError("Symbol must contain at least one letter")
+        
+        return symbol
+    
+    def validate_symbols(self, symbols_input: str) -> List[str]:
+        if not symbols_input or not symbols_input.strip():
+            return []
+            
+        raw_symbols = [s.strip() for s in symbols_input.split(',')]
+        valid_symbols = []
+        
+        for symbol in raw_symbols:
+            if symbol:
+                try:
+                    validated = self.validate_symbol(symbol)
+                    valid_symbols.append(validated)
+                except ValueError as e:
+                    logger.warning(f"Invalid symbol {symbol}: {e}")
+                    continue
+        
+        if not valid_symbols:
+            raise ValueError("No valid symbols found in input")
+            
+        return valid_symbols
+    
+    def validate_dates(self, start_date: date, end_date: date) -> bool:
+        return start_date <= end_date and end_date <= date.today()
+
 def handle_streamlit_exception(method):
     """
     Decorator to catch exceptions in Streamlit callbacks and methods.
     Uses the centralized error handler from dashboard_utils.
     """
-    import functools
-    @functools.wraps(method)
+    @functools.wraps(method)  # functools is now imported
     def wrapper(self, *args, **kwargs):
         try:
             return method(self, *args, **kwargs)
@@ -120,55 +176,41 @@ class DataDashboard:
         st.subheader("Data Selection")
         st.info("Note: Intraday intervals (e.g. '1m', '5m') typically limit history to ~60 days.")
 
-        # Symbol input with validation (using static keys like data_dashboard_v2.py)
+        # Symbol input with validation (updated to match v2 approach)
         col1, col2 = st.columns([3, 1])
         
         with col1:
             symbols_input = st.text_input(
-                "Ticker Symbols (comma-separated)",
+                "🎯 Ticker Symbols",
                 value=", ".join(self.config.DEFAULT_SYMBOLS),
-                help="Enter one or more stock ticker symbols, separated by commas.",
-                key="symbols_input",  # Static key - no dynamic suffix
-                placeholder="e.g., AAPL, MSFT, GOOGL"
+                help="Enter stock symbols separated by commas (e.g., AAPL, MSFT, GOOGL)",
+                placeholder="AAPL, MSFT, GOOGL",
+                key="symbol_input"
             )
         
         with col2:
-            # Only show validation feedback in an expander to avoid reruns
-            with st.expander("Validate", expanded=False):
-                if st.button("🔄 Check Symbols", key="validate_button"):
-                    try:
-                        validated_symbols = self.validator.validate_symbols(symbols_input)
-                        if validated_symbols:
-                            st.success(f"✅ Valid: {', '.join(validated_symbols)}")
-                        else:
-                            st.warning("⚠️ No valid symbols found")
-                    except ValueError as e:
-                        st.error(f"❌ Error: {e}")
-          # Process symbols using session state to avoid reruns
-        session_key = "processed_symbols"
-        current_input_hash = hash(symbols_input)
+            validate_clicked = st.button(
+                "🔄 Validate", 
+                help="Check symbol validity",
+                key="validate_button"
+            )
         
-        # Only process if input actually changed
-        if st.session_state.get("last_symbols_hash") != current_input_hash:
-            try:
-                new_symbols = self.validator.validate_symbols(symbols_input)
-                st.session_state[session_key] = new_symbols
-                st.session_state["last_symbols_hash"] = current_input_hash
+        if validate_clicked:
+            self._validate_symbols_realtime(symbols_input)
+        
+        # Process symbols (matching v2 logic exactly)
+        previous_symbols = self.symbols.copy()
+        try:
+            self.symbols = self.validator.validate_symbols(symbols_input)
+            if self.symbols != previous_symbols:
+                st.session_state["data_fetched"] = False
+                logger.info(f"Symbols updated: {previous_symbols} → {self.symbols}")
                 
-                # Only reset data_fetched if symbols actually changed
-                if st.session_state.get("previous_symbols", []) != new_symbols:
-                    st.session_state["data_fetched"] = False
-                    st.session_state["previous_symbols"] = new_symbols.copy()
-                    logger.info(f"Symbols updated to: {new_symbols}")
-                    
-            except ValueError as e:
-                logger.warning(f"Symbol validation error: {e}")
-                st.session_state[session_key] = []
-        
-        # Use symbols from session state
-        self.symbols = st.session_state.get(session_key, [])
+        except ValueError as e:
+            st.error(f"❌ Invalid symbols: {e}")
+            self.symbols = []
 
-        self._show_symbol_status()
+        self._display_symbol_status()
 
         # Interval selection
         self.interval = st.selectbox(
@@ -193,30 +235,85 @@ class DataDashboard:
             )
         st.divider()
 
-    def _show_symbol_status(self):
-        """Display a status message about the currently selected symbols (if any)."""
-        if self.symbols:
-            # Use safe metric display from dashboard_utils
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                safe_streamlit_metric("Selected Symbols", str(len(self.symbols)))
-            with col2:
-                safe_streamlit_metric("Date Range", f"{(self.end_date - self.start_date).days} days")
-            with col3:
-                safe_streamlit_metric("Interval", self.interval)
-              # Show estimated data size
-            est_records = len(self.symbols) * max(1, (self.end_date - self.start_date).days)
-            if self.interval != "1d":
-                # Rough estimate for intraday
-                multiplier = {"1m": 390, "5m": 78, "15m": 26, "30m": 13, "1h": 6.5}.get(self.interval, 1)
-                est_records = int(est_records * multiplier)
+    def _validate_symbols_realtime(self, symbols_input: str) -> None:
+        """Perform real-time symbol validation"""
+        if not symbols_input.strip():
+            st.warning("⚠️ Please enter at least one symbol")
+            return
+        
+        with st.spinner("🔍 Validating symbols..."):
+            try:
+                raw_symbols = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
+                
+                if not raw_symbols:
+                    st.warning("⚠️ No valid symbols found in input")
+                    return
+                
+                valid_symbols = []
+                invalid_symbols = []
+                
+                for symbol in raw_symbols:
+                    try:
+                        validated = self.validator.validate_symbol(symbol)
+                        valid_symbols.append(validated)
+                    except Exception as e:
+                        invalid_symbols.append(f"{symbol} ({str(e)})")
+                
+                if valid_symbols:
+                    st.success(f"✅ **Valid symbols:** {', '.join(valid_symbols)}")
+                    
+                if invalid_symbols:
+                    st.error(f"❌ **Invalid symbols:** {', '.join(invalid_symbols)}")
+                        
+            except Exception as e:
+                logger.error(f"Symbol validation error: {e}")
+                st.error(f"❌ Validation failed: {str(e)}")
+
+    def _display_symbol_status(self) -> None:
+        """Display symbol status (renamed from _show_symbol_status for consistency)"""
+        if not self.symbols:
+            st.caption("⚪ No symbols selected")
+            return
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            if self.symbols:
+                st.success(f"**Active symbols:** {', '.join(self.symbols)}")
             
-            st.info(f"📊 Ready to download ~{est_records:,} records for {', '.join(self.symbols)}")
-        else:
-            st.warning("⚠️ No valid stock symbols selected. Please enter symbols above.")
+            st.caption(f"📊 {len(self.symbols)} symbol(s) selected")
+            
+            # Estimate data points
+            days_span = (self.end_date - self.start_date).days
+            interval_multipliers = {
+                "1m": days_span * 1440,
+                "5m": days_span * 288,   
+                "15m": days_span * 96,
+                "30m": days_span * 48,
+                "1h": days_span * 24,
+                "1d": days_span
+            }
+            
+            estimated_points = interval_multipliers.get(self.interval, days_span) * len(self.symbols)
+            st.caption(f"📈 Estimated data points: ~{estimated_points:,}")
+        
+        with col2:
+            if self.symbols:
+                # Size estimate
+                avg_bytes_per_record = 100
+                estimated_size_bytes = estimated_points * avg_bytes_per_record
+                
+                if estimated_size_bytes < 1024:
+                    size_display = f"{estimated_size_bytes} B"
+                elif estimated_size_bytes < 1024 * 1024:
+                    size_display = f"{estimated_size_bytes / 1024:.1f} KB"
+                else:
+                    size_display = f"{estimated_size_bytes / (1024 * 1024):.1f} MB"
+                
+                st.metric("Est. Download Size", size_display)
 
     def _render_date_inputs(self):
-        """Render start and end date inputs with validation, avoiding immediate reruns."""
+        """Render start and end date inputs with validation."""
         col1, col2 = st.columns(2)
         with col1:
             new_start = st.date_input(
@@ -226,13 +323,6 @@ class DataDashboard:
                 help="Start date for historical data",
                 key="start_date_input"  # Static key
             )
-            # Store in session state to avoid immediate rerun
-            if "current_start_date" not in st.session_state:
-                st.session_state["current_start_date"] = self.start_date
-            if new_start != st.session_state["current_start_date"]:
-                st.session_state["current_start_date"] = new_start
-                st.session_state["data_fetched"] = False
-            self.start_date = st.session_state["current_start_date"]
             
         with col2:
             new_end = st.date_input(
@@ -242,13 +332,12 @@ class DataDashboard:
                 help="End date for historical data",
                 key="end_date_input"  # Static key
             )
-            # Store in session state to avoid immediate rerun
-            if "current_end_date" not in st.session_state:
-                st.session_state["current_end_date"] = self.end_date
-            if new_end != st.session_state["current_end_date"]:
-                st.session_state["current_end_date"] = new_end
-                st.session_state["data_fetched"] = False
-            self.end_date = st.session_state["current_end_date"]
+
+        # Update dates and reset data_fetched if they changed
+        if new_start != self.start_date or new_end != self.end_date:
+            self.start_date = new_start
+            self.end_date = new_end
+            st.session_state["data_fetched"] = False
 
         if not self.validator.validate_dates(self.start_date, self.end_date):
             st.error("Invalid date range: Start date must be <= End date and not in the future.")
@@ -383,15 +472,8 @@ class DataDashboard:
                     st.session_state["last_fetch_time"] = datetime.now()
                     st.session_state["fetch_count"] = st.session_state.get("fetch_count", 0) + 1
                     
-                    # Use success message with actions from dashboard_utils
-                    actions = {
-                        "📊 View Analysis": lambda: st.info("Navigate to Analysis pages for detailed insights"),
-                        "🔄 Download More": lambda: st.session_state.update({"data_fetched": False})
-                    }
-                    show_success_with_actions(
-                        f"✅ Downloaded data for {successful} symbol(s).",
-                        list(actions.items())
-                    )
+                    # Simple success message without unnecessary action buttons
+                    st.success(f"✅ Successfully downloaded data for {successful} symbol(s)!")
                     
                 for symbol, df in data_dict.items():
                     self._display_symbol_data(symbol, df)
@@ -425,24 +507,46 @@ class DataDashboard:
                 
         with tab2:
             try:
-                # Use enhanced candlestick chart from dashboard_utils
-                fig = create_candlestick_chart(
-                    df, 
+                # Simple approach using plotly directly
+                import plotly.graph_objects as go
+                
+                fig = go.Figure()
+                
+                if all(col in df.columns for col in ['open', 'high', 'low', 'close']):
+                    # Create candlestick if OHLC data available
+                    fig.add_trace(go.Candlestick(
+                        x=df.index if 'timestamp' not in df.columns else df['timestamp'],
+                        open=df['open'],
+                        high=df['high'],
+                        low=df['low'],
+                        close=df['close'],
+                        name=symbol
+                    ))
+                elif 'close' in df.columns:
+                    # Create line chart if only close price available
+                    fig.add_trace(go.Scatter(
+                        x=df.index if 'timestamp' not in df.columns else df['timestamp'],
+                        y=df['close'],
+                        mode='lines',
+                        name=symbol
+                    ))
+                
+                fig.update_layout(
                     title=f"{symbol} Price Chart",
                     height=400,
-                    debug=False
+                    xaxis_title="Date",
+                    yaxis_title="Price ($)"
                 )
+                
                 st.plotly_chart(fig, use_container_width=True)
+                
             except Exception as e:
                 handle_streamlit_error(e, f"creating chart for {symbol}")
                 # Fallback to simple line chart
-                try:
-                    if 'close' in df.columns:
-                        st.line_chart(df['close'])
-                    else:
-                        st.error("No suitable price data for charting")
-                except Exception:
-                    st.error("Unable to create any chart for this data")
+                if 'close' in df.columns:
+                    st.line_chart(df['close'])
+                else:
+                    st.error("No suitable price data for charting")
                     
         with tab3:
             # Display data quality metrics
@@ -460,13 +564,6 @@ class DataDashboard:
 
     def run(self):
         """Main dashboard application entry point."""
-        # Use setup_page from dashboard_utils for consistent page setup
-        logger = setup_page(
-            title="Stock Data Download Dashboard",
-            logger_name=__name__,
-            initialize_session=True,
-            sidebar_title="Dashboard Controls"
-        )
         
         # Add sidebar controls using dashboard state manager
         with st.sidebar:
@@ -526,8 +623,7 @@ class DataDashboard:
                     "then click **Download Data** to get started."
                 )
 
-def main():
-    """Main entry point with centralized session state management."""
-    initialize_dashboard_session_state()
-    dashboard = DataDashboard()
-    dashboard.run()
+# Direct execution like data_dashboard_v2.py
+initialize_dashboard_session_state()
+dashboard = DataDashboard()
+dashboard.run()

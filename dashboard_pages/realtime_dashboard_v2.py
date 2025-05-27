@@ -8,8 +8,19 @@ import openai
 import datetime
 import base64
 import os
+from core.dashboard_utils import (
+    setup_page,
+    handle_streamlit_error
+)
 
 from utils.security import get_openai_api_key  # Make sure this exists or replace with your API key logic
+
+# Initialize the page (setup_page returns a logger, but we already have one)
+setup_page(
+    title="AI-Powered Technical Stock Analysis Dashboard",
+    logger_name=__name__,
+    sidebar_title="Configuration"
+)
 
 # Set up Streamlit app
 # st.set_page_config(layout="wide")  # Handled by main dashboard
@@ -191,3 +202,21 @@ if "stock_data" in st.session_state:
                     st.write(response.choices[0].message.content)
                 except Exception as e:
                     st.error(f"AI analysis failed: {e}")
+
+class RealtimeDashboardV2:
+    def __init__(self):
+        pass
+    
+    def run(self):
+        """Main dashboard application entry point."""
+        # All the existing dashboard logic is already run when this file is imported
+        # since it's written as inline code
+        pass
+
+# Execute the main function
+if __name__ == "__main__":
+    try:
+        dashboard = RealtimeDashboardV2()
+        dashboard.run()
+    except Exception as e:
+        handle_streamlit_error(e, "Realtime Dashboard V2")

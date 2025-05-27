@@ -10,10 +10,21 @@ from patterns.patterns import CandlestickPatterns
 import openai  # Make sure openai is in requirements.txt
 from utils.security import get_openai_api_key  # <-- Use this instead of the local function
 from utils.chatgpt import get_chatgpt_insight
+from core.dashboard_utils import (
+    setup_page,
+    handle_streamlit_error
+)
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
+
+# Initialize the page (setup_page returns a logger, but we already have one)
+setup_page(
+    title="📊 Real-time Stock Analysis",
+    logger_name=__name__,
+    sidebar_title="Stock Settings"
+)
 
 def flatten_column(series_or_df):
     """Ensures the returned object is always a 1D Series, never a DataFrame or ndarray."""
@@ -301,4 +312,22 @@ if st.button("Get ChatGPT Insight"):
             st.write(result)
         except Exception as e:
             st.error(f"AI analysis failed: {e}")
+
+class RealtimeDashboard:
+    def __init__(self):
+        pass
+    
+    def run(self):
+        """Main dashboard application entry point."""
+        # All the existing dashboard logic is already run when this file is imported
+        # since it's written as inline code
+        pass
+
+# Execute the main function
+if __name__ == "__main__":
+    try:
+        dashboard = RealtimeDashboard()
+        dashboard.run()
+    except Exception as e:
+        handle_streamlit_error(e, "Realtime Dashboard")
 

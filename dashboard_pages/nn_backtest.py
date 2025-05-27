@@ -9,12 +9,23 @@ from typing import Callable, Optional
 
 from train.model_manager import ModelManager, load_latest_model
 from patterns.patterns_nn import PatternNN
-from core.dashboard_utils import initialize_dashboard_session_state
+from core.dashboard_utils import (
+    initialize_dashboard_session_state,
+    setup_page,
+    handle_streamlit_error
+)
 from utils.backtester import run_backtest_wrapper
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
+
+# Initialize the page (setup_page returns a logger, but we already have one)
+setup_page(
+    title="🧪 Strategy Backtesting",
+    logger_name=__name__,
+    sidebar_title="Backtest Configuration"
+)
 
 # --- Model Loading Utilities ---
 
@@ -152,15 +163,22 @@ def initialize_backtest_state():
     defaults = {
         "results": None,
         "backtest_triggered": False,
-        "selected_strategy": "Pattern NN"
-    }
+        "selected_strategy": "Pattern NN"    }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
+class NeuralNetworkBacktester:
+    def __init__(self):
+        pass
+    
+    def run(self):
+        """Main dashboard application entry point."""
+        initialize_dashboard_session_state()
+        initialize_backtest_state()
+        main()
+
 def main():
-    initialize_dashboard_session_state()
-    initialize_backtest_state()
     st.title("🧪 Strategy Backtesting")
 
     # Model selection
@@ -291,4 +309,12 @@ def main():
 
                 if st.session_state.get("equity_curve_downloaded"):
                     st.info("✅ Equity curve download started!")
+
+# Execute the main function
+if __name__ == "__main__":
+    try:
+        dashboard = NeuralNetworkBacktester()
+        dashboard.run()
+    except Exception as e:
+        handle_streamlit_error(e, "Neural Network Backtester")
 

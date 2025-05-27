@@ -37,10 +37,22 @@ from patterns.patterns import CandlestickPatterns
 from utils.chatgpt import get_chatgpt_insight
 from utils.data_validator import validate_ticker_symbol, validate_timeframe
 from utils.security import get_openai_api_key
-from core.dashboard_utils import safe_streamlit_metric, handle_streamlit_error, cache_key_builder
+from core.dashboard_utils import (
+    safe_streamlit_metric, 
+    handle_streamlit_error, 
+    cache_key_builder,
+    setup_page
+)
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
+
+# Initialize the page (setup_page returns a logger, but we already have one)
+setup_page(
+    title="📊 Real-time Stock Dashboard V3",
+    logger_name=__name__,
+    sidebar_title="Dashboard Controls"
+)
 
 # Constants
 CACHE_TTL = 60  # Cache time-to-live in seconds
@@ -362,7 +374,7 @@ class PatternDetector:
                 required_cols = ['open', 'high', 'low', 'close']
                 if not all(col in normalized_window.columns for col in required_cols):
                     continue
-                    
+                
                 try:
                     # Fix: Call detect_patterns on instance with df parameter
                     pattern_results = patterns_detector.detect_patterns(df=normalized_window)
@@ -783,8 +795,7 @@ def main():
             'This dashboard provides stock data and technical indicators for various time periods. '
             'Use the sidebar to customize your view and get AI-powered insights.'
         )
-        
-        # Display debug info in development
+          # Display debug info in development
         if st.sidebar.checkbox("Show Debug Info", value=False):
             st.sidebar.subheader("Debug Information")
             st.sidebar.json({
@@ -796,4 +807,20 @@ def main():
     except Exception as e:
         st.error(f"Critical dashboard error: {e}")
         logger.critical(f"Critical dashboard error: {e}\n{traceback.format_exc()}")
+
+class RealtimeDashboardV3:
+    def __init__(self):
+        pass
+    
+    def run(self):
+        """Main dashboard application entry point."""
+        main()
+
+# Execute the main function
+if __name__ == "__main__":
+    try:
+        dashboard = RealtimeDashboardV3()
+        dashboard.run()
+    except Exception as e:
+        handle_streamlit_error(e, "Realtime Dashboard V3")
 

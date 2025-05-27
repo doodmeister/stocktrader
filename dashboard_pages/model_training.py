@@ -30,8 +30,19 @@ from train.deeplearning_trainer import train_pattern_model
 from train.ml_trainer import ModelTrainer, TrainingParams
 from patterns.patterns import CandlestickPatterns
 from sklearn.base import BaseEstimator
-from core.dashboard_utils import initialize_dashboard_session_state
+from core.dashboard_utils import (
+    initialize_dashboard_session_state,
+    setup_page,
+    handle_streamlit_error
+)
 from utils.technicals.technical_analysis import TechnicalAnalysis
+
+# Initialize the page (setup_page returns a logger, but we already have one)
+setup_page(
+    title="🤖 Model Training Dashboard",
+    logger_name=__name__,
+    sidebar_title="Training Configuration"
+)
 
 @dataclass
 class TrainingConfigUnified:
@@ -653,26 +664,42 @@ def render_training_page():
                 logger.exception("Exception during model save")
                 st.error(f"Exception during model save: {e}")
 
-def main():
-    initialize_dashboard_session_state()
-    with st_error_boundary():
-        config = MLConfig(
-            seq_len=10,
-            epochs=10,
-            batch_size=32,
-            learning_rate=0.001,
-            test_size=0.2,
-            random_state=42,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            model_dir=MODELS_DIR,
-            symbols=["AAPL"]  # <-- Use a valid list of symbols
-        )
-        model_trainer = ModelTrainer({'MODEL_DIR': str(MODELS_DIR)})
-        model_manager = get_model_manager()
-        model_files = model_manager.list_models()
-        tab1, tab2 = st.tabs(["Model Training", "Signal Analysis"])
-        with tab1:
-            render_training_page()
-        with tab2:
-            display_signal_analysis(config, model_trainer)
+                logger.exception("Exception during model save")
+                st.error(f"Exception during model save: {e}")
+
+class ModelTrainingDashboard:
+    def __init__(self):
+        pass
+    
+    def run(self):
+        """Main dashboard application entry point."""
+        initialize_dashboard_session_state()
+        with st_error_boundary():
+            config = MLConfig(
+                seq_len=10,
+                epochs=10,
+                batch_size=32,
+                learning_rate=0.001,
+                test_size=0.2,
+                random_state=42,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+                model_dir=MODELS_DIR,
+                symbols=["AAPL"]  # <-- Use a valid list of symbols
+            )
+            model_trainer = ModelTrainer({'MODEL_DIR': str(MODELS_DIR)})
+            model_manager = get_model_manager()
+            model_files = model_manager.list_models()
+            tab1, tab2 = st.tabs(["Model Training", "Signal Analysis"])
+            with tab1:
+                render_training_page()
+            with tab2:
+                display_signal_analysis(config, model_trainer)
+
+# Execute the main function
+if __name__ == "__main__":
+    try:
+        dashboard = ModelTrainingDashboard()
+        dashboard.run()
+    except Exception as e:
+        handle_streamlit_error(e, "Model Training Dashboard")
 

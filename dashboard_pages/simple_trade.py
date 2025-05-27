@@ -32,13 +32,25 @@ from core.etrade_candlestick_bot import ETradeClient
 from utils.technicals.indicators import add_technical_indicators
 from utils.config.validation import validate_symbol, safe_request
 from utils.security import get_api_credentials
-from core.dashboard_utils import initialize_dashboard_session_state
+from core.dashboard_utils import (
+    initialize_dashboard_session_state,
+    setup_page,
+    handle_streamlit_error
+)
 from utils.live_inference import make_trade_decision
 from patterns.pattern_utils import add_candlestick_pattern_features
 from utils.data_validator import DataValidator
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
+
+# Initialize the page (setup_page returns a logger, but we already have one)
+setup_page(
+    title="💼 Live Trading Dashboard",
+    logger_name=__name__,
+    sidebar_title="Trading Controls"
+)
 logger = get_dashboard_logger(__name__)
 
 # Constants
@@ -968,52 +980,56 @@ def render_system_status(session: TradingSession) -> None:
             st.error("⚠️ High error count detected. Consider restarting the application.")
 
 
-def main():
-    """Main application entry point with comprehensive error handling."""
-    try:
-        # Initialize application
-        # st.set_page_config(  # Handled by main dashboard
-        #     page_title="Live Trading Dashboard - StockTrader",
-        #     page_icon="📊",
-        #     layout="wide",
-        #     initial_sidebar_state="expanded"
-        # )
-        
-        # Initialize session state and get configuration
-        initialize_session_state()
-        session = st.session_state.trading_session
-        
-        # Render main header
-        st.title("📊 Live Trading Dashboard")
-        st.markdown("Real-time market data, technical analysis, and AI-powered trading signals")
-        
-        # Get user configuration from sidebar
-        credentials = render_credentials_sidebar()
-        config = render_sidebar()
-        
-        if config is None:
-            st.error("❌ Invalid dashboard configuration")
-            return
-        
-        # Initialize E*Trade client if credentials provided
-        client = _initialize_etrade_client(credentials, session)
-        
-        # Handle data refresh logic
-        auto_refresh_container = st.empty()
-        was_manual_refresh = handle_refresh_logic(session, config, client)
-        
-        # Render main dashboard content
-        render_main_content(session, config, client)
-        
-        # Display system status information
-        render_system_status(session)
-        
-        # Handle auto-refresh countdown and scheduling
-        with auto_refresh_container:
-            setup_auto_refresh_display(session, config, was_manual_refresh)
-        
-    except Exception as e:
-        _handle_critical_error(e)
+class SimpleTradeDashboard:
+    def __init__(self):
+        pass
+    
+    def run(self):
+        """Main dashboard application entry point."""
+        try:
+            # Initialize application
+            # st.set_page_config(  # Handled by main dashboard
+            #     page_title="Live Trading Dashboard - StockTrader",
+            #     page_icon="📊",
+            #     layout="wide",
+            #     initial_sidebar_state="expanded"
+            # )
+            
+            # Initialize session state and get configuration
+            initialize_session_state()
+            session = st.session_state.trading_session
+            
+            # Render main header
+            st.title("📊 Live Trading Dashboard")
+            st.markdown("Real-time market data, technical analysis, and AI-powered trading signals")
+            
+            # Get user configuration from sidebar
+            credentials = render_credentials_sidebar()
+            config = render_sidebar()
+            
+            if config is None:
+                st.error("❌ Invalid dashboard configuration")
+                return
+            
+            # Initialize E*Trade client if credentials provided
+            client = _initialize_etrade_client(credentials, session)
+            
+            # Handle data refresh logic
+            auto_refresh_container = st.empty()
+            was_manual_refresh = handle_refresh_logic(session, config, client)
+            
+            # Render main dashboard content
+            render_main_content(session, config, client)
+            
+            # Display system status information
+            render_system_status(session)
+            
+            # Handle auto-refresh countdown and scheduling
+            with auto_refresh_container:
+                setup_auto_refresh_display(session, config, was_manual_refresh)
+            
+        except Exception as e:
+            _handle_critical_error(e)
 
 
 def _initialize_etrade_client(credentials: Optional[Dict[str, str]], session: TradingSession) -> Optional[ETradeClient]:
@@ -1145,7 +1161,15 @@ def setup_auto_refresh_display(session: TradingSession, config: DashboardConfig,
         if remaining > 0:
             # Display countdown to next auto-refresh
             st.caption(f"⏱️ Next refresh in {int(remaining)} seconds")
-            
-            # Schedule rerun for auto-refresh (Streamlit-specific)
+              # Schedule rerun for auto-refresh (Streamlit-specific)
             time.sleep(1)
             st.rerun()
+
+
+# Execute the main function
+if __name__ == "__main__":
+    try:
+        dashboard = SimpleTradeDashboard()
+        dashboard.run()
+    except Exception as e:
+        handle_streamlit_error(e, "Simple Trade Dashboard")
