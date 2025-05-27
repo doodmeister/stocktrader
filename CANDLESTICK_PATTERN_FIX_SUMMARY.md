@@ -100,7 +100,7 @@ Pattern detection functionality is now working correctly across all dashboard pa
 1. `c337ab1` - Fix CandlestickPatterns.get_pattern_names() method call and update template docs
 2. `c51bede` - Fix all CandlestickPatterns.get_pattern_names() method calls across dashboard pages  
 3. `7f869c9` - Fix remaining CandlestickPatterns.detect_patterns() method calls
-4. [Pending] - Fix @validate_dataframe decorator to handle instance methods and remove problematic @st.cache_data
+4. `6ca6085` - Fix @validate_dataframe decorator to handle instance methods and remove Streamlit caching issue
 
 ---
 *All fixes completed on May 27, 2025*
