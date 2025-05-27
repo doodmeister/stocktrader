@@ -301,7 +301,7 @@ def test_session_state_setup(mock_session_state):
 
 ## 📁 File Organization
 
-```
+``` python
 dashboard_pages/
 ├── my_dashboard.py              # Your main dashboard
 ├── components/

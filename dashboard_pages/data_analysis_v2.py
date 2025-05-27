@@ -10,7 +10,7 @@ from collections import defaultdict
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
 
-from patterns.patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns, create_pattern_detector
 from utils.technicals.technical_analysis import TechnicalAnalysis
 from utils.technicals.indicators import add_bollinger_bands, compute_price_stats, compute_return_stats
 from core.dashboard_utils import (
@@ -380,7 +380,9 @@ class TechnicalAnalysisDashboard:
         Select patterns to scan for. Detected patterns may signal trend reversals or continuations.
         """)
 
-        pattern_names = CandlestickPatterns.get_pattern_names()
+        # Create pattern detector instance to get pattern names
+        pattern_detector = create_pattern_detector()
+        pattern_names = pattern_detector.get_pattern_names()
         selected = tuple(st.multiselect("Patterns to scan for", pattern_names, default=pattern_names[:6])) # default 6 patterns this can be upped to the max number in the patterns.py
         patterns = get_pattern_results(df, selected)
 

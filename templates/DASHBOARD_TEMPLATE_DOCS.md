@@ -87,7 +87,7 @@ def render_main_content(self) -> None:
 
 ### 📁 **File Organization**
 
-```
+``` python
 streamlit_dashboard_template.py
 ├── Imports (Standard → Third-party → Local)
 ├── Logger Setup
