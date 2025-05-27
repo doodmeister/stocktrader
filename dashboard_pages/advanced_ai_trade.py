@@ -41,7 +41,7 @@ from core.dashboard_utils import (
 )
 from core.etrade_candlestick_bot import ETradeClient  # Direct import instead of factory
 from core.risk_manager_v2 import RiskManager, RiskConfigManager
-from patterns.patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns, create_pattern_detector
 from patterns.patterns_nn import PatternNN
 from train.deeplearning_config import TrainingConfig
 from train.deeplearning_trainer import PatternModelTrainer
@@ -475,9 +475,9 @@ class AlertManager:
         """Add a pattern alert with validation."""
         try:
             symbol = self._validate_and_normalize_symbol(symbol)
-            
-            # Validate pattern exists
-            available_patterns = CandlestickPatterns.get_pattern_names()
+              # Validate pattern exists
+            pattern_detector = create_pattern_detector()
+            available_patterns = pattern_detector.get_pattern_names()
             if pattern not in available_patterns:
                 raise DashboardValidationError(f"Unknown pattern: {pattern}")
             

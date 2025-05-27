@@ -6,7 +6,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import pytz
 import ta
-from patterns.patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns, create_pattern_detector
 import openai  # Make sure openai is in requirements.txt
 from utils.security import get_openai_api_key  # <-- Use this instead of the local function
 from utils.chatgpt import get_chatgpt_insight
@@ -134,9 +134,9 @@ with st.sidebar.form("main_form"):
     ticker = st.text_input('Ticker', 'ADBE')
     time_period = st.selectbox('Time Period', ['1d', '1wk', '1mo', '1y', 'max'])
     chart_type = st.selectbox('Chart Type', ['Candlestick', 'Line'])
-    indicators = st.multiselect('Technical Indicators', ['SMA 20', 'EMA 20'])
-    # Add pattern selection
-    pattern_names = CandlestickPatterns.get_pattern_names()
+    indicators = st.multiselect('Technical Indicators', ['SMA 20', 'EMA 20'])    # Add pattern selection
+    pattern_detector = create_pattern_detector()
+    pattern_names = pattern_detector.get_pattern_names()
     selected_patterns = st.multiselect("Patterns to scan for", pattern_names, default=pattern_names[:6])
     submitted = st.form_submit_button("Update")
 

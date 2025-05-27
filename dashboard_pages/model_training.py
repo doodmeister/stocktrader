@@ -28,7 +28,7 @@ from train.deeplearning_trainer import train_pattern_model
 
 # Classic ML pipeline
 from train.ml_trainer import ModelTrainer, TrainingParams
-from patterns.patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns, create_pattern_detector
 from sklearn.base import BaseEstimator
 from core.dashboard_utils import (
     initialize_dashboard_session_state,
@@ -164,10 +164,9 @@ def compute_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     df['BB_Upper'], df['BB_Lower'] = ta.bollinger_bands(period=20, std_dev=2)
 
     # Compute ATR for use in model or risk estimation
-    df['ATR'] = ta.atr(period=3)
-
-    # Add Candlestick Pattern flags
-    for pattern_name in CandlestickPatterns.get_pattern_names():
+    df['ATR'] = ta.atr(period=3)    # Add Candlestick Pattern flags
+    pattern_detector = create_pattern_detector()
+    for pattern_name in pattern_detector.get_pattern_names():
         try:
             method = getattr(CandlestickPatterns, pattern_name)
             df[pattern_name.replace(" ", "")] = df.apply(
@@ -197,13 +196,12 @@ def train_model_deep_learning(
 
     if not selected_symbols and available_tickers:
         st.warning("Please select at least one stock ticker")
-        selected_symbols = [available_tickers[0]]
-
-    # Filter data for selected symbols if applicable
+        selected_symbols = [available_tickers[0]]    # Filter data for selected symbols if applicable
     if selected_symbols and 'symbol' in data.columns:
         data = data[data['symbol'].isin(selected_symbols)]
 
-    available_patterns = CandlestickPatterns.get_pattern_names()
+    pattern_detector = create_pattern_detector()
+    available_patterns = pattern_detector.get_pattern_names()
     selected_patterns = st.multiselect(
         "Select candlestick patterns to use for training",
         options=available_patterns,
