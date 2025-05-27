@@ -1,16 +1,20 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from utils.logger import setup_logger
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, NamedTuple, List
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from pydantic import BaseModel
-from utils.preprocessing_config import save_preprocessing_config
-
 import torch
 import json
+
+# Dashboard logger setup
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
+
+# Utilities
+from utils.preprocessing_config import save_preprocessing_config
 
 # Deep learning pipeline
 from train.model_training_pipeline import MLPipeline
@@ -18,7 +22,7 @@ from train.model_manager import ModelManager, ModelMetadata
 from patterns.patterns_nn import PatternNN
 from utils.technicals.performance_utils import st_error_boundary, generate_combined_signals
 from utils.synthetic_trading_data import add_to_model_training_ui, generate_synthetic_data
-from train.ml_config import MLConfig  # <-- Ensure this import is present
+from train.ml_config import MLConfig
 from utils.config.stockticker_yahoo_validation import get_valid_tickers
 from train.deeplearning_trainer import train_pattern_model
 
@@ -28,11 +32,6 @@ from patterns.patterns import CandlestickPatterns
 from sklearn.base import BaseEstimator
 from core.dashboard_utils import initialize_dashboard_session_state
 from utils.technicals.technical_analysis import TechnicalAnalysis
-
-from utils.technicals.technical_analysis import TechnicalAnalysis
-
-# Use the new logger from utils/logger.py
-logger = setup_logger(__name__)
 
 @dataclass
 class TrainingConfigUnified:
@@ -677,5 +676,3 @@ def main():
         with tab2:
             display_signal_analysis(config, model_trainer)
 
-if __name__ == "__main__":
-    main()

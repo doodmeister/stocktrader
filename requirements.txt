@@ -47,10 +47,8 @@ pydantic-settings>=2.0.0
 pydantic>=2.0.0  # For enhanced data validation
 
 python-dotenv
+openpyxl
 
 # For older Python versions
 concurrent-futures>=3.0.0  # Enhanced hashing capabilities
 hashlib2>=1.0.0
-
-# Technical Indicators
-ta>=0.6.3

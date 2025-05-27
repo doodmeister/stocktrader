@@ -36,10 +36,10 @@ from core.dashboard_utils import initialize_dashboard_session_state
 from utils.live_inference import make_trade_decision
 from patterns.pattern_utils import add_candlestick_pattern_features
 from utils.data_validator import DataValidator
-from utils.logger import setup_logger
 
-# Configure logger with proper format
-logger = setup_logger(__name__)
+# Dashboard logger setup
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
 
 # Constants
 DEFAULT_SYMBOL = "AAPL"
@@ -972,12 +972,12 @@ def main():
     """Main application entry point with comprehensive error handling."""
     try:
         # Initialize application
-        st.set_page_config(
-            page_title="Live Trading Dashboard - StockTrader",
-            page_icon="📊",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
+        # st.set_page_config(  # Handled by main dashboard
+        #     page_title="Live Trading Dashboard - StockTrader",
+        #     page_icon="📊",
+        #     layout="wide",
+        #     initial_sidebar_state="expanded"
+        # )
         
         # Initialize session state and get configuration
         initialize_session_state()

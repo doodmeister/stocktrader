@@ -39,7 +39,7 @@ from patterns.patterns_nn import PatternNN
 from patterns.patterns import CandlestickPatterns
 from train.model_manager import ModelManager, ModelMetadata
 from utils.technicals.feature_engineering import compute_technical_features
-from train.feature_engineering import add_candlestick_pattern_features
+from patterns.pattern_utils import add_candlestick_pattern_features
 
 # Suppress sklearn warnings for cleaner logs
 warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')

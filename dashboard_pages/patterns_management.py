@@ -23,16 +23,17 @@ from core.dashboard_utils import (
 from patterns.pattern_utils import (
     read_patterns_file,
     get_pattern_names, 
-    get_pattern_method,
+        get_pattern_method,
     validate_python_code
     # Removed PatternBackupManager - not available
 )
 from patterns.patterns import CandlestickPatterns  # Use existing detection
 from utils.technicals.performance_utils import PatternDetector  # Use existing detector
 from utils.data_validator import DataValidator
-from utils.logger import setup_logger
 
-logger = setup_logger(__name__)
+# Dashboard logger setup
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
 
 # UI Configuration only
 MAX_FILE_SIZE_MB = 10
@@ -314,5 +315,3 @@ def main():
         # Use existing read_patterns_file(), validate_python_code()
         # For editing the patterns.py file
 
-if __name__ == "__main__":
-    main()

@@ -24,15 +24,23 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pytz
 import streamlit as st
-import ta
 import yfinance as yf
+
+# Optional imports
+try:
+    import ta
+except ImportError:
+    ta = None
+    st.warning("📊 Technical analysis library (ta) not available. Some indicators may be disabled.")
 
 from patterns.patterns import CandlestickPatterns
 from utils.chatgpt import get_chatgpt_insight
 from utils.data_validator import validate_ticker_symbol, validate_timeframe
-from utils.logger import setup_logger
 from utils.security import get_openai_api_key
 from core.dashboard_utils import safe_streamlit_metric, handle_streamlit_error, cache_key_builder
+
+# Dashboard logger setup
+from utils.logger import get_dashboard_logger
 
 # Constants
 CACHE_TTL = 60  # Cache time-to-live in seconds
@@ -51,7 +59,7 @@ INTERVAL_MAPPING = {
 }
 
 # Initialize logger
-logger = setup_logger(__name__)
+logger = get_dashboard_logger(__name__)
 
 
 class DataProcessor:
@@ -350,8 +358,7 @@ class PatternDetector:
                 normalized_window = cls.normalize_window_columns(
                     window, open_col, high_col, low_col, close_col
                 )
-                
-                # Only detect if all required columns are present
+                  # Only detect if all required columns are present
                 required_cols = ['open', 'high', 'low', 'close']
                 if not all(col in normalized_window.columns for col in required_cols):
                     continue
@@ -372,18 +379,18 @@ class PatternDetector:
                                         "datetime": data['datetime'].iloc[i],
                                         "confidence": getattr(result, 'confidence', 1.0)
                                     })
-                    elif isinstance(result, str) and result in selected_patterns:
-                        # If it returns a list of pattern names
-                        detected_patterns.append({
-                            "index": i,
-                            "pattern": result,
-                            "datetime": data['datetime'].iloc[i],
-                            "confidence": 1.0
-                        })
-                else:
-                    # If it returns something else, handle accordingly
-                    logger.warning(f"Unexpected pattern detection result type: {type(pattern_results)}")
-                    
+                            elif isinstance(result, str) and result in selected_patterns:
+                                # If it returns a list of pattern names
+                                detected_patterns.append({
+                                    "index": i,
+                                    "pattern": result,
+                                    "datetime": data['datetime'].iloc[i],
+                                    "confidence": 1.0
+                                })
+                    else:
+                        # If it returns something else, handle accordingly
+                        logger.warning(f"Unexpected pattern detection result type: {type(pattern_results)}")
+                        
                 except Exception as pattern_error:
                     logger.warning(f"Pattern detection error at index {i}: {pattern_error}")
                     continue
@@ -755,12 +762,12 @@ def main():
     """Main dashboard function."""
     try:
         # Configure page
-        st.set_page_config(
-            page_title="Real-Time Stock Dashboard",
-            page_icon="📈",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
+        # st.set_page_config(  # Handled by main dashboard
+        #     page_title="Real-Time Stock Dashboard",
+        #     page_icon="📈",
+        #     layout="wide",
+        #     initial_sidebar_state="expanded"
+        # )
         
         st.title('Real-Time Stock Dashboard')
         
@@ -790,6 +797,3 @@ def main():
         st.error(f"Critical dashboard error: {e}")
         logger.critical(f"Critical dashboard error: {e}\n{traceback.format_exc()}")
 
-
-if __name__ == "__main__":
-    main()

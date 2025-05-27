@@ -4,7 +4,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
 import torch
-import logging
 from datetime import date, timedelta
 from typing import Callable, Optional
 
@@ -13,10 +12,9 @@ from patterns.patterns_nn import PatternNN
 from core.dashboard_utils import initialize_dashboard_session_state
 from utils.backtester import run_backtest_wrapper
 
-# --- Logging Setup ---
-logger = logging.getLogger("nn_backtest")
-if not logger.hasHandlers():
-    logging.basicConfig(level=logging.INFO)
+# Dashboard logger setup
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
 
 # --- Model Loading Utilities ---
 
@@ -294,5 +292,3 @@ def main():
                 if st.session_state.get("equity_curve_downloaded"):
                     st.info("✅ Equity curve download started!")
 
-if __name__ == "__main__":
-    main()

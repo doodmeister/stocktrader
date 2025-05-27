@@ -11,8 +11,21 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-import talib
-import ta
+
+# Optional technical analysis libraries
+try:
+    import talib
+    HAS_TALIB = True
+except ImportError:
+    talib = None
+    HAS_TALIB = False
+
+try:
+    import ta
+    HAS_TA = True
+except ImportError:
+    ta = None
+    HAS_TA = False
 
 from patterns.pattern_utils import get_pattern_names, get_pattern_method
 from utils.logger import setup_logger

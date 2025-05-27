@@ -48,7 +48,6 @@ from train.deeplearning_trainer import PatternModelTrainer
 from train.model_manager import ModelManager as CoreModelManager
 from utils.config.notification_settings_ui import render_notification_settings
 from utils.data_validator import DataValidator
-from utils.logger import setup_logger
 from utils.notifier import Notifier
 from utils.security import get_api_credentials, validate_credentials, get_sandbox_mode  # Use security utilities
 from utils.technicals.indicators import TechnicalIndicators
@@ -56,8 +55,9 @@ from utils.decorators import handle_exceptions, handle_dashboard_exceptions
 from train.ml_config import MLConfig
 import torch
 
-# Configure logging
-logger = setup_logger(__name__)
+# Dashboard logger setup
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
 
 # Constants
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -620,20 +620,20 @@ class TradingDashboard:
         # E*Trade client (initialized on credential validation)
         self.etrade_client: Optional[ClientProtocol] = None
         self.training_manager = None
-        
-        # Initialize risk manager with environment configuration
+          # Initialize risk manager with environment configuration
         self.risk_manager = RiskManager(load_from_env=True)
         
         logger.info("Dashboard initialized successfully")
-
+    
     def _setup_page_config(self) -> None:
         """Configure Streamlit page settings."""
-        st.set_page_config(
-            page_title="Advanced AI Trading Dashboard",
-            page_icon="📈",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
+        # st.set_page_config(  # Handled by main dashboard
+        #     page_title="Advanced AI Trading Dashboard",
+        #     page_icon="📈",
+        #     layout="wide",
+        #     initial_sidebar_state="expanded"
+        # )
+        pass
 
     def _safe_init_component(self, component_class, component_name: str):
         """Safely initialize a component with error handling."""

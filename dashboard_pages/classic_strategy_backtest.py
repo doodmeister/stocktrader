@@ -3,17 +3,17 @@ import pandas as pd
 from datetime import datetime
 from utils.backtester import run_backtest  # Ensure this function is properly defined in backtester.py
 from core.dashboard_utils import initialize_dashboard_session_state
-from utils.logger import setup_logger
 
-# Configure logging
-logger = setup_logger(__name__)
+# Dashboard logger setup
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
 
 # Set Streamlit page configuration
-st.set_page_config(
-    page_title="Trading Strategy Backtester",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# st.set_page_config(  # Handled by main dashboard
+#     page_title="Trading Strategy Backtester",
+#     layout="wide",
+#     initial_sidebar_state="expanded"
+# )
 
 # Initialize session state
 initialize_dashboard_session_state()

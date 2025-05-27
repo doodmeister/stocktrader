@@ -8,11 +8,12 @@ import pytz
 import ta
 from patterns.patterns import CandlestickPatterns
 import openai  # Make sure openai is in requirements.txt
-from utils.logger import setup_logger
 from utils.security import get_openai_api_key  # <-- Use this instead of the local function
 from utils.chatgpt import get_chatgpt_insight
 
-logger = setup_logger(__name__)
+# Dashboard logger setup
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
 
 def flatten_column(series_or_df):
     """Ensures the returned object is always a 1D Series, never a DataFrame or ndarray."""
@@ -111,7 +112,7 @@ def add_technical_indicators(data):
 ###############################################
 
 # Set up Streamlit page layout
-st.set_page_config(layout="wide")
+# st.set_page_config(layout="wide")  # Handled by main dashboard
 st.title('Real Time Stock Dashboard')
 
 # 2A: SIDEBAR PARAMETERS ############
@@ -300,3 +301,4 @@ if st.button("Get ChatGPT Insight"):
             st.write(result)
         except Exception as e:
             st.error(f"AI analysis failed: {e}")
+

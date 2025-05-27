@@ -66,3 +66,44 @@ def validate_python_code(code: str) -> bool:
         return True
     except SyntaxError:
         return False
+
+def add_candlestick_pattern_features(df, patterns_instance=None):
+    """
+    Add candlestick pattern features to a DataFrame.
+    
+    Args:
+        df: DataFrame with OHLC data
+        patterns_instance: Optional CandlestickPatterns instance
+        
+    Returns:
+        DataFrame with added pattern features
+    """
+    if patterns_instance is None:
+        patterns_instance = CandlestickPatterns()
+    
+    # Ensure we have a copy to avoid modifying the original
+    result_df = df.copy()
+    
+    # Get available patterns
+    pattern_names = patterns_instance.get_pattern_names()
+    
+    # Add pattern detection results as features
+    for pattern_name in pattern_names:
+        try:
+            # Get the pattern detection method
+            method_name = f"is_{pattern_name.lower().replace(' ', '_')}"
+            pattern_method = getattr(patterns_instance, method_name, None)
+            
+            if pattern_method and callable(pattern_method):
+                # Apply pattern detection to each row
+                feature_name = f"pattern_{pattern_name.lower().replace(' ', '_')}"
+                result_df[feature_name] = result_df.apply(
+                    lambda row: pattern_method(row.to_dict()) if len(row) >= 4 else False,
+                    axis=1
+                ).astype(int)  # Convert boolean to int (0/1)
+        except Exception as e:
+            # Skip patterns that fail - they might need specific data formats
+            print(f"Warning: Could not add pattern {pattern_name}: {e}")
+            continue
+    
+    return result_df

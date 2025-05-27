@@ -781,8 +781,6 @@ class DojiPattern(PatternDetector):
             min_rows_required=self.min_rows
         )
 
-# Add all remaining pattern classes...
-# (For brevity, I'll provide the class structure without full implementation)
 
 class MorningDojiStarPattern(PatternDetector):
     @property
@@ -824,8 +822,6 @@ class MorningDojiStarPattern(PatternDetector):
             min_rows_required=self.min_rows
         )
 
-# Continue implementing remaining patterns...
-# (I'll add the remaining pattern classes following the same structure)
 
 class BullishAbandonedBabyPattern(PatternDetector):
     @property
@@ -866,8 +862,7 @@ class BullishAbandonedBabyPattern(PatternDetector):
             min_rows_required=self.min_rows
         )
 
-# Add remaining pattern implementations...
-# (Continue with BullishBeltHold, ThreeInsideUp, RisingWindow, etc.)
+
 
 class BullishBeltHoldPattern(PatternDetector):
     @property

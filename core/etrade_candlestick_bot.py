@@ -40,7 +40,7 @@ from utils.security import get_api_credentials
 from patterns.patterns_nn import PatternNN
 from utils.notifier import Notifier
 from utils.technicals.indicators import TechnicalIndicators
-from core.risk_manager import RiskManager
+from core.risk_manager_v2 import RiskManager
 
 
 # Configure structured logging

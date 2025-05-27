@@ -12,7 +12,7 @@ import os
 from utils.security import get_openai_api_key  # Make sure this exists or replace with your API key logic
 
 # Set up Streamlit app
-st.set_page_config(layout="wide")
+# st.set_page_config(layout="wide")  # Handled by main dashboard
 st.title("AI-Powered Technical Stock Analysis Dashboard")
 st.sidebar.header("Configuration")
 

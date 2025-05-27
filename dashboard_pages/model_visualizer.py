@@ -1,17 +1,15 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import logging
 from typing import Any, Dict, Optional, Tuple, List
 from dataclasses import asdict
 
 from train.model_manager import ModelManager
 from patterns.patterns_nn import PatternNN
 
-# --- Logging Setup ---
-logger = logging.getLogger("model_visualizer")
-if not logger.hasHandlers():
-    logging.basicConfig(level=logging.INFO)
+# Dashboard logger setup
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
 
 # --- Utility Functions ---
 
@@ -166,6 +164,5 @@ def main():
 
     compare_metrics(all_metrics)
 
-if __name__ == "__main__":
-    main()
+
 

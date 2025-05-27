@@ -1,0 +1,15 @@
+# For dashboard pages
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
+
+# For page files
+from utils.logger import get_page_logger  
+logger = get_page_logger(__file__)
+
+# For Streamlit apps (console-only by default)
+from utils.logger import get_streamlit_logger
+logger = get_streamlit_logger()
+
+# For main dashboard
+from utils.logger import configure_dashboard_logging
+logger = configure_dashboard_logging()

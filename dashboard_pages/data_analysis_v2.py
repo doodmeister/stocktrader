@@ -2,20 +2,20 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from utils.logger import setup_logger
 from typing import List, Dict, Any, Tuple
 import os
 import openai
-from collections import defaultdict  # <-- Move this here
+from collections import defaultdict
+
+from utils.logger import get_dashboard_logger
+logger = get_dashboard_logger(__name__)
+
 from patterns.patterns import CandlestickPatterns
 from utils.technicals.technical_analysis import TechnicalAnalysis
 from utils.technicals.indicators import add_bollinger_bands, compute_price_stats, compute_return_stats
 from core.dashboard_utils import initialize_dashboard_session_state
 from utils.security import get_openai_api_key
 from utils.chatgpt import get_chatgpt_insight as _get_chatgpt_insight
-
-# Configure logging
-logger = setup_logger(__name__)
 
 @st.cache_data(show_spinner=False)
 def load_df(uploaded_file) -> pd.DataFrame:
@@ -439,5 +439,3 @@ def main():
     csv = df_out.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", csv, "processed_data.csv", "text/csv")
 
-if __name__ == "__main__":
-    main()
