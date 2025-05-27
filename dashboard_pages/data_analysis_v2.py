@@ -5,6 +5,10 @@ import plotly.graph_objects as go
 from typing import List, Dict, Any, Tuple
 import os
 from collections import defaultdict
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
@@ -211,7 +215,8 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
 class TechnicalAnalysisDashboard:
     def __init__(self):
         pass
-      def run(self):
+
+    def run(self):
         """Main dashboard application entry point."""
         initialize_dashboard_session_state()
 
