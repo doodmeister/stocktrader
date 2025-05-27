@@ -214,10 +214,12 @@ if submitted:
             detected_patterns = []
             for i in range(len(data)):
                 window = data.iloc[max(0, i-4):i+1].copy()
-                normalized_window = normalize_window_columns(window, open_col, high_col, low_col, close_col)
-                # Only detect patterns if all 4 columns present
+                normalized_window = normalize_window_columns(window, open_col, high_col, low_col, close_col)                # Only detect patterns if all 4 columns present
                 if all(col in normalized_window.columns for col in ['open', 'high', 'low', 'close']):
-                    detected = CandlestickPatterns.detect_patterns(normalized_window)
+                    pattern_detector = create_pattern_detector()
+                    detected_results = pattern_detector.detect_patterns(normalized_window)
+                    # Extract pattern names from PatternResult objects
+                    detected = [result.name for result in detected_results if result.detected]
                     for p in detected:
                         if p in selected_patterns:
                             detected_patterns.append({

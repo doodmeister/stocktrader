@@ -28,7 +28,7 @@ from patterns.pattern_utils import (
     validate_python_code
     # Removed PatternBackupManager - not available
 )
-from patterns.patterns import CandlestickPatterns  # Use existing detection
+from patterns.patterns import CandlestickPatterns, create_pattern_detector  # Use existing detection
 from utils.technicals.performance_utils import PatternDetector  # Use existing detector
 from utils.data_validator import DataValidator
 
@@ -137,8 +137,7 @@ class PatternEditorUI:
             
             # Normalize data
             df_normalized = normalize_dataframe_columns(df)
-            
-            # Use existing detect_patterns method from CandlestickPatterns
+              # Use existing detect_patterns method from CandlestickPatterns
             all_detections = {}
             
             for i in range(len(df_normalized)):
@@ -149,7 +148,10 @@ class PatternEditorUI:
                 if len(window) >= 1:  # Minimum window size
                     try:
                         # Use existing detection method
-                        detected_patterns = CandlestickPatterns.detect_patterns(window)
+                        pattern_detector = create_pattern_detector()
+                        detected_results = pattern_detector.detect_patterns(window)
+                        # Extract pattern names from PatternResult objects
+                        detected_patterns = [result.name for result in detected_results if result.detected]
                         
                         # Filter to only requested patterns
                         relevant_patterns = [p for p in detected_patterns if p in pattern_names]

@@ -36,7 +36,7 @@ from sklearn.metrics import (
 from utils.logger import setup_logger
 from train.deeplearning_config import TrainingConfig
 from patterns.patterns_nn import PatternNN
-from patterns.patterns import CandlestickPatterns
+from patterns.patterns import CandlestickPatterns, create_pattern_detector
 from train.model_manager import ModelManager, ModelMetadata
 from utils.technicals.feature_engineering import compute_technical_features
 from patterns.pattern_utils import add_candlestick_pattern_features
@@ -341,10 +341,12 @@ class PatternModelTrainer:
                 
                 # Normalize sequence (relative to first value to handle different scales)
                 seq = self._normalize_sequence(window)
-                
-                # Detect patterns for this window
+                  # Detect patterns for this window
                 pattern_window = data.iloc[i: i + self.config.seq_len]
-                patterns = CandlestickPatterns.detect_patterns(pattern_window)
+                pattern_detector = create_pattern_detector()
+                detected_results = pattern_detector.detect_patterns(pattern_window)
+                # Extract pattern names from PatternResult objects
+                patterns = [result.name for result in detected_results if result.detected]
                 
                 # Encode patterns as multi-label
                 label = self._encode_patterns(patterns, self.selected_patterns)

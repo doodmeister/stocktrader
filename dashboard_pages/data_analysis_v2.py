@@ -88,9 +88,12 @@ def get_indicator_series(
 def get_pattern_results(df: pd.DataFrame, patterns: Tuple[str, ...]) -> List[Dict[str, Any]]:
     """Detect and return selected candlestick patterns."""
     results: List[Dict[str, Any]] = []
+    pattern_detector = create_pattern_detector()
     for i in range(len(df)):
         window = df.iloc[max(0, i-4):i+1]
-        detected = CandlestickPatterns.detect_patterns(window)
+        detected_results = pattern_detector.detect_patterns(window)
+        # Extract pattern names from PatternResult objects
+        detected = [result.name for result in detected_results if result.detected]
         for p in detected:
             if p in patterns:
                 results.append({
