@@ -74,7 +74,25 @@ class PatternConfigurationError(PatternDetectionError):
 def validate_dataframe(func: Callable) -> Callable:
     """Decorator for comprehensive DataFrame validation."""
     @functools.wraps(func)
-    def wrapper(df: pd.DataFrame, *args, **kwargs):
+    def wrapper(*args, **kwargs):
+        # Handle both static functions and instance methods
+        if len(args) >= 1:
+            # For instance methods, df is the second argument (after self)
+            if hasattr(args[0], '__class__') and len(args) >= 2:
+                df = args[1]  # Instance method: args[0] is self, args[1] is df
+                remaining_args = args[2:]
+            else:
+                df = args[0]  # Static function: args[0] is df
+                remaining_args = args[1:]
+        elif 'df' in kwargs:
+            df = kwargs['df']
+            remaining_args = args
+        else:
+            raise DataValidationError(
+                "No DataFrame parameter found",
+                error_code="MISSING_DATAFRAME_PARAM"
+            )
+        
         if not isinstance(df, pd.DataFrame):
             raise DataValidationError(
                 f"Input must be a pandas DataFrame, got {type(df).__name__}",
@@ -121,7 +139,7 @@ def validate_dataframe(func: Callable) -> Callable:
                 error_code="NULL_VALUES"
             )
         
-        return func(df, *args, **kwargs)
+        return func(*args, **kwargs)
     
     return wrapper
 

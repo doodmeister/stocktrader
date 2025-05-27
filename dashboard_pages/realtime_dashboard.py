@@ -35,7 +35,7 @@ def flatten_column(series_or_df):
     return series_or_df
 
 ##########################################################################################
-## PART 1: Define Functions for Pulling, Processing, and Creating Techincial Indicators ##
+## PART 1: Define Functions for Pulling, Processing, and Creating Technical Indicators ##
 ##########################################################################################
 
 # Fetch stock data based on the ticker, period, and interval

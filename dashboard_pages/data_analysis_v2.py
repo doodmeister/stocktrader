@@ -84,7 +84,6 @@ def get_indicator_series(
     lower_band = bb_df['bb_lower']
     return rsi, macd_line, signal_line, upper_band, lower_band
 
-@st.cache_data
 def get_pattern_results(df: pd.DataFrame, patterns: Tuple[str, ...]) -> List[Dict[str, Any]]:
     """Detect and return selected candlestick patterns."""
     results: List[Dict[str, Any]] = []
