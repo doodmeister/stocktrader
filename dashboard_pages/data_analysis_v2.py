@@ -4,7 +4,6 @@ import numpy as np
 import plotly.graph_objects as go
 from typing import List, Dict, Any, Tuple
 import os
-import openai
 from collections import defaultdict
 
 from utils.logger import get_dashboard_logger
@@ -212,10 +211,8 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
 class TechnicalAnalysisDashboard:
     def __init__(self):
         pass
-    
-    def run(self):
+      def run(self):
         """Main dashboard application entry point."""
-        openai.api_key = get_openai_api_key()
         initialize_dashboard_session_state()
 
 

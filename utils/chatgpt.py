@@ -1,4 +1,5 @@
-import openai
+from openai import OpenAI
+from utils.security import get_openai_api_key
 
 def get_chatgpt_insight(summary: str) -> str:
     """
@@ -12,10 +13,16 @@ def get_chatgpt_insight(summary: str) -> str:
         summary (str): The technical analysis summary of the stock
 
     Returns:
-        str: GPT-generated financial analysis or error message
-    """
+        str: GPT-generated financial analysis or error message    """
     try:
-        response = openai.chat.completions.create(
+        # Get API key and create client
+        api_key = get_openai_api_key()
+        if not api_key:
+            return "Error: OpenAI API key not found. Please set OPENAI_API_KEY environment variable."
+        
+        client = OpenAI(api_key=api_key)
+        
+        response = client.chat.completions.create(
             model="gpt-4.1",
             messages=[
                 {
