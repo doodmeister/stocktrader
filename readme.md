@@ -37,15 +37,7 @@ An enterprise-grade trading platform that combines classic technical analysis wi
 - Candlestick pattern recognition (Hammer, Doji, Engulfing, etc.)  
 - Technical indicators (RSI, MACD, Bollinger Bands)  
 - Custom indicator framework  
-- ATR-based position sizing  
-
-### Machine Learning Pipeline
-
-- Pattern Neural Network (PatternNN) for pattern classification  
-- Automated data preparation and feature engineering  
-- **Production-Grade Model Management** (Enhanced ModelManager)  
-- Configurable training parameters  
-- Real-time inference integration  
+- ATR-based position sizing
 
 #### Enhanced ModelManager Features
 
@@ -123,23 +115,24 @@ Python 3.10 is the rcommended version for this project. Ensure you have Python a
 
 4. **Install TA-Lib (Required for Technical Analysis)**
 
-   #### Option A: Use Precompiled Wheel (Recommended for Windows)
-   
+   ### Option A: Use Precompiled Wheel (Recommended for Windows)
+
    Download a precompiled `.whl` file for your Python version and Windows architecture. This avoids C build dependencies.
-   
+
    1. Visit: [Unofficial Windows Binaries for Python Extension Packages](https://www.lfd.uci.edu/~gohlke/pythonlibs/#ta-lib)
    2. Find the matching `.whl` for your Python version and system architecture  
       Example: `TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl` for Python 3.10, 64-bit
    3. Download the appropriate file
    4. Navigate to your download directory and install:
-   
+
       ```bash
       pip install TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl
       ```
+
       *(Replace with your downloaded filename)*
-   
+
    #### Option B: Alternative Installation Methods
-   
+
    ```bash
    # Via conda (if using Anaconda/Miniconda)
    conda install -c conda-forge ta-lib
@@ -170,7 +163,8 @@ Python 3.10 is the rcommended version for this project. Ensure you have Python a
 
 ## Project Structure
 
-```
+```plaintext
+
 stocktrader/
 ├── streamlit_dashboard.py            # Main Streamlit dashboard entry point
 ├── core/                             # Core business logic
@@ -263,7 +257,13 @@ stocktrader/
    - Uses `CandlestickPatterns` to filter ML signals  
    - Overlays final buy/sell signals on candlestick chart  
 
-_This provides a full workflow: raw OHLCV → feature engineering → model training → inference → pattern filtering → final trade signals—all within the Streamlit UI._
+*This provides a full workflow: raw OHLCV → feature engineering → model training → inference → pattern filtering → final trade signals—all within the Streamlit UI.*
+
+- Pattern Neural Network (PatternNN) for pattern classification  
+- Automated data preparation and feature engineering  
+- **Production-Grade Model Management** (Enhanced ModelManager)  
+- Configurable training parameters
+- Real-time inference integration
 
 ### Enhanced Model Training Framework
 

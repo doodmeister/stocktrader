@@ -539,8 +539,6 @@ class BullishEngulfingPattern(PatternDetector):
             min_rows_required=self.min_rows
         )
 
-# Continue with other pattern implementations...
-# (For brevity, I'll show the structure for a few more key patterns)
 
 class MorningStarPattern(PatternDetector):
     """Morning Star pattern detector."""
@@ -597,9 +595,6 @@ class MorningStarPattern(PatternDetector):
             min_rows_required=self.min_rows
         )
 
-# Add remaining pattern implementations following the same structure...
-# For brevity, I'll provide a template for the remaining patterns
-
 class PiercingPatternDetector(PatternDetector):
     @property
     def name(self) -> str:
@@ -639,9 +634,6 @@ class PiercingPatternDetector(PatternDetector):
             description="Two-candle bullish reversal where second candle pierces into first",
             min_rows_required=self.min_rows
         )
-
-# Continue implementing all remaining patterns...
-# (I'll add the remaining pattern classes following the same structure)
 
 class BullishHaramiPattern(PatternDetector):
     @property
@@ -879,8 +871,6 @@ class BullishAbandonedBabyPattern(PatternDetector):
             description="Rare three-candle reversal with isolated Doji in the middle",
             min_rows_required=self.min_rows
         )
-
-
 
 class BullishBeltHoldPattern(PatternDetector):
     @property
