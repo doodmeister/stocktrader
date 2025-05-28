@@ -25,6 +25,7 @@ An enterprise-grade trading platform that combines classic technical analysis wi
 ## Key Features
 
 ### Real-Time Trading Dashboard
+
 - Dynamic symbol watchlist  
 - Interactive candlestick charts (Plotly)  
 - Real-time pattern detection (rule-based & ML)  
@@ -32,12 +33,14 @@ An enterprise-grade trading platform that combines classic technical analysis wi
 - Risk-managed order execution  
 
 ### Advanced Technical Analysis
+
 - Candlestick pattern recognition (Hammer, Doji, Engulfing, etc.)  
 - Technical indicators (RSI, MACD, Bollinger Bands)  
 - Custom indicator framework  
 - ATR-based position sizing  
 
 ### Machine Learning Pipeline
+
 - Pattern Neural Network (PatternNN) for pattern classification  
 - Automated data preparation and feature engineering  
 - **Production-Grade Model Management** (Enhanced ModelManager)  
@@ -45,6 +48,7 @@ An enterprise-grade trading platform that combines classic technical analysis wi
 - Real-time inference integration  
 
 #### Enhanced ModelManager Features
+
 - **SOLID Principles & Modular Architecture** - Clean separation of concerns with dependency injection
 - **Comprehensive Security** - Path traversal protection, file validation, checksum verification
 - **Performance Monitoring** - Operation timing, metrics collection, and performance analytics
@@ -56,16 +60,19 @@ An enterprise-grade trading platform that combines classic technical analysis wi
 - **Backward Compatibility** - 100% compatible with existing integrations
 
 ### Risk Management System
+
 - Position size calculator  
 - Dynamic stop-loss and take-profit  
 - Portfolio exposure controls  
 
 ### Comprehensive Backtesting
+
 - Rule-based and ML strategies  
 - Historical OHLCV data simulation  
 - Performance metrics: Sharpe Ratio, Max Drawdown, Win Rate  
 
 ### Enterprise Integration
+
 - Multi-channel notifications: Email (SMTP), SMS (Twilio), Slack  
 - Streamlit caching and async data fetching  
 - Containerized deployment (Docker)  
@@ -86,8 +93,8 @@ An enterprise-grade trading platform that combines classic technical analysis wi
 
 Python 3.10 is the rcommended version for this project. Ensure you have Python and pip installed.
 
-
 1. **Clone the Repository**  
+
    ```bash
    git clone https://github.com/doodmeister/stocktrader.git
    cd stocktrader
@@ -95,50 +102,66 @@ Python 3.10 is the rcommended version for this project. Ensure you have Python a
 
 2. **Set Up Python Environment**  
    - **Windows:**  
+
      ```powershell
      python -m venv venv
      .\venv\Scripts\activate
      ```
+
    - **Linux/macOS:**  
+
      ```bash
      python3 -m venv venv
      source venv/bin/activate
      ```
 
 3. **Install Dependencies**  
+
    ```bash
    pip install -r requirements.txt
    ```
-3.1 ** install TA_Lib
 
-Use Precompiled Wheel (Recommended)
-You can download a precompiled .whl for your Python version and Windows, then pip install it directly. This avoids all C build headaches.
+4. **Install TA-Lib (Required for Technical Analysis)**
 
-Go to:
-Unofficial Windows Binaries for Python Extension Packages
+   #### Option A: Use Precompiled Wheel (Recommended for Windows)
+   
+   Download a precompiled `.whl` file for your Python version and Windows architecture. This avoids C build dependencies.
+   
+   1. Visit: [Unofficial Windows Binaries for Python Extension Packages](https://www.lfd.uci.edu/~gohlke/pythonlibs/#ta-lib)
+   2. Find the matching `.whl` for your Python version and system architecture  
+      Example: `TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl` for Python 3.10, 64-bit
+   3. Download the appropriate file
+   4. Navigate to your download directory and install:
+   
+      ```bash
+      pip install TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl
+      ```
+      *(Replace with your downloaded filename)*
+   
+   #### Option B: Alternative Installation Methods
+   
+   ```bash
+   # Via conda (if using Anaconda/Miniconda)
+   conda install -c conda-forge ta-lib
+   
+   # Via pip (may require C++ build tools)
+   pip install TA-Lib
+   ```
 
-Find the matching .whl for your Python version and system architecture (e.g. TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl for Python 3.10, 64-bit).
-
-Download it.
-
-In your terminal, navigate to the download directory and run:
-
-sh
-Copy
-Edit
-pip install TA_Lib‑0.4.0‑cp310‑cp310‑win_amd64.whl
-(replace with the filename you downloaded!)
 ---
 
 ## Configuration
 
 1. **Create and Edit `.env`**  
+
    ```bash
    cp .env.example .env
    ```
+
    Open `.env` and fill in your E*Trade API keys, account IDs, and any optional notification credentials.
 
 2. **Validate Your Configuration**  
+
    ```bash
    python -m config.validation
    ```
@@ -210,10 +233,10 @@ stocktrader/
 ## Usage
 
 1. **Launch Dashboard**  
+
    ```bash
    streamlit run streamlit_dashboard.py
    ```
-
 
 ---
 
@@ -245,25 +268,21 @@ _This provides a full workflow: raw OHLCV → feature engineering → model trai
 ### Enhanced Model Training Framework
 
 #### ModelTrainer Features
+
 - **Robust Feature Engineering**  
 - **Configurable Hyperparameters**  
 - **Automatic Time-Series Cross Validation**  
 - **Parallelized Training & Metrics Computation**  
 - **Persistent Model Saving & Versioning**  
 
-
-
 ## Testing
 
 - **Unit Tests:**  
 pytest tests/
 
-
-
 ## Documentation
 
 - **Docstrings:** All modules & functions are documented with Google-style docstrings.  
-
 
 ## Contributing
 
@@ -285,11 +304,12 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 
 ## Support
 
-For issues or questions, please open a GitHub Issue or contact the maintainers at support@example.com.
+For issues or questions, please open a GitHub Issue or contact the maintainers at <support@example.com>.
 
 ---
 
 ## Further Improvement Suggestions
+
 Split the manual into separate docs for user, developer, and API reference.
 Add more code samples and usage scenarios for each dashboard page.
 Include architecture and data flow diagrams for clarity.
@@ -297,6 +317,7 @@ Link to E*Trade API and Streamlit documentation for onboarding.
 Add a FAQ and troubleshooting section for common deployment issues.
 
 ## Substantive Changes Highlighted
+
 Fixed all import paths to reflect actual module locations (e.g., from patterns.patterns import CandlestickPatterns).
 Clarified Docker Compose usage and ensured .env is referenced.
 Unified session state initialization instructions for all dashboards.
