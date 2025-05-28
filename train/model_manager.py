@@ -32,6 +32,39 @@ logger = setup_logger(__name__)
 
 
 # ================================
+# Exception Classes
+# ================================
+
+class ModelManagerError(Exception):
+    """Base exception for model manager errors."""
+    pass
+
+
+class ModelNotFoundError(ModelManagerError):
+    """Exception raised when a requested model is not found."""
+    pass
+
+
+class InvalidModelError(ModelManagerError):
+    """Exception raised when a model is invalid or corrupted."""
+    pass
+
+
+class ModelValidationError(ModelManagerError):
+    """Exception raised when model validation fails."""
+    pass
+
+
+class ModelType(Enum):
+    """Enumeration of supported model types."""
+    PYTORCH = "pytorch"
+    SKLEARN = "sklearn" 
+    TENSORFLOW = "tensorflow"
+    ONNX = "onnx"
+    CUSTOM = "custom"
+
+
+# ================================
 # Configuration Management
 # ================================
 

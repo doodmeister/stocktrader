@@ -27,6 +27,7 @@ kaleido
 
 # Development & Utilities
 python-dotenv==1.0.0
+psutil>=5.0.0  # For performance monitoring and system metrics
 
 # Testing
 pytest>=7.4.0
