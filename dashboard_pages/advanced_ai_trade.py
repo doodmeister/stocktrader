@@ -55,6 +55,9 @@ from utils.decorators import handle_exceptions, handle_dashboard_exceptions
 from train.ml_config import MLConfig
 import torch
 
+# Import SessionManager to solve button key conflicts and session state issues
+from core.session_manager import create_session_manager, show_session_debug_info
+
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
@@ -601,6 +604,9 @@ class TradingDashboard:
         """Initialize dashboard with all required components."""
         self._setup_page_config()
         
+        # Initialize SessionManager to prevent button conflicts and state issues
+        self.session_manager = create_session_manager("advanced_ai_trade")
+        
         # Initialize session state first using dashboard utils
         SessionStateManager.initialize()
         
@@ -881,10 +887,9 @@ class TradingDashboard:
         symbols_input = st.sidebar.text_input(
             "Symbols (comma-separated)",
             value=",".join(current_symbols),
-            help=f"Maximum {MAX_SYMBOLS} symbols. Example: AAPL,MSFT,GOOGL"
-        )
+            help=f"Maximum {MAX_SYMBOLS} symbols. Example: AAPL,MSFT,GOOGL"        )
         
-        if st.sidebar.button("Update Watchlist"):
+        if self.session_manager.create_button("Update Watchlist", container=st.sidebar):
             try:
                 # Parse and validate symbols
                 new_symbols = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
@@ -1033,13 +1038,12 @@ class TradingDashboard:
             help="Choose ML model for predictions",
             key="model_selection"
         )
-        
-        # Model controls
+          # Model controls
         col1, col2 = st.sidebar.columns(2)
         
         # Load model button
         with col1:
-            if st.button("Load", help="Load selected model", key="load_model_btn"):
+            if self.session_manager.create_button("Load", help="Load selected model", container=col1):
                 try:
                     with st.spinner("Loading model..."):
                         model = self.model_manager.load_model(selected_model)
@@ -1053,7 +1057,7 @@ class TradingDashboard:
         
         # Clear cache button
         with col2:
-            if st.button("Clear Cache", help="Clear model cache", key="clear_cache_btn"):
+            if self.session_manager.create_button("Clear Cache", help="Clear model cache", container=col2):
                 try:
                     self.model_manager.clear_cache()
                 except Exception as e:
@@ -1065,10 +1069,10 @@ class TradingDashboard:
         st.checkbox("Enable Debug Mode", key="debug_mode")
         st.checkbox("Paper Trading Mode", value=True, key="paper_trading")
         
-        if st.button("Reset Settings"):
+        if self.session_manager.create_button("Reset Settings"):
             self._reset_settings()
         
-        if st.button("Clear All Caches"):
+        if self.session_manager.create_button("Clear All Caches"):
             self._clear_all_caches()
 
     def _reset_settings(self) -> None:
@@ -1117,9 +1121,7 @@ if __name__ == "__main__":
     except Exception as e:
         logger.exception(f"Fatal dashboard error: {e}")
         st.error("🚨 Fatal Error: Dashboard failed to start")
-        st.error(f"Error details: {e}")
-        
-        # Emergency fallback UI
+        st.error(f"Error details: {e}")        # Emergency fallback UI
         st.markdown("### 🔧 Emergency Options")
         if st.button("🔄 Restart Dashboard", key="emergency_restart"):
             st.cache_data.clear()

@@ -41,6 +41,9 @@ from utils.live_inference import make_trade_decision
 from patterns.pattern_utils import add_candlestick_pattern_features
 from utils.data_validator import DataValidator
 
+# Import SessionManager to solve button key conflicts and session state issues
+from core.session_manager import create_session_manager, show_session_debug_info
+
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
@@ -52,6 +55,9 @@ setup_page(
     sidebar_title="Trading Controls"
 )
 logger = get_dashboard_logger(__name__)
+
+# Initialize SessionManager at module level to prevent button conflicts
+_session_manager = create_session_manager("simple_trade")
 
 # Constants
 DEFAULT_SYMBOL = "AAPL"
@@ -713,20 +719,18 @@ def render_trade_controls(client: ETradeClient, symbol: str, config: DashboardCo
                     step=0.01,
                     key="buy_price"
                 )
-            
-            # Calculate order value
+              # Calculate order value
             estimated_price = buy_price if buy_price else (
                 st.session_state.trading_session.data_cache['close'].iloc[-1] 
                 if st.session_state.trading_session.data_cache is not None else 0
             )
             order_value = buy_quantity * estimated_price
-            
             st.info(f"Estimated Order Value: ${order_value:,.2f}")
             
             if order_value > config.max_order_value:
                 st.error(f"❌ Order value exceeds limit of ${config.max_order_value:,.2f}")
             else:
-                if st.button("🛒 Place Buy Order", type="primary"):
+                if _session_manager.create_button("🛒 Place Buy Order", type="primary"):
                     place_order(client, symbol, buy_quantity, "BUY", buy_order_type, buy_price)
         
         with col2:
@@ -754,20 +758,18 @@ def render_trade_controls(client: ETradeClient, symbol: str, config: DashboardCo
                     step=0.01,
                     key="sell_price"
                 )
-            
-            # Calculate order value
+              # Calculate order value
             estimated_price = sell_price if sell_price else (
                 st.session_state.trading_session.data_cache['close'].iloc[-1] 
                 if st.session_state.trading_session.data_cache is not None else 0
             )
             order_value = sell_quantity * estimated_price
-            
             st.info(f"Estimated Order Value: ${order_value:,.2f}")
             
             if order_value > config.max_order_value:
                 st.error(f"❌ Order value exceeds limit of ${config.max_order_value:,.2f}")
             else:
-                if st.button("💰 Place Sell Order", type="primary"):
+                if _session_manager.create_button("💰 Place Sell Order", type="primary"):
                     place_order(client, symbol, sell_quantity, "SELL", sell_order_type, sell_price)
         
     except Exception as e:
@@ -815,12 +817,11 @@ def place_order(
         - Action: {action}
         - Quantity: {quantity:,} shares
         - Type: {order_type}
-        - Price: {"Market" if order_type == "Market" else f"${price:.2f}"}
-        """
+        - Price: {"Market" if order_type == "Market" else f"${price:.2f}"}        """
         
         st.info(order_summary)
         
-        if st.button(f"Confirm {action} Order", key=f"confirm_{action}_{time.time()}"):
+        if _session_manager.create_button(f"Confirm {action} Order"):
             with st.spinner("Placing order..."):
                 if DEMO_MODE:
                     # Simulated order placement - safe for development/testing
@@ -982,7 +983,8 @@ def render_system_status(session: TradingSession) -> None:
 
 class SimpleTradeDashboard:
     def __init__(self):
-        pass
+        # Initialize SessionManager to prevent button conflicts and state issues
+        self.session_manager = create_session_manager("simple_trade")
     
     def run(self):
         """Main dashboard application entry point."""
@@ -1064,10 +1066,9 @@ def _handle_critical_error(error: Exception) -> None:
     logger.exception("Critical error in main application")
     st.error("❌ Critical application error occurred")
     st.text(f"Error: {str(error)}")
-    
-    # Provide recovery options for users
+      # Provide recovery options for users
     st.markdown("### 🔧 Recovery Options")
-    if st.button("🔄 Reset Application State"):
+    if _session_manager.create_button("🔄 Reset Application State"):
         # Clear all session state to recover from corrupted state
         for key in list(st.session_state.keys()):
             del st.session_state[key]
@@ -1085,11 +1086,10 @@ def handle_refresh_logic(session: TradingSession, config: DashboardConfig, clien
         
     Returns:
         bool: True if data was refreshed, False otherwise
-    """
-    # Manual refresh button
+    """    # Manual refresh button
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        manual_refresh = st.button("🔄 Refresh Data", use_container_width=True)
+        manual_refresh = _session_manager.create_button("🔄 Refresh Data", use_container_width=True)
     
     # Determine if refresh is needed based on cache age
     should_refresh = False

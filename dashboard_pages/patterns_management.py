@@ -32,6 +32,9 @@ from patterns.patterns import CandlestickPatterns, create_pattern_detector  # Us
 from utils.technicals.performance_utils import PatternDetector  # Use existing detector
 from utils.data_validator import DataValidator
 
+# Import SessionManager to solve button key conflicts and session state issues
+from core.session_manager import create_session_manager, show_session_debug_info
+
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
@@ -279,6 +282,9 @@ def main():
     """Main entry point - pure UI coordination."""
     initialize_dashboard_session_state()
     
+    # Initialize SessionManager to prevent button conflicts and session state issues
+    session_manager = create_session_manager("patterns_management")
+    
     st.title("🕯️ Candlestick Patterns Editor")
     
     editor = PatternEditorUI()
@@ -298,17 +304,16 @@ def main():
             
             if available_patterns:
                 col1, col2 = st.columns([1, 1])
-                
                 with col1:
                     st.subheader("Single Pattern Analysis")
                     selected_pattern = st.selectbox("Select Pattern", available_patterns)
-                    if st.button("🔍 Analyze"):
+                    if session_manager.create_button("🔍 Analyze", "analyze_single_pattern"):
                         editor._analyze_single_pattern(selected_pattern, df)
                 
                 with col2:
                     st.subheader("Multi-Pattern Comparison")
                     selected_patterns = st.multiselect("Select Patterns", available_patterns)
-                    if st.button("📈 Compare") and selected_patterns:
+                    if session_manager.create_button("📈 Compare", "compare_patterns") and selected_patterns:
                         editor._analyze_multiple_patterns(selected_patterns, df)
             else:
                 st.warning("⚠️ No patterns available. Check patterns file.")
@@ -326,11 +331,16 @@ def main():
 
 class PatternsManagementDashboard:
     def __init__(self):
-        pass
+        # Initialize SessionManager for conflict-free button handling
+        self.session_manager = create_session_manager("patterns_management")
     
     def run(self):
         """Main dashboard application entry point."""
         main()
+        
+        # Add session debug info to the sidebar
+        with st.sidebar.expander("🔧 Session Debug Info", expanded=False):
+            show_session_debug_info()
 
 # Execute the main function
 if __name__ == "__main__":

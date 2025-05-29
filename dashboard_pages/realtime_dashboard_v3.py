@@ -45,6 +45,9 @@ from core.dashboard_utils import (
     setup_page
 )
 
+# Import the SessionManager to solve button key conflicts and session state issues
+from core.session_manager import create_session_manager, show_session_debug_info
+
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
 
@@ -365,15 +368,14 @@ class PatternDetector:
                     
                 normalized_window = cls.normalize_window_columns(
                     window, open_col, high_col, low_col, close_col
-                )
-                  # Only detect if all required columns are present
+                )                # Only detect if all required columns are present
                 required_cols = ['open', 'high', 'low', 'close']
                 if not all(col in normalized_window.columns for col in required_cols):
                     continue
                 
                 try:
-                    # Fix: Call detect_patterns on instance with df parameter
-                    pattern_results = patterns_detector.detect_patterns(df=normalized_window)
+                    # Fix: Call detect_patterns on instance with positional DataFrame parameter
+                    pattern_results = patterns_detector.detect_patterns(normalized_window)
                     
                     # Handle the results based on what your CandlestickPatterns returns
                     if isinstance(pattern_results, list):
@@ -713,6 +715,10 @@ def render_sidebar_prices():
 
 def render_main_dashboard():
     """Render the main dashboard content."""
+    
+    # Create SessionManager to handle button conflicts and state isolation
+    session_manager = create_session_manager("realtime_dashboard_v3")
+    
     # Initialize components
     processor = DataProcessor()
     analyzer = TechnicalAnalyzer()
@@ -722,15 +728,17 @@ def render_main_dashboard():
     ai_analyzer = AIAnalyzer()
     
     # Initialize session state
-    state_manager.initialize_session_state()    # Sidebar form for parameters    # Create unique form key based on session to avoid conflicts
-    form_key = f"realtime_dashboard_v3_form_{int(time.time() * 1000) % 100000}"
+    state_manager.initialize_session_state()
     
-    with st.sidebar.form(form_key):
+    # Use SessionManager for form creation to prevent key conflicts
+    with session_manager.form_container("main_dashboard_form"):
         st.header('Chart Parameters')
         ticker = st.text_input('Ticker', 'ADBE').upper().strip()
         time_period = st.selectbox('Time Period', VALID_TIME_PERIODS)
         chart_type = st.selectbox('Chart Type', VALID_CHART_TYPES)
-        indicators = st.multiselect('Technical Indicators', VALID_INDICATORS)        # Pattern selection - fix: create instance of CandlestickPatterns
+        indicators = st.multiselect('Technical Indicators', VALID_INDICATORS)
+        
+        # Pattern selection - fix: create instance of CandlestickPatterns
         try:
             patterns_instance = CandlestickPatterns()
             pattern_names = patterns_instance.get_pattern_names()
@@ -743,6 +751,7 @@ def render_main_dashboard():
             st.error(f"Error loading patterns: {e}")
             selected_patterns = []
             
+        # Use SessionManager for button creation to prevent conflicts
         submitted = st.form_submit_button("Update")
     
     # Debug information for troubleshooting
@@ -804,20 +813,19 @@ def render_main_dashboard():
                     st.dataframe(pattern_df, use_container_width=True)
                 else:
                     st.info("No selected patterns detected in this data.")
-                
-                # Create and display chart
+                  # Create and display chart
                 fig = chart_builder.create_chart(
                     data, chart_type, indicators, detected_patterns, ticker, time_period
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Store analysis data for AI section and session state
+                # Store analysis data for AI section using SessionManager
                 analysis_data = {
                     'ticker': ticker,
                     'time_period': time_period,
                     'detected_patterns': detected_patterns
                 }
-                st.session_state['realtime_dashboard_analysis_data'] = analysis_data
+                session_manager.set_page_state('realtime_dashboard_analysis_data', analysis_data)
                 
         except Exception as e:
             # Use centralized error handling
@@ -829,20 +837,19 @@ def render_main_dashboard():
         if not submitted:
             st.info("👈 Please fill out the form in the sidebar and click 'Update' to load stock data and analysis.")
         else:
-            st.warning("Please enter a valid ticker symbol.")
+            st.warning("Please enter a valid ticker symbol.")    # AI Analysis Section
+    st.subheader("AI-Powered Analysis")
     
-    # AI Analysis Section
-    st.subheader("AI-Powered Analysis")    # Add a clear button for troubleshooting
+    # Use SessionManager for button creation to prevent key conflicts
     col1, col2 = st.columns([3, 1])
     with col2:
-        clear_btn_key = f"clear_data_btn_{int(time.time() * 1000) % 10000}"
-        if st.button("🗑️ Clear Data", key=clear_btn_key, help="Clear cached analysis data"):
-            st.session_state['realtime_dashboard_analysis_data'] = None
+        if session_manager.create_button("🗑️ Clear Data", "clear_data", help="Clear cached analysis data"):
+            session_manager.set_page_state('realtime_dashboard_analysis_data', None)
             st.rerun()
     
     # Get analysis data - either from current execution or session state
     if 'analysis_data' not in locals() or analysis_data is None:
-        analysis_data = st.session_state.get('realtime_dashboard_analysis_data', None)
+        analysis_data = session_manager.get_page_state('realtime_dashboard_analysis_data', None)
     
     # Generate summary only if we have analysis data
     if analysis_data:
@@ -854,9 +861,10 @@ def render_main_dashboard():
     else:
         summary_text = "No analysis data available. Please submit the form above to load stock data."
     
-    st.text_area("Copyable Analysis Summary", summary_text, height=200)    # AI Insight button
-    insight_btn_key = f"chatgpt_insight_btn_{int(time.time() * 1000) % 10000}"
-    if st.button("Get ChatGPT Insight", key=insight_btn_key):
+    st.text_area("Copyable Analysis Summary", summary_text, height=200)
+    
+    # AI Insight button - use SessionManager
+    if session_manager.create_button("Get ChatGPT Insight", "chatgpt_insight"):
         if not analysis_data:
             st.warning("Please submit the form first to generate analysis data.")
         else:
@@ -891,8 +899,7 @@ def main():
         st.sidebar.info(
             'This dashboard provides stock data and technical indicators for various time periods. '
             'Use the sidebar to customize your view and get AI-powered insights.'
-        )
-          # Display debug info in development
+        )        # Display debug info in development
         if st.sidebar.checkbox("Show Debug Info", value=False):
             st.sidebar.subheader("Debug Information")
             st.sidebar.json({
@@ -900,6 +907,9 @@ def main():
                 "Error Count": st.session_state.get('error_count', 0),
                 "Last Update": str(st.session_state.get('last_update', 'Never'))
             })
+        
+        # Show SessionManager debug info to help troubleshoot conflicts
+        show_session_debug_info()
             
     except Exception as e:
         st.error(f"Critical dashboard error: {e}")

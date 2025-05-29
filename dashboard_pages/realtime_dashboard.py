@@ -14,6 +14,7 @@ from core.dashboard_utils import (
     setup_page,
     handle_streamlit_error
 )
+from core.session_manager import create_session_manager, show_session_debug_info
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
@@ -126,10 +127,13 @@ def add_technical_indicators(data):
 # st.set_page_config(layout="wide")  # Handled by main dashboard
 st.title('Real Time Stock Dashboard')
 
+# Initialize SessionManager to manage session state and prevent key conflicts
+session_manager = create_session_manager("realtime_dashboard")
+
 # 2A: SIDEBAR PARAMETERS ############
 
 # Sidebar for user input parameters
-with st.sidebar.form("realtime_dashboard_classic_form"):
+with session_manager.form_container("chart_parameters_form", location="sidebar"):
     st.header('Chart Parameters')
     ticker = st.text_input('Ticker', 'ADBE')
     time_period = st.selectbox('Time Period', ['1d', '1wk', '1mo', '1y', 'max'])
@@ -305,7 +309,7 @@ summary_lines = [
 summary_text = "\n".join(summary_lines)
 st.text_area("Copyable Analysis Summary", summary_text, height=200)
 
-if st.button("Get ChatGPT Insight"):
+if session_manager.create_button("Get ChatGPT Insight", "chatgpt_insight"):
     with st.spinner("Contacting ChatGPT..."):
         try:
             openai.api_key = get_openai_api_key()
@@ -326,6 +330,10 @@ class RealtimeDashboard:
         pass
 
 # Execute the main function
+# Show SessionManager debug info in a sidebar expandable section
+with st.sidebar.expander("🔧 Session Debug Info", expanded=False):
+    show_session_debug_info()
+
 if __name__ == "__main__":
     try:
         dashboard = RealtimeDashboard()

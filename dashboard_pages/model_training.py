@@ -35,6 +35,7 @@ from core.dashboard_utils import (
     setup_page,
     handle_streamlit_error
 )
+from core.session_manager import create_session_manager, show_session_debug_info
 from utils.technicals.technical_analysis import TechnicalAnalysis
 
 # Initialize the page (setup_page returns a logger, but we already have one)
@@ -667,7 +668,8 @@ def render_training_page():
 
 class ModelTrainingDashboard:
     def __init__(self):
-        pass
+        # Initialize SessionManager for conflict-free button handling
+        self.session_manager = create_session_manager("model_training")
     
     def run(self):
         """Main dashboard application entry point."""
@@ -692,6 +694,10 @@ class ModelTrainingDashboard:
                 render_training_page()
             with tab2:
                 display_signal_analysis(config, model_trainer)
+                
+            # Show SessionManager debug info in a sidebar expandable section
+            with st.sidebar.expander("🔧 Session Debug Info", expanded=False):
+                show_session_debug_info()
 
 # Execute the main function
 if __name__ == "__main__":

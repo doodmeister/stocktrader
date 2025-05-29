@@ -22,11 +22,11 @@ from core.dashboard_utils import (
     handle_streamlit_error,
     safe_streamlit_metric,
     create_candlestick_chart,
-    validate_ohlc_dataframe,
-    safe_file_write,
+    validate_ohlc_dataframe,    safe_file_write,
     show_success_with_actions,
     DashboardStateManager
 )
+from core.session_manager import create_session_manager, show_session_debug_info
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
@@ -114,12 +114,14 @@ class DataDashboard:
         self,
         config: Optional[DashboardConfig] = None,
         validator: Optional[DataValidator] = None,
-        notifier: Optional[Notifier] = None
-    ):
+        notifier: Optional[Notifier] = None    ):
         """Initialize the dashboard with configuration and dependencies."""
         self.config: DashboardConfig = config or DashboardConfig()
         self.validator: DataValidator = validator or DataValidator()
         self.notifier: Notifier = notifier or Notifier()
+        
+        # Initialize SessionManager for conflict-free button handling
+        self.session_manager = create_session_manager("data_dashboard")
         
         # Use dashboard state manager from utils
         self.state_manager = DashboardStateManager()
@@ -184,15 +186,14 @@ class DataDashboard:
                 "🎯 Ticker Symbols",
                 value=", ".join(self.config.DEFAULT_SYMBOLS),
                 help="Enter stock symbols separated by commas (e.g., AAPL, MSFT, GOOGL)",
-                placeholder="AAPL, MSFT, GOOGL",
-                key="symbol_input"
+                placeholder="AAPL, MSFT, GOOGL",                key="symbol_input"
             )
         
         with col2:
-            validate_clicked = st.button(
+            validate_clicked = self.session_manager.create_button(
                 "🔄 Validate", 
-                help="Check symbol validity",
-                key="validate_button"
+                "validate_symbols",
+                help="Check symbol validity"
             )
         
         if validate_clicked:
@@ -571,9 +572,8 @@ class DataDashboard:
             safe_streamlit_metric("Fetch Count", str(st.session_state.get("fetch_count", 0)))
             if st.session_state.get("last_fetch_time"):
                 safe_streamlit_metric("Last Fetch", str(st.session_state["last_fetch_time"].strftime("%H:%M:%S")))
-            
-            # Clear cache button with static key
-            if st.button("🗑️ Clear Cache", help="Clear all cached data", key="clear_cache"):
+              # Clear cache button with SessionManager
+            if self.session_manager.create_button("🗑️ Clear Cache", "clear_cache", help="Clear all cached data"):
                 try:
                     clear_cache()
                     st.success("Cache cleared!")
@@ -585,9 +585,8 @@ class DataDashboard:
         
         # Main content area
         self._render_inputs()
-        
-        # Download button wrapped in form to prevent immediate rerun
-        with st.form("download_form"):
+          # Download button wrapped in form to prevent immediate rerun
+        with self.session_manager.form_container("download_form"):
             st.markdown("### Ready to Download?")
             st.write(f"Click below to download data for: **{', '.join(self.symbols) if self.symbols else 'No symbols selected'}**")
             
@@ -616,12 +615,15 @@ class DataDashboard:
                             handle_streamlit_error(e, f"reading cached data for {symbol}")
                     else:
                         logger.warning(f"Cached file not found: {path}")
-            else:
-                # Show helpful message when no data is available
+            else:                # Show helpful message when no data is available
                 st.info(
                     "👋 **Welcome!** Select your symbols and date range above, "
                     "then click **Download Data** to get started."
                 )
+                
+        # Show SessionManager debug info in a sidebar expandable section
+        with st.sidebar.expander("🔧 Session Debug Info", expanded=False):
+            show_session_debug_info()
 
 # Direct execution like data_dashboard_v2.py
 initialize_dashboard_session_state()

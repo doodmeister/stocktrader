@@ -35,6 +35,9 @@ from core.dashboard_utils import (
     initialize_dashboard_session_state
 )
 
+# Import SessionManager to solve button key conflicts and session state issues
+from core.session_manager import create_session_manager, show_session_debug_info
+
 # IO utilities
 from utils.io import (
     save_dataframe_with_metadata,
@@ -165,6 +168,9 @@ class DataDashboard:
     def __init__(self):
         self.config = DashboardConfig()
         self.validator = DataValidator()
+        
+        # Initialize SessionManager for conflict-free button handling
+        self.session_manager = create_session_manager("data_dashboard_v2")
         
         self._setup_directories()
         self._init_instance_variables()
