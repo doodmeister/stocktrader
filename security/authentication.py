@@ -1,32 +1,15 @@
 """
-Security utilities for the StockTrader platform.
+Authentication Module for StockTrader Security Package
 
-.. deprecated::
-    This module is deprecated. Use the security package instead:
-    - security.authentication for authentication functions
-    - security.authorization for authorization functions  
-    - security.encryption for encryption and hashing
-    - security.utils for input validation and sanitization
-
-Provides session validation, rate limiting, input sanitization,
-and other security-related functions.
-DEPRECATED: Use security package instead.
+Handles session management, API key validation, and credential management.
+Provides secure authentication flows for the trading platform.
 """
 
-import warnings
 import streamlit as st
-import hashlib
-import secrets
 import time
-from typing import Optional, Dict, Any
 import logging
-
-# Issue deprecation warning when module is imported
-warnings.warn(
-    "utils.security module is deprecated. Use the security package instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
+from typing import Optional, Dict, Any
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +18,7 @@ def validate_session_security() -> bool:
     """
     Validate session security for the StockTrader dashboard.
     
-    Performs basic security checks including:
+    Performs comprehensive security checks including:
     - Session token validation
     - Rate limiting
     - IP validation (if configured)
@@ -74,11 +57,17 @@ def _initialize_session_security() -> None:
     current_time = time.time()
     
     st.session_state.security_initialized = True
-    st.session_state.session_token = secrets.token_hex(16)
+    st.session_state.session_token = _generate_session_token()
     st.session_state.session_start = current_time
     st.session_state.last_activity = current_time
     st.session_state.request_count = 0
     st.session_state.last_request_time = current_time
+
+
+def _generate_session_token() -> str:
+    """Generate a secure session token."""
+    from .encryption import create_secure_token
+    return create_secure_token()
 
 
 def _check_session_timeout() -> bool:
@@ -151,19 +140,6 @@ def _clear_session_security() -> None:
             del st.session_state[key]
 
 
-def generate_session_hash(data: str) -> str:
-    """
-    Generate a secure hash for session data.
-    
-    Args:
-        data: Data to hash
-        
-    Returns:
-        str: Hexadecimal hash string
-    """
-    return hashlib.sha256(data.encode()).hexdigest()
-
-
 def validate_api_key(api_key: Optional[str]) -> bool:
     """
     Validate API key format and structure.
@@ -181,59 +157,11 @@ def validate_api_key(api_key: Optional[str]) -> bool:
     if len(api_key) < 16:
         return False
     
-    # Add more specific validation as needed
-    return True
-
-
-def sanitize_input(user_input: str) -> str:
-    """
-    Sanitize user input to prevent injection attacks.
-    
-    Args:
-        user_input: Raw user input
-        
-    Returns:
-        str: Sanitized input
-    """
-    if not isinstance(user_input, str):
-        return ""
-    
-    # Remove potentially dangerous characters
-    dangerous_chars = ['<', '>', '"', "'", '&', ';', '(', ')', '|', '`']
-    sanitized = user_input
-    
-    for char in dangerous_chars:
-        sanitized = sanitized.replace(char, '')
-    
-    return sanitized.strip()
-
-
-def create_secure_token() -> str:
-    """
-    Create a secure random token.
-    
-    Returns:
-        str: Secure hexadecimal token
-    """
-    return secrets.token_hex(32)
-
-
-def validate_session_token(token: str) -> bool:
-    """
-    Validate a session token.
-    
-    Args:
-        token: Token to validate
-        
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    if not token or len(token) != 64:  # 32 bytes = 64 hex chars
+    # Check for basic alphanumeric structure
+    if not api_key.replace('-', '').replace('_', '').isalnum():
         return False
     
-    # Check if token exists in session state
-    session_token = getattr(st.session_state, 'session_token', None)
-    return session_token == token
+    return True
 
 
 def get_api_credentials() -> Optional[Dict[str, str]]:
@@ -243,8 +171,6 @@ def get_api_credentials() -> Optional[Dict[str, str]]:
     Returns:
         Dictionary containing API credentials or None if not available
     """
-    import os
-    
     credentials = {}
     
     # Check for E*Trade credentials
@@ -279,8 +205,6 @@ def get_openai_api_key() -> Optional[str]:
     Returns:
         OpenAI API key string or None if not available
     """
-    import os
-    
     # Try environment variable first
     api_key = os.getenv('OPENAI_API_KEY')
     if api_key:
@@ -342,12 +266,70 @@ def get_sandbox_mode(credentials: Dict[str, str]) -> bool:
     Returns:
         bool: True if sandbox mode should be used, False for production
     """
-    import os
-    
     # Check environment variable first
     sandbox_env = os.getenv('ETRADE_SANDBOX', 'true').lower()
     if sandbox_env in ('false', '0', 'no', 'prod', 'production'):
         return False
     
+    # Check credentials dictionary for sandbox setting
+    if credentials and 'sandbox' in credentials:
+        sandbox_cred = str(credentials['sandbox']).lower()
+        if sandbox_cred in ('false', '0', 'no', 'prod', 'production'):
+            return False
+    
     # Default to sandbox for safety
     return True
+
+
+def validate_session_token(token: str) -> bool:
+    """
+    Validate a session token.
+    
+    Args:
+        token: Token to validate
+        
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if not token or len(token) != 64:  # 32 bytes = 64 hex chars
+        return False
+    
+    # Check if token exists in session state
+    session_token = getattr(st.session_state, 'session_token', None)
+    return session_token == token
+
+
+def refresh_session() -> bool:
+    """
+    Refresh the current session with new security parameters.
+    
+    Returns:
+        bool: True if refresh successful, False otherwise
+    """
+    try:
+        _clear_session_security()
+        _initialize_session_security()
+        logger.info("Session refreshed successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to refresh session: {e}")
+        return False
+
+
+def get_session_info() -> Dict[str, Any]:
+    """
+    Get current session security information.
+    
+    Returns:
+        Dictionary containing session information
+    """
+    if not hasattr(st, 'session_state'):
+        return {}
+    
+    return {
+        'initialized': getattr(st.session_state, 'security_initialized', False),
+        'session_start': getattr(st.session_state, 'session_start', None),
+        'last_activity': getattr(st.session_state, 'last_activity', None),
+        'request_count': getattr(st.session_state, 'request_count', 0),
+        'has_token': bool(getattr(st.session_state, 'session_token', None))
+    }

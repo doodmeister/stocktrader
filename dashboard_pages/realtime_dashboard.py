@@ -8,7 +8,7 @@ import pytz
 import ta
 from patterns.patterns import CandlestickPatterns, create_pattern_detector
 import openai  # Make sure openai is in requirements.txt
-from utils.security import get_openai_api_key  # <-- Use this instead of the local function
+from security.authentication import get_openai_api_key  # <-- Use this instead of the local function
 from utils.chatgpt import get_chatgpt_insight
 from core.dashboard_utils import (
     setup_page,
@@ -129,7 +129,7 @@ st.title('Real Time Stock Dashboard')
 # 2A: SIDEBAR PARAMETERS ############
 
 # Sidebar for user input parameters
-with st.sidebar.form("main_form"):
+with st.sidebar.form("realtime_dashboard_classic_form"):
     st.header('Chart Parameters')
     ticker = st.text_input('Ticker', 'ADBE')
     time_period = st.selectbox('Time Period', ['1d', '1wk', '1mo', '1y', 'max'])

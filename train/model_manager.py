@@ -27,6 +27,10 @@ from contextlib import contextmanager
 from utils.logger import setup_logger
 from train.deeplearning_config import TrainingConfig
 
+# Import security utilities
+from security.utils import validate_file_path as security_validate_file_path, validate_file_size
+from security.encryption import calculate_file_checksum, verify_file_checksum
+
 # Configure logging with correlation ID support
 logger = setup_logger(__name__)
 
@@ -154,44 +158,67 @@ class SecurityValidator:
     
     @staticmethod
     def validate_file_path(path: Path, base_directory: Path) -> bool:
-        """Prevent path traversal attacks."""
-        try:
-            resolved_path = path.resolve()
-            resolved_base = base_directory.resolve()
-            return str(resolved_path).startswith(str(resolved_base))
-        except Exception:
-            return False
+        """
+        Prevent path traversal attacks.
+        
+        .. deprecated::
+            Use security.utils.validate_file_path instead.
+        """
+        import warnings
+        warnings.warn(
+            "SecurityValidator.validate_file_path is deprecated. Use security.utils.validate_file_path instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return security_validate_file_path(path, base_directory=base_directory)
     
     @staticmethod
     def validate_file_size(path: Path, max_size_mb: int) -> bool:
-        """Validate file size limits."""
-        if not path.exists():
-            return True  # File doesn't exist yet
+        """
+        Validate file size limits.
         
-        size_mb = path.stat().st_size / (1024 * 1024)
-        return size_mb <= max_size_mb
+        .. deprecated::
+            Use security.utils.validate_file_size instead.
+        """
+        import warnings
+        warnings.warn(
+            "SecurityValidator.validate_file_size is deprecated. Use security.utils.validate_file_size instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return validate_file_size(path, max_size_mb)
     
     @staticmethod
     def calculate_checksum(path: Path) -> str:
-        """Calculate SHA256 checksum for file integrity."""
-        sha256_hash = hashlib.sha256()
-        try:
-            with path.open("rb") as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    sha256_hash.update(chunk)
-            return sha256_hash.hexdigest()
-        except Exception as e:
-            logger.error(f"Failed to calculate checksum for {path}: {e}")
-            return ""
+        """
+        Calculate SHA256 checksum for file integrity.
+        
+        .. deprecated::
+            Use security.encryption.calculate_file_checksum instead.
+        """
+        import warnings
+        warnings.warn(
+            "SecurityValidator.calculate_checksum is deprecated. Use security.encryption.calculate_file_checksum instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return calculate_file_checksum(path)
     
     @staticmethod
     def verify_checksum(path: Path, expected_checksum: str) -> bool:
-        """Verify file integrity using checksum."""
-        if not expected_checksum:
-            return True  # No checksum to verify
+        """
+        Verify file integrity using checksum.
         
-        actual_checksum = SecurityValidator.calculate_checksum(path)
-        return actual_checksum == expected_checksum
+        .. deprecated::
+            Use security.encryption.verify_file_checksum instead.
+        """
+        import warnings
+        warnings.warn(
+            "SecurityValidator.verify_checksum is deprecated. Use security.encryption.verify_file_checksum instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return verify_file_checksum(path, expected_checksum)
 
 
 # ================================

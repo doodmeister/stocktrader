@@ -36,7 +36,7 @@ from urllib3.util.retry import Retry
 
 # Project imports
 from utils.logger import setup_logger
-from utils.security import get_api_credentials
+from security.authentication import get_api_credentials
 from patterns.patterns_nn import PatternNN
 from utils.notifier import Notifier
 from utils.technicals.indicators import TechnicalIndicators

@@ -24,7 +24,7 @@ from core.dashboard_utils import (
     validate_ohlc_dataframe, 
     initialize_dashboard_session_state
 )
-from utils.security import get_openai_api_key
+from security.authentication import get_openai_api_key
 from utils.chatgpt import get_chatgpt_insight as _get_chatgpt_insight
 
 # Initialize the page (setup_page returns a logger, but we already have one)

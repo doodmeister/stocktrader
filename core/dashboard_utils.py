@@ -36,6 +36,10 @@ except ImportError:
 # Import existing pattern detection system
 from patterns.patterns import CandlestickPatterns, create_pattern_detector, PatternResult
 
+# Import security utilities
+from security.utils import sanitize_user_input as _sanitize_user_input, validate_file_path as _validate_file_path
+from security.encryption import generate_secure_token as _generate_secure_token
+
 logger = logging.getLogger(__name__)
 
 # Enhanced chart configuration constants
@@ -806,6 +810,9 @@ def sanitize_user_input(input_text: str, max_length: int = 1000, allow_html: boo
     """
     Sanitize user input to prevent XSS and other security issues.
     
+    .. deprecated:: 
+        Use security.utils.sanitize_user_input instead.
+    
     Args:
         input_text: The input text to sanitize
         max_length: Maximum allowed length
@@ -814,28 +821,21 @@ def sanitize_user_input(input_text: str, max_length: int = 1000, allow_html: boo
     Returns:
         Sanitized input text
     """
-    if not isinstance(input_text, str):
-        return str(input_text)
-    
-    # Truncate if too long
-    if len(input_text) > max_length:
-        input_text = input_text[:max_length]
-    
-    if not allow_html:
-        # Remove HTML tags
-        input_text = re.sub(r'<[^>]+>', '', input_text)
-    
-    # Remove potentially dangerous characters
-    dangerous_chars = ['<script', '</script', 'javascript:', 'data:', 'vbscript:']
-    for char in dangerous_chars:
-        input_text = input_text.replace(char.lower(), '').replace(char.upper(), '')
-    
-    return input_text.strip()
+    import warnings
+    warnings.warn(
+        "dashboard_utils.sanitize_user_input is deprecated. Use security.utils.sanitize_user_input instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return _sanitize_user_input(input_text, max_length, allow_html)
 
 
 def validate_file_path(file_path: Union[str, Path], allowed_extensions: Optional[List[str]] = None) -> bool:
     """
     Validate if a file path is safe and allowed.
+    
+    .. deprecated::
+        Use security.utils.validate_file_path instead.
     
     Args:
         file_path: Path to validate
@@ -844,33 +844,29 @@ def validate_file_path(file_path: Union[str, Path], allowed_extensions: Optional
     Returns:
         True if path is valid and safe
     """
-    try:
-        path = Path(file_path).resolve()
-        
-        # Check if path exists and is a file
-        if not path.exists() or not path.is_file():
-            return False
-        
-        # Check extension if specified
-        if allowed_extensions:
-            if path.suffix.lower() not in [ext.lower() for ext in allowed_extensions]:
-                return False
-        
-        # Ensure path doesn't escape project directory
-        project_root = Path(__file__).parent.parent.resolve()
-        try:
-            path.relative_to(project_root)
-        except ValueError:
-            return False
-        
-        return True
-    except Exception:
-        return False
+    import warnings
+    warnings.warn(
+        "dashboard_utils.validate_file_path is deprecated. Use security.utils.validate_file_path instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return _validate_file_path(file_path, allowed_extensions)
 
 
 def generate_secure_token(length: int = 32) -> str:
-    """Generate a cryptographically secure random token."""
-    return secrets.token_urlsafe(length)
+    """
+    Generate a cryptographically secure random token.
+    
+    .. deprecated::
+        Use security.encryption.generate_secure_token instead.
+    """
+    import warnings
+    warnings.warn(
+        "dashboard_utils.generate_secure_token is deprecated. Use security.encryption.generate_secure_token instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return _generate_secure_token(length)
 
 
 # =============================================================================

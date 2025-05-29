@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field, validator, ValidationError
 from core.etrade_candlestick_bot import ETradeClient
 from utils.technicals.indicators import add_technical_indicators
 from utils.config.validation import validate_symbol, safe_request
-from utils.security import get_api_credentials
+from security.authentication import get_api_credentials
 from core.dashboard_utils import (
     initialize_dashboard_session_state,
     setup_page,

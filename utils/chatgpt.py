@@ -1,5 +1,5 @@
 from openai import OpenAI
-from utils.security import get_openai_api_key
+from security.authentication import get_openai_api_key
 
 def get_chatgpt_insight(summary: str) -> str:
     """

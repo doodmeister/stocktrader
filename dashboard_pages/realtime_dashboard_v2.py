@@ -13,7 +13,7 @@ from core.dashboard_utils import (
     handle_streamlit_error
 )
 
-from utils.security import get_openai_api_key  # Make sure this exists or replace with your API key logic
+from security.authentication import get_openai_api_key  # Make sure this exists or replace with your API key logic
 
 # Initialize the page (setup_page returns a logger, but we already have one)
 setup_page(

@@ -15,6 +15,7 @@ Features:
 """
 
 import json
+import time
 import traceback
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Union, Any
@@ -36,7 +37,7 @@ except ImportError:
 from patterns.patterns import CandlestickPatterns
 from utils.chatgpt import get_chatgpt_insight
 from utils.data_validator import validate_ticker_symbol, validate_timeframe
-from utils.security import get_openai_api_key
+from security.authentication import get_openai_api_key
 from core.dashboard_utils import (
     safe_streamlit_metric, 
     handle_streamlit_error, 
@@ -47,12 +48,7 @@ from core.dashboard_utils import (
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
 
-# Initialize the page (setup_page returns a logger, but we already have one)
-setup_page(
-    title="📊 Real-time Stock Dashboard V3",
-    logger_name=__name__,
-    sidebar_title="Dashboard Controls"
-)
+# Page setup will be handled in main() function to avoid conflicts with main dashboard
 
 # Constants
 CACHE_TTL = 60  # Cache time-to-live in seconds
@@ -539,6 +535,9 @@ class DashboardState:
             st.session_state['last_update'] = None
         if 'error_count' not in st.session_state:
             st.session_state['error_count'] = 0
+        # Clear any stale analysis data on fresh load
+        if 'realtime_dashboard_analysis_data' not in st.session_state:
+            st.session_state['realtime_dashboard_analysis_data'] = None
 
     @staticmethod
     def update_patterns(patterns: List[Dict]):
@@ -613,14 +612,51 @@ class AIAnalyzer:
 
 
 def render_sidebar_prices():
-    """Render real-time prices in sidebar."""
+    """Render real-time prices in sidebar with enhanced rate limiting protection."""
     st.sidebar.header('Real-Time Stock Prices')
+    
+    # Check if we should fetch new data (limit to every 30 seconds)
+    current_time = time.time()
+    last_fetch_key = 'last_sidebar_fetch'
+    
+    if last_fetch_key not in st.session_state:
+        st.session_state[last_fetch_key] = 0
+    
+    time_since_last_fetch = current_time - st.session_state[last_fetch_key]
+    
+    if time_since_last_fetch < 30:  # Wait at least 30 seconds between fetches
+        # Show cached data if available
+        if 'sidebar_price_cache' in st.session_state:
+            st.sidebar.caption(f"⏰ Next update in {30 - int(time_since_last_fetch)} seconds")
+            for cached_item in st.session_state['sidebar_price_cache']:
+                with st.sidebar:
+                    safe_streamlit_metric(
+                        cached_item['symbol'],
+                        cached_item['price'],
+                        cached_item['change']
+                    )
+        else:
+            st.sidebar.caption("⚠️ Loading prices...")
+        return
+    
+    # Update fetch timestamp
+    st.session_state[last_fetch_key] = current_time
     
     processor = DataProcessor()
     
-    for symbol in DEFAULT_SYMBOLS:
-        try:
-            real_time_data = processor.fetch_stock_data(symbol, '1d', '1m')
+    # Add rate limiting info
+    st.sidebar.caption("📊 Fetching latest prices...")
+    
+    # Initialize cache
+    sidebar_cache = []
+    
+    for i, symbol in enumerate(DEFAULT_SYMBOLS):
+        try:            # Add substantial delay between requests to avoid rate limiting
+            if i > 0:
+                time.sleep(2.0)  # 2 second delay between requests
+                
+            # Use even longer interval to reduce API calls
+            real_time_data = processor.fetch_stock_data(symbol, '1d', '15m')  # Use 15m interval
             if not real_time_data.empty:
                 real_time_data = processor.process_data(real_time_data)
                 
@@ -632,17 +668,47 @@ def render_sidebar_prices():
                 change = last_price - open_price
                 pct_change = (change / open_price) * 100 if open_price != 0 else 0.0
                 
-                # Use safe metric display instead of direct st.sidebar.metric
+                # Cache the data
+                cached_item = {
+                    'symbol': f"{symbol}",
+                    'price': f"{last_price:.2f} USD",
+                    'change': f"{change:.2f} ({pct_change:.2f}%)"
+                }
+                sidebar_cache.append(cached_item)
+                  # Use safe metric display instead of direct st.sidebar.metric
                 with st.sidebar:
                     safe_streamlit_metric(
-                        f"{symbol}", 
-                        f"{last_price:.2f} USD", 
-                        f"{change:.2f} ({pct_change:.2f}%)"
+                        cached_item['symbol'], 
+                        cached_item['price'], 
+                        cached_item['change']
                     )
+            else:
+                # Show placeholder for failed symbols
+                cached_item = {
+                    'symbol': f"{symbol}",
+                    'price': "Data unavailable",
+                    'change': ""
+                }
+                sidebar_cache.append(cached_item)
+                
+                with st.sidebar:
+                    st.caption(f"{symbol}: Data unavailable")
                 
         except Exception as e:
-            handle_streamlit_error(e, f"sidebar prices for {symbol}")
+            # Show user-friendly error instead of crashing
+            cached_item = {
+                'symbol': f"{symbol}",
+                'price': "Rate limited",
+                'change': ""
+            }
+            sidebar_cache.append(cached_item)
+            
+            with st.sidebar:
+                st.caption(f"{symbol}: Rate limited")
             logger.warning(f"Error in sidebar prices for {symbol}: {e}")
+    
+    # Store cache for next time
+    st.session_state['sidebar_price_cache'] = sidebar_cache
 
 
 def render_main_dashboard():
@@ -656,17 +722,15 @@ def render_main_dashboard():
     ai_analyzer = AIAnalyzer()
     
     # Initialize session state
-    state_manager.initialize_session_state()
+    state_manager.initialize_session_state()    # Sidebar form for parameters    # Create unique form key based on session to avoid conflicts
+    form_key = f"realtime_dashboard_v3_form_{int(time.time() * 1000) % 100000}"
     
-    # Sidebar form for parameters
-    with st.sidebar.form("main_form"):
+    with st.sidebar.form(form_key):
         st.header('Chart Parameters')
         ticker = st.text_input('Ticker', 'ADBE').upper().strip()
         time_period = st.selectbox('Time Period', VALID_TIME_PERIODS)
         chart_type = st.selectbox('Chart Type', VALID_CHART_TYPES)
-        indicators = st.multiselect('Technical Indicators', VALID_INDICATORS)
-        
-        # Pattern selection - fix: create instance of CandlestickPatterns
+        indicators = st.multiselect('Technical Indicators', VALID_INDICATORS)        # Pattern selection - fix: create instance of CandlestickPatterns
         try:
             patterns_instance = CandlestickPatterns()
             pattern_names = patterns_instance.get_pattern_names()
@@ -680,10 +744,18 @@ def render_main_dashboard():
             selected_patterns = []
             
         submitted = st.form_submit_button("Update")
-
+    
+    # Debug information for troubleshooting
+    if st.sidebar.checkbox("Show Form Debug", value=False):
+        st.sidebar.write(f"Form submitted: {submitted}")
+        st.sidebar.write(f"Ticker: {ticker if 'ticker' in locals() else 'Not set'}")
+        st.sidebar.write(f"Time period: {time_period if 'time_period' in locals() else 'Not set'}")    
     # Main content area
+    analysis_data = None  # Track if we have analysis data
+    
     if submitted and ticker:
         try:
+            st.success(f"Processing request for {ticker} ({time_period})...")
             with st.spinner(f"Loading data for {ticker}..."):
                 # Fetch and process data
                 interval = INTERVAL_MAPPING.get(time_period, '1d')
@@ -739,29 +811,53 @@ def render_main_dashboard():
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 
+                # Store analysis data for AI section and session state
+                analysis_data = {
+                    'ticker': ticker,
+                    'time_period': time_period,
+                    'detected_patterns': detected_patterns
+                }
+                st.session_state['realtime_dashboard_analysis_data'] = analysis_data
+                
         except Exception as e:
             # Use centralized error handling
             handle_streamlit_error(e, f"processing {ticker}")
             logger.error(f"Dashboard error for {ticker}: {e}\n{traceback.format_exc()}")
             st.session_state['error_count'] = st.session_state.get('error_count', 0) + 1
+    else:
+        # Show instructions when no form submission
+        if not submitted:
+            st.info("👈 Please fill out the form in the sidebar and click 'Update' to load stock data and analysis.")
+        else:
+            st.warning("Please enter a valid ticker symbol.")
     
     # AI Analysis Section
-    st.subheader("AI-Powered Analysis")
+    st.subheader("AI-Powered Analysis")    # Add a clear button for troubleshooting
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        clear_btn_key = f"clear_data_btn_{int(time.time() * 1000) % 10000}"
+        if st.button("🗑️ Clear Data", key=clear_btn_key, help="Clear cached analysis data"):
+            st.session_state['realtime_dashboard_analysis_data'] = None
+            st.rerun()
     
-    # Get current patterns
-    detected_patterns = state_manager.get_patterns()
+    # Get analysis data - either from current execution or session state
+    if 'analysis_data' not in locals() or analysis_data is None:
+        analysis_data = st.session_state.get('realtime_dashboard_analysis_data', None)
     
-    # Generate summary
-    if 'ticker' in locals():
-        summary_text = ai_analyzer.generate_summary(ticker, time_period, detected_patterns)
+    # Generate summary only if we have analysis data
+    if analysis_data:
+        summary_text = ai_analyzer.generate_summary(
+            analysis_data['ticker'], 
+            analysis_data['time_period'], 
+            analysis_data['detected_patterns']
+        )
     else:
-        summary_text = "No analysis data available. Please submit the form above."
+        summary_text = "No analysis data available. Please submit the form above to load stock data."
     
-    st.text_area("Copyable Analysis Summary", summary_text, height=200)
-    
-    # AI Insight button
-    if st.button("Get ChatGPT Insight"):
-        if 'ticker' not in locals():
+    st.text_area("Copyable Analysis Summary", summary_text, height=200)    # AI Insight button
+    insight_btn_key = f"chatgpt_insight_btn_{int(time.time() * 1000) % 10000}"
+    if st.button("Get ChatGPT Insight", key=insight_btn_key):
+        if not analysis_data:
             st.warning("Please submit the form first to generate analysis data.")
         else:
             with st.spinner("Contacting ChatGPT..."):
@@ -773,21 +869,22 @@ def render_main_dashboard():
 def main():
     """Main dashboard function."""
     try:
-        # Configure page
-        # st.set_page_config(  # Handled by main dashboard
-        #     page_title="Real-Time Stock Dashboard",
-        #     page_icon="📈",
-        #     layout="wide",
-        #     initial_sidebar_state="expanded"
-        # )
-        
-        st.title('Real-Time Stock Dashboard')
-        
-        # Render main dashboard
+        # Only setup page if we're not being loaded by the main dashboard
+        # The main dashboard handles page configuration
+        if '__main__' in str(globals().get('__name__', '')):
+            setup_page(
+                title="📊 Real-time Stock Dashboard V3",
+                logger_name=__name__,
+                sidebar_title="Dashboard Controls"
+            )
+        else:
+            # When loaded by main dashboard, just set the title
+            st.title('📊 Real-Time Stock Dashboard V3')
+          # Render main dashboard
         render_main_dashboard()
         
-        # Render sidebar content
-        render_sidebar_prices()
+        # Render sidebar content - temporarily disabled due to rate limiting
+        # render_sidebar_prices()
         
         # Sidebar information
         st.sidebar.subheader('About')

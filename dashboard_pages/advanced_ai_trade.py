@@ -49,7 +49,7 @@ from train.model_manager import ModelManager as CoreModelManager
 from utils.config.notification_settings_ui import render_notification_settings
 from utils.data_validator import DataValidator
 from utils.notifier import Notifier
-from utils.security import get_api_credentials, validate_credentials, get_sandbox_mode  # Use security utilities
+from security.authentication import get_api_credentials, validate_credentials, get_sandbox_mode  # Use security utilities
 from utils.technicals.indicators import TechnicalIndicators
 from utils.decorators import handle_exceptions, handle_dashboard_exceptions
 from train.ml_config import MLConfig
