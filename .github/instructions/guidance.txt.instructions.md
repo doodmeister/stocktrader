@@ -8,27 +8,27 @@ applyTo: '**'
 
 ### Operating System & Shell Requirements
 - **Target OS**: Windows
-- **Default Shell**: PowerShell (`powershell.exe`)
-- **All terminal commands MUST be PowerShell-compatible**
+- **Default Shell**: Bash (`bash.exe`)
+- **All terminal commands MUST be bash-compatible**
 
 ### Terminal Command Standards
 
-#### ✅ Use PowerShell Syntax
+#### ✅ Use Bash Syntax
+```bash
+# Correct: Bash commands
+pwd
+cd /c/dev/stocktrader
+source venv/Scripts/activate
+streamlit run main.py
+python -m pip install -r requirements.txt
+```
+
+#### ❌ Avoid PowerShell Commands
 ```powershell
-# Correct: PowerShell commands
+# Incorrect: Do not use PowerShell syntax
 Get-Location
 Set-Location c:\dev\stocktrader
 .\venv\Scripts\activate
-streamlit run main.py
-python -m pip install requirements.txt
-```
-
-#### ❌ Avoid Bash/Unix Commands
-```bash
-# Incorrect: Do not use bash syntax
-pwd
-cd /dev/stocktrader
-source venv/bin/activate
 ```
 
 ### Project Status & Architecture
@@ -45,11 +45,11 @@ source venv/bin/activate
 4. **`core/health_checks.py`** - System health monitoring with 30s caching
 5. **`core/session_manager.py`** - Manages user sessions and state
 
-#### Project Commands (PowerShell)
-```powershell
+#### Project Commands (Bash)
+```bash
 # Environment setup
 python -m venv venv
-.\venv\Scripts\activate
+source venv/Scripts/activate
 pip install -r requirements.txt
 
 # Launch dashboard (recommended)
@@ -60,8 +60,8 @@ python -c "import main; print('Imports working')"
 python -c "from core import dashboard_controller; print('Core modules working')"
 
 # Testing
-python -m pytest tests\
-Get-ChildItem -Path "core\" -Filter "*.py" | ForEach-Object { python -c "import core.$($_.BaseName); print('$($_.Name) imported successfully')" }
+python -m pytest tests/
+find core/ -name "*.py" -exec basename {} .py \; | while read module; do python -c "import core.$module; print('$module.py imported successfully')"; done
 ```
 
 ## Development Standards
@@ -81,53 +81,53 @@ Get-ChildItem -Path "core\" -Filter "*.py" | ForEach-Object { python -c "import 
 
 ### Documentation Standards
 - **Status Indicators**: Use ✅ for completed features, 🚀 for new features, ⚠️ for deprecated
-- **Command Examples**: Always use PowerShell syntax
+- **Command Examples**: Always use bash syntax
 - **Architecture Notes**: Reference the modular structure in explanations
 - **Completion Status**: Always acknowledge that modularization is complete
 
 ## Security & Best Practices
 
 ### Path Handling
-```powershell
-# Correct: Windows path separators
-$projectPath = "c:\dev\stocktrader"
-$corePath = "$projectPath\core"
+```bash
+# Correct: Windows paths in bash format
+projectPath="/c/dev/stocktrader"
+corePath="$projectPath/core"
 ```
 
 ### Environment Variables
-```powershell
-# PowerShell environment variable syntax
-$env:PYTHONPATH = "c:\dev\stocktrader"
-$env:STREAMLIT_SERVER_PORT = "8501"
+```bash
+# Bash environment variable syntax
+export PYTHONPATH="/c/dev/stocktrader"
+export STREAMLIT_SERVER_PORT="8501"
 ```
 
 ### File Operations
-```powershell
-# Use PowerShell cmdlets
-Copy-Item "source\file.py" -Destination "destination\file.py"
-Remove-Item "temp\*.log" -Force
-New-Item -ItemType Directory -Path "new_folder" -Force
+```bash
+# Use bash commands
+cp "source/file.py" "destination/file.py"
+rm -f temp/*.log
+mkdir -p new_folder
 ```
 
 ## AI Assistant Guidelines
 
 ### When Providing Instructions
-1. **Always use PowerShell commands** for Windows environment
+1. **Always use bash commands** for Windows environment
 2. **Reference completed modular architecture** - don't suggest recreating existing modules
-3. **Use absolute file paths** with Windows-style backslashes
+3. **Use absolute file paths** with Unix-style forward slashes
 4. **Acknowledge completion status** of the modularization project
-5. **Provide working examples** that can be copy-pasted into PowerShell
+5. **Provide working examples** that can be copy-pasted into bash
 
 ### Response Format
-- **Commands**: Use PowerShell syntax with proper escaping
-- **File Paths**: Use Windows format (`c:\dev\stocktrader\core\file.py`)
+- **Commands**: Use bash syntax with proper escaping
+- **File Paths**: Use Unix format (`/c/dev/stocktrader/core/file.py`)
 - **Status**: Always acknowledge completed modular architecture
-- **Examples**: Provide runnable PowerShell commands
+- **Examples**: Provide runnable bash commands
 
 ### Completion Acknowledgment
 Always recognize that:
 - ✅ Modular architecture is 100% complete and functional
 - ✅ All 4 core modules are implemented and tested
 - ✅ Health monitoring system is active with caching
-- ✅ Dashboard runs successfully on Windows with PowerShell
+- ✅ Dashboard runs successfully on Windows with bash
 - ✅ Import system is fixed and working properly

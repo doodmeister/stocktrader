@@ -16,6 +16,21 @@ logger = get_dashboard_logger(__name__)
 # Utilities
 from utils.preprocessing_config import save_preprocessing_config
 
+# Import the enhanced data validator
+from core.data_validator import (
+    validate_dataframe, 
+    DataFrameValidationResult,
+    ValidationResult,
+    get_global_validator
+)
+
+# Define backwards-compatible DataValidationResult
+from typing import NamedTuple
+class DataValidationResult(NamedTuple):
+    is_valid: bool
+    error_message: Optional[str]
+    stats: Optional[Dict[str, Any]] = None
+
 # Deep learning pipeline
 from train.model_training_pipeline import MLPipeline
 from train.model_manager import ModelManager, ModelMetadata
@@ -81,11 +96,6 @@ class TrainingConfigUnified:
                 return False, "cv_folds must be between 2 and 10"
         return True, None
 
-class DataValidationResult(NamedTuple):
-    is_valid: bool
-    error_message: Optional[str]
-    stats: Optional[Dict[str, Any]] = None
-
 REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume", "timestamp"]
 MAX_FILE_SIZE_MB = 5
 MODELS_DIR = Path("models/")
@@ -98,57 +108,79 @@ def get_model_manager() -> ModelManager:
     return ModelManager(base_directory=str(MODELS_DIR))
 
 def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
-    # Only check numeric columns for isfinite
-    numeric_df = df.select_dtypes(include=[np.number])
-    if not np.isfinite(numeric_df.values).all():
-        return DataValidationResult(False, "Dataset contains NaN or infinity values.", None)
+    """
+    Validate OHLCV data for model training using the core data validator.
+    
+    Args:
+        df: DataFrame to validate
+        
+    Returns:
+        DataValidationResult with validation status and details
+    """
     try:
         logger.info("Starting data validation step")
         st.info("Validating data...")
-
-        missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
-        if missing_cols:
-            logger.warning(f"Missing required columns: {missing_cols}")
-            return DataValidationResult(False, f"Missing required columns: {', '.join(missing_cols)}", None)
-        null_counts = df.isnull().sum()
-        if null_counts.any():
-            logger.warning(f"Dataset contains null values: {dict(null_counts[null_counts > 0])}")
-            return DataValidationResult(
-                False,
-                f"Dataset contains null values: {dict(null_counts[null_counts > 0])}",
-                None
-            )
-        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-        for col in numeric_cols:
-            if not pd.api.types.is_numeric_dtype(df[col]):
-                logger.warning(f"Column {col} must be numeric")
-                return DataValidationResult(False, f"Column {col} must be numeric", None)
-            if (df[col] < 0).any():
-                logger.warning(f"Negative values found in {col}")
-                return DataValidationResult(False, f"Negative values found in {col}", None)
-        if not (df['high'] >= df['low']).all():
-            logger.warning("High prices must be >= low prices")
-            return DataValidationResult(False, "High prices must be >= low prices", None)
-        if not ((df['high'] >= df['open']) & (df['high'] >= df['close'])).all():
-            logger.warning("High price must be >= open and close prices")
-            return DataValidationResult(False, "High price must be >= open and close prices", None)
-        if not ((df['low'] <= df['open']) & (df['low'] <= df['close'])).all():
-            logger.warning("Low price must be <= open and close prices")
-            return DataValidationResult(False, "Low price must be <= open and close prices", None)
+        
+        # Check for NaN or infinite values first (quick check)
+        numeric_df = df.select_dtypes(include=[np.number])
+        if not np.isfinite(numeric_df.values).all():
+            return DataValidationResult(False, "Dataset contains NaN or infinity values.", None)
+            
+        # Use the comprehensive DataValidator from core module
+        validation_result = validate_dataframe(
+            df, 
+            required_cols=REQUIRED_COLUMNS,
+            validate_ohlc=True, 
+            check_statistical_anomalies=True
+        )
+        
+        # Process validation results
+        if not validation_result.is_valid:
+            error_message = "; ".join(validation_result.errors)
+            logger.warning(f"Validation failed: {error_message}")
+            return DataValidationResult(False, error_message, None)
+            
+        # Check minimum sample size requirement
         if len(df) < MIN_SAMPLES:
             logger.warning(f"Dataset too small (minimum {MIN_SAMPLES} samples required)")
             return DataValidationResult(False, f"Dataset too small (minimum {MIN_SAMPLES} samples required)", None)
+            
+        # Extract stats from validation result
         stats = {
-            "samples": len(df),
-            "timeframe": f"{df.index[0]} to {df.index[-1]}",
-            "mean_volume": df['volume'].mean(),
-            "price_range": f"{df['low'].min():.2f} - {df['high'].max():.2f}"
+            "samples": validation_result.row_count,
+            "columns": validation_result.column_count,
+            "null_counts": validation_result.null_counts,
+            "data_types": validation_result.data_types,
+            "memory_usage_mb": validation_result.statistics.get('memory_usage_mb', 0)
         }
+        
+        # Add additional price range info from OHLC data
+        if 'price_range' in validation_result.statistics:
+            ohlc_stats = validation_result.statistics.get('price_range', {})
+            stats["price_range"] = f"{ohlc_stats.get('low', {}).get('min', 0):.2f} - {ohlc_stats.get('high', {}).get('max', 0):.2f}"
+        
+        # Add date range info if available
+        date_info = validation_result.statistics.get('date_range', {})
+        if date_info:
+            start_date = date_info.get('start_date')
+            end_date = date_info.get('end_date')
+            if start_date and end_date:
+                stats["timeframe"] = f"{start_date} to {end_date}"
+        
+        # Add volume info
+        if 'volume' in df.columns:
+            stats["mean_volume"] = df['volume'].mean()
+            
+        # Display warnings if any
+        if validation_result.warnings:
+            for warning in validation_result.warnings:
+                logger.warning(f"Data warning: {warning}")
 
         logger.info("Data validation step completed")
         st.info("Data validated successfully.")
-
+        
         return DataValidationResult(True, None, stats)
+        
     except Exception as e:
         logger.exception("Data validation error")
         return DataValidationResult(False, f"Validation error: {str(e)}", None)

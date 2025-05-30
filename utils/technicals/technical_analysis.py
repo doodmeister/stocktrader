@@ -3,7 +3,7 @@ import numpy as np
 from utils.logger import setup_logger
 from utils.technicals.indicators import (
     add_rsi, add_macd, add_bollinger_bands, add_atr, add_sma, add_ema,
-    IndicatorError, validate_dataframe
+    IndicatorError, validate_indicator_data
 )
 
 logger = setup_logger(__name__)
@@ -22,7 +22,7 @@ class TechnicalAnalysis:
     def sma(self, period=20, close_col='close'):
         """Simple Moving Average."""
         try:
-            validate_dataframe(self.data, [close_col])
+            validate_indicator_data(self.data, [close_col])
             return self.data[close_col].rolling(window=period, min_periods=1).mean()
         except Exception as e:
             logger.error(f"SMA calculation failed: {e}")
@@ -31,7 +31,7 @@ class TechnicalAnalysis:
     def ema(self, period=20, close_col='close'):
         """Exponential Moving Average."""
         try:
-            validate_dataframe(self.data, [close_col])
+            validate_indicator_data(self.data, [close_col])
             return self.data[close_col].ewm(span=period, adjust=False).mean()
         except Exception as e:
             logger.error(f"EMA calculation failed: {e}")

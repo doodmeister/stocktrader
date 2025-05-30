@@ -62,6 +62,14 @@ except ImportError:
 from patterns.pattern_utils import get_pattern_names, get_pattern_method
 from utils.logger import setup_logger
 
+# Centralized validation imports
+from core.data_validator import (
+    validate_dataframe, 
+    DataFrameValidationResult, 
+    ValidationResult, 
+    get_global_validator
+)
+
 logger = setup_logger(__name__)
 
 
@@ -228,7 +236,8 @@ class FeatureEngineer:
 
     def _validate_input_data(self, df: pd.DataFrame) -> None:
         """
-        Validate input DataFrame for feature engineering.
+        Validate input DataFrame for feature engineering using centralized validation
+        with feature engineering specific checks.
         
         Args:
             df: Input DataFrame to validate
@@ -236,22 +245,30 @@ class FeatureEngineer:
         Raises:
             DataValidationError: If data is invalid
         """
-        if df is None or df.empty:
-            raise DataValidationError("Input DataFrame cannot be None or empty")
+        logger.debug("Starting feature engineering validation")
         
-        # Check required columns
+        # First run centralized validation
+        try:
+            validation_result = validate_dataframe(df)
+            if not validation_result.is_valid:
+                logger.error(f"Core validation failed: {validation_result.summary}")
+                raise DataValidationError(f"Core validation failed: {validation_result.summary}")
+            else:
+                logger.debug("Core validation passed")
+        except Exception as e:
+            logger.error(f"Error during core validation: {e}")
+            raise DataValidationError(f"Validation error: {e}")
+        
+        # Feature engineering specific validation
+        logger.debug("Running feature engineering specific validation")
+        
+        # Check required columns for feature engineering
         required_columns = {'open', 'high', 'low', 'close', 'volume'}
         missing_columns = required_columns - set(df.columns)
         if missing_columns:
-            raise DataValidationError(f"Missing required columns: {missing_columns}")
+            raise DataValidationError(f"Missing required columns for feature engineering: {missing_columns}")
         
-        # Validate data types
-        numeric_columns = ['open', 'high', 'low', 'close', 'volume']
-        for col in numeric_columns:
-            if not pd.api.types.is_numeric_dtype(df[col]):
-                raise DataValidationError(f"Column '{col}' must be numeric")
-        
-        # Check for valid OHLC relationships
+        # Check for valid OHLC relationships (feature engineering specific)
         invalid_ohlc = df[
             (df['high'] < df[['open', 'low', 'close']].max(axis=1)) |
             (df['low'] > df[['open', 'high', 'close']].min(axis=1))
@@ -266,12 +283,14 @@ class FeatureEngineer:
             else:
                 logger.warning(f"Found {error_count} rows with invalid OHLC relationships")
         
-        # Check for reasonable value ranges
+        # Check for reasonable value ranges (feature engineering specific)
+        numeric_columns = ['open', 'high', 'low', 'close', 'volume']
         for col in numeric_columns:
             if (df[col] <= 0).any():
                 zero_count = (df[col] <= 0).sum()
                 logger.warning(f"Found {zero_count} non-positive values in '{col}'")
-          # Check minimum data requirements with adaptive filtering
+                
+        # Check minimum data requirements with adaptive filtering
         available_rows = len(df)
         min_absolute = min(self.config.ROLLING_WINDOWS) + self.config.TARGET_HORIZON
         
@@ -299,10 +318,13 @@ class FeatureEngineer:
             self.config.ROLLING_WINDOWS = usable_windows
         else:
             self._original_windows = None
-          # Memory usage check
+            
+        # Memory usage check
         memory_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
         if memory_mb > self.max_memory_mb * 0.5:  # Use 50% threshold for input
             logger.warning(f"Large input data: {memory_mb:.1f}MB (limit: {self.max_memory_mb}MB)")
+            
+        logger.debug("Feature engineering validation completed successfully")
 
     def _check_memory_usage(self, df: pd.DataFrame, operation: str) -> None:
         """Check memory usage and clean up if needed."""

@@ -41,6 +41,14 @@ from train.model_manager import ModelManager, ModelMetadata
 from utils.technicals.feature_engineering import compute_technical_features
 from patterns.pattern_utils import add_candlestick_pattern_features
 
+# Import centralized data validation system
+from core.data_validator import (
+    validate_dataframe,
+    DataFrameValidationResult,
+    ValidationResult,
+    get_global_validator
+)
+
 # Suppress sklearn warnings for cleaner logs
 warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
 
@@ -169,7 +177,7 @@ class PatternModelTrainer:
 
     def _validate_input_data(self, data: pd.DataFrame) -> None:
         """
-        Validate input DataFrame for training.
+        Validate input DataFrame for training using centralized validation system.
         
         Args:
             data: Input DataFrame to validate
@@ -177,27 +185,70 @@ class PatternModelTrainer:
         Raises:
             DataValidationError: If data validation fails
         """
+        logger.debug("Starting deep learning data validation")
+        
+        # Basic type and structure validation
         if not isinstance(data, pd.DataFrame):
             raise DataValidationError("Input data must be a pandas DataFrame")
         
         if data.empty:
             raise DataValidationError("Input DataFrame is empty")
         
-        if len(data) < self.config.seq_len * 2:
+        # Use centralized validation system for core validation
+        try:
+            logger.debug("Performing core data validation (OHLC integrity, statistical anomalies)")
+            validation_result = validate_dataframe(
+                data,
+                required_cols=['open', 'high', 'low', 'close'],
+                validate_ohlc=True,
+                check_statistical_anomalies=True
+            )
+            
+            if not validation_result.is_valid:
+                error_msg = "; ".join(validation_result.errors)
+                logger.error(f"Core data validation failed: {error_msg}")
+                raise DataValidationError(f"Core validation failed: {error_msg}")
+            
+            # Log validation warnings from core system
+            if validation_result.warnings:
+                for warning in validation_result.warnings:
+                    logger.warning(f"Core validation warning: {warning}")
+                    
+            logger.debug(f"Core validation passed: {validation_result.row_count}x{validation_result.column_count} DataFrame")
+            
+        except Exception as e:
+            if isinstance(e, DataValidationError):
+                raise
+            logger.error(f"Core validation system error: {e}")
+            raise DataValidationError(f"Validation system error: {str(e)}")
+        
+        # Deep learning specific validation requirements
+        logger.debug("Performing deep learning specific validation")
+        
+        # Check sequence length requirements for deep learning models
+        min_rows_needed = self.config.seq_len * 2
+        if len(data) < min_rows_needed:
             raise DataValidationError(
-                f"Insufficient data: {len(data)} rows, need at least {self.config.seq_len * 2}"
+                f"Insufficient data for sequence modeling: {len(data)} rows available, "
+                f"need at least {min_rows_needed} rows (seq_len={self.config.seq_len} * 2)"
             )
         
+        # Check for NaN values in OHLC data (deep learning models are sensitive to NaN)
         required_cols = ['open', 'high', 'low', 'close']
-        missing_cols = [col for col in required_cols if col not in data.columns]
-        if missing_cols:
-            raise DataValidationError(f"Missing required columns: {missing_cols}")
-        
-        # Check for NaN values in OHLC data
         if data[required_cols].isnull().any().any():
-            logger.warning("Found NaN values in OHLC data, will attempt to handle")
+            nan_info = data[required_cols].isnull().sum()
+            logger.warning(f"Found NaN values in OHLC data: {nan_info.to_dict()}")
+            logger.warning("Deep learning models require clean data - consider data preprocessing")
         
-        logger.debug(f"Data validation passed: {len(data)} rows, {len(data.columns)} columns")
+        # Additional deep learning specific checks
+        # Check for extreme values that might cause training instability
+        for col in required_cols:
+            if (data[col] <= 0).any():
+                zero_count = (data[col] <= 0).sum()
+                logger.warning(f"Found {zero_count} non-positive values in {col} - may cause log transformation issues")
+        
+        logger.debug(f"Deep learning validation passed: {len(data)} rows, {len(data.columns)} columns")
+        logger.info(f"Data validation successful for sequence modeling (seq_len={self.config.seq_len})")
 
     def prepare_training_data(
         self, data: pd.DataFrame

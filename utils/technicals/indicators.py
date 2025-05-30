@@ -9,10 +9,12 @@ Adds composite signal and price target logic from technical_analysis.py.
 """
 from utils.logger import setup_logger
 from typing import Optional, Union, List, Any, Dict
-import utils.logger as logging
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
+
+# Import centralized validation system
+from core.data_validator import validate_dataframe, DataFrameValidationResult, ValidationResult, get_global_validator
 
 logger = setup_logger(__name__)
 
@@ -21,29 +23,59 @@ try:
     TA_AVAILABLE = True
 except ImportError:
     TA_AVAILABLE = False
-    logging.warning("pandas_ta not found - using fallback implementations for indicators")
+    logger.warning("pandas_ta not found - using fallback implementations for indicators")
 
 class IndicatorError(Exception):
     """Custom exception for indicator calculation errors."""
     pass
 
-def validate_dataframe(df: DataFrame, required_columns: List[str]) -> None:
-    """Validate DataFrame has required columns and no NaN values."""
-    if not isinstance(df, DataFrame):
-        raise TypeError("Input must be a pandas DataFrame")
-    missing_cols = [col for col in required_columns if col not in df.columns]
-    if missing_cols:
-        raise ValueError(f"DataFrame missing required columns: {missing_cols}")
-    if df.empty:
-        raise ValueError("DataFrame is empty")
-    if df[required_columns].isna().any().any():
-        raise ValueError("DataFrame contains NaN values in required columns")
+def validate_indicator_data(df: DataFrame, required_columns: List[str]) -> None:
+    """
+    Validate DataFrame for technical indicator calculations using centralized validation.
+    
+    Args:
+        df: Input DataFrame to validate
+        required_columns: List of required column names
+        
+    Raises:
+        TypeError: If input is not a DataFrame
+        ValueError: If validation fails
+    """
+    # First run centralized validation
+    try:
+        logger.debug("Running centralized validation for indicator data")
+        validation_result = validate_dataframe(df, required_cols=required_columns)
+        
+        if not validation_result.is_valid:
+            error_message = "; ".join(validation_result.errors)
+            logger.error(f"Centralized validation failed: {error_message}")
+            raise ValueError(f"Data validation failed: {error_message}")
+        
+        # Log any warnings from centralized validation
+        if validation_result.warnings:
+            for warning in validation_result.warnings:
+                logger.warning(f"Data warning: {warning}")
+                
+        logger.debug("Centralized validation passed for indicator data")
+        
+    except Exception as e:
+        logger.error(f"Validation error: {e}")
+        raise ValueError(f"Failed to validate data: {e}")
+    
+    # Additional indicator-specific validation (if needed)
+    # The centralized validator already handles:
+    # - DataFrame type checking
+    # - Required columns existence
+    # - Empty DataFrame detection
+    # - NaN value checking
+    # - OHLC relationships (when applicable)
+    # - Statistical anomaly detection
 
 def add_rsi(df: DataFrame, length: int = 14, close_col: str = 'close') -> DataFrame:
     """Calculate Relative Strength Index (RSI) and append as 'rsi' column."""
     try:
         df = df.copy()
-        validate_dataframe(df, [close_col])
+        validate_indicator_data(df, [close_col])
         if length < 1:
             raise ValueError("Length must be positive")
         if TA_AVAILABLE:
@@ -64,7 +96,7 @@ def add_macd(df: DataFrame, fast: int = 12, slow: int = 26, signal: int = 9, clo
     """Calculate MACD indicator and append columns. If insufficient rows, fill columns with NaN."""
     try:
         df = df.copy()
-        validate_dataframe(df, [close_col])
+        validate_indicator_data(df, [close_col])
 
         # Ensure all periods are valid
         if any(p < 1 for p in (fast, slow, signal)):
@@ -109,7 +141,7 @@ def add_bollinger_bands(df: DataFrame, length: int = 20, std: Union[int, float] 
     """Calculate Bollinger Bands and append band columns."""
     try:
         df = df.copy()
-        validate_dataframe(df, [close_col])
+        validate_indicator_data(df, [close_col])
         if length < 1:
             raise ValueError("Length must be positive")
         if std <= 0:
@@ -149,7 +181,7 @@ def add_atr(df: DataFrame, length: int = 14) -> DataFrame:
     """Calculate Average True Range (ATR) and append as 'atr' column."""
     try:
         df = df.copy()
-        validate_dataframe(df, ['high', 'low', 'close'])
+        validate_indicator_data(df, ['high', 'low', 'close'])
         if length < 1:
             raise ValueError("Length must be positive")
         if TA_AVAILABLE:
@@ -169,7 +201,7 @@ def add_sma(df: DataFrame, length: int = 20, close_col: str = 'close') -> DataFr
     """Add Simple Moving Average (SMA) column."""
     try:
         df = df.copy()
-        validate_dataframe(df, [close_col])
+        validate_indicator_data(df, [close_col])
         df[f'sma_{length}'] = df[close_col].rolling(window=length, min_periods=1).mean()
         return df
     except Exception as e:
@@ -180,7 +212,7 @@ def add_ema(df: DataFrame, length: int = 20, close_col: str = 'close') -> DataFr
     """Add Exponential Moving Average (EMA) column."""
     try:
         df = df.copy()
-        validate_dataframe(df, [close_col])
+        validate_indicator_data(df, [close_col])
         df[f'ema_{length}'] = df[close_col].ewm(span=length, adjust=False).mean()
         return df
     except Exception as e:

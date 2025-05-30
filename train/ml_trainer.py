@@ -44,6 +44,14 @@ from train.feature_engineering import FeatureEngineer
 from train.model_manager import ModelManager, ModelMetadata
 from utils.logger import setup_logger
 
+# Import centralized data validation system
+from core.data_validator import (
+    validate_dataframe,
+    DataFrameValidationResult,
+    ValidationResult,
+    get_global_validator
+)
+
 # Suppress sklearn warnings for cleaner logs
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
@@ -205,10 +213,10 @@ class ModelTrainer:
         self._memory_usage = {}
         
         logger.info(f"ModelTrainer initialized with {self.max_workers} workers")
-
+    
     def validate_input_data(self, df: pd.DataFrame) -> None:
         """
-        Comprehensive validation of input DataFrame.
+        Comprehensive validation of input DataFrame using the centralized validation system.
         
         Args:
             df: Input DataFrame to validate
@@ -218,26 +226,41 @@ class ModelTrainer:
         """
         if df.empty:
             raise ValidationError("Input DataFrame is empty")
-            
-        # Check required columns
+        
+        # Use centralized data validation system
         required_columns = [col.lower() for col in self.feature_config.PRICE_FEATURES]
-        df_columns_lower = [col.lower() for col in df.columns]
-        missing_columns = [col for col in required_columns if col not in df_columns_lower]
         
-        if missing_columns:
-            raise ValidationError(
-                f"Missing required columns: {missing_columns}. "
-                f"Available columns: {list(df.columns)}"
+        try:
+            logger.info("Starting data validation using core validator")
+            
+            # Use the comprehensive DataValidator from core module
+            validation_result = validate_dataframe(
+                df, 
+                required_cols=required_columns,
+                validate_ohlc=True,
+                check_statistical_anomalies=True
             )
+            
+            # Check validation results
+            if not validation_result.is_valid:
+                error_message = "; ".join(validation_result.errors)
+                logger.error(f"Core validation failed: {error_message}")
+                raise ValidationError(f"Data validation failed: {error_message}")
+            
+            # Display warnings if any
+            if validation_result.warnings:
+                for warning in validation_result.warnings:
+                    logger.warning(f"Data warning: {warning}")
+            
+        except Exception as e:
+            if isinstance(e, ValidationError):
+                raise
+            logger.exception("Data validation error")
+            raise ValidationError(f"Validation error: {str(e)}")
         
-        # Validate index
-        if not isinstance(df.index, pd.DatetimeIndex):
-            try:
-                df.index = pd.to_datetime(df.index)
-            except Exception as e:
-                raise ValidationError(f"Cannot convert index to DatetimeIndex: {e}")
+        # ML-specific validation checks not covered by core validator
         
-        # Check for sufficient data
+        # Check for sufficient data based on ML requirements
         min_required_rows = (
             max(self.feature_config.ROLLING_WINDOWS) + 
             self.feature_config.TARGET_HORIZON + 
@@ -246,38 +269,40 @@ class ModelTrainer:
         
         if len(df) < min_required_rows:
             raise ValidationError(
-                f"Insufficient data: {len(df)} rows provided, "
-                f"minimum {min_required_rows} required"
+                f"Insufficient data for ML training: {len(df)} rows provided, "
+                f"minimum {min_required_rows} required (based on rolling windows, target horizon, and CV folds)"
             )
         
-        # Validate numeric columns
-        for col in required_columns:
-            actual_col = next((c for c in df.columns if c.lower() == col), None)
-            if actual_col and not pd.api.types.is_numeric_dtype(df[actual_col]):
-                raise ValidationError(f"Column '{actual_col}' must be numeric")
+        # Validate index for time series requirements
+        if not isinstance(df.index, pd.DatetimeIndex):
+            try:
+                df.index = pd.to_datetime(df.index)
+                logger.info("Converted index to DatetimeIndex for time series analysis")
+            except Exception as e:
+                raise ValidationError(f"Cannot convert index to DatetimeIndex for time series analysis: {e}")
         
-        # Check for data quality issues
+        # ML-specific data quality checks
         close_col = next((c for c in df.columns if c.lower() == 'close'), 'close')
         if close_col in df.columns:
             if df[close_col].isna().all():
                 raise ValidationError("Close price column contains only NaN values")
             
             if (df[close_col] <= 0).any():
-                logger.warning("Found non-positive close prices - will be filtered")
+                logger.warning("Found non-positive close prices - will be filtered during feature engineering")
         
-        # Memory usage check
+        # Memory usage check for ML processing
         memory_mb = df.memory_usage(deep=True).sum() / 1024**2
         if memory_mb > 1000:  # 1GB threshold
-            logger.warning(f"Large dataset detected: {memory_mb:.1f}MB")
+            logger.warning(f"Large dataset detected: {memory_mb:.1f}MB - consider chunked processing")
             
-        # Data quality metrics
+        # Data quality metrics for ML
         nan_pct = (df.isna().sum() / len(df) * 100).max()
         if nan_pct > 10:
-            logger.warning(f"High missing data percentage: {nan_pct:.1f}%")
+            logger.warning(f"High missing data percentage: {nan_pct:.1f}% - may impact model performance")
         
         logger.info(
-            f"Data validation passed: {len(df)} rows, {len(df.columns)} columns, "
-            f"{memory_mb:.1f}MB memory usage"
+            f"ML data validation passed: {len(df)} rows, {len(df.columns)} columns, "
+            f"{memory_mb:.1f}MB memory usage, ready for feature engineering"
         )
 
     @functools.lru_cache(maxsize=128)
