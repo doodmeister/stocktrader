@@ -39,7 +39,7 @@ from core.dashboard_utils import (
 )
 from utils.live_inference import make_trade_decision
 from patterns.pattern_utils import add_candlestick_pattern_features
-from utils.data_validator import DataValidator
+from core.data_validator import validate_dataframe, validate_ohlc_data
 
 # Import SessionManager to solve button key conflicts and session state issues
 from core.session_manager import create_session_manager, show_session_debug_info
@@ -107,8 +107,8 @@ class DashboardConfig(BaseModel):
     def validate_symbol_format(cls, v):
         """Ensure symbol is valid using the project's validator."""
         try:
-            validator = DataValidator()
-            return validator.validate_symbol(v)
+            # use the core util directly
+            return validate_symbol(v)
         except Exception as e:
             raise ValueError(f"Invalid symbol format: {e}")
     
@@ -443,49 +443,64 @@ def load_price_data(client: ETradeClient, symbol: str, session: TradingSession) 
             session.increment_error_count()
             return None
         
-        # Data processing and validation
-        try:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            df = df.sort_values('timestamp')
-            df.set_index('timestamp', inplace=True)
-            
-            # Validate data quality
-            numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-            for col in numeric_cols:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            # Remove invalid rows
-            df = df.dropna(subset=numeric_cols)
-            
-            if df.empty:
-                logger.error(f"No valid data rows after processing for {symbol}")
-                session.increment_error_count()
-                return None
-            
-            # Basic data validation
-            if not ((df['high'] >= df['low']).all() and 
-                   (df['high'] >= df['open']).all() and 
-                   (df['high'] >= df['close']).all() and
-                   (df['low'] <= df['open']).all() and 
-                   (df['low'] <= df['close']).all()):
-                logger.error(f"Invalid OHLC data detected for {symbol}")
-                session.increment_error_count()
-                return None
-            
-            # Add symbol for caching validation
-            df['symbol'] = symbol
-            
-            # Update session cache
-            session.update_data(df)
-            session.reset_error_count()
-            
-            logger.info(f"Successfully loaded {len(df)} data points for {symbol}")
-            return df
-            
-        except Exception as e:
-            logger.error(f"Data processing error for {symbol}: {e}")
+        # Replace manual validation with centralized validation
+
+        # Run centralized validation
+        validation_result = validate_dataframe(
+            df,
+            required_cols=list(REQUIRED_DATA_COLUMNS),
+            validate_ohlc=True,
+            check_statistical_anomalies=True
+        )
+
+        if not validation_result.is_valid:
+            error_message = "; ".join(validation_result.errors)
+            logger.error(f"Data validation failed for {symbol}: {error_message}")
             session.increment_error_count()
             return None
+            
+        # Log any warnings
+        if validation_result.warnings:
+            for warning in validation_result.warnings:
+                logger.warning(f"Data warning: {warning}")
+
+        # Process the data
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df = df.sort_values('timestamp')
+        df.set_index('timestamp', inplace=True)
+        
+        # Validate data quality
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Remove invalid rows
+        df = df.dropna(subset=numeric_cols)
+        
+        if df.empty:
+            logger.error(f"No valid data rows after processing for {symbol}")
+            session.increment_error_count()
+            return None
+        
+        # Basic data validation
+        if not ((df['high'] >= df['low']).all() and 
+               (df['high'] >= df['open']).all() and 
+               (df['high'] >= df['close']).all() and
+               (df['low'] <= df['open']).all() and 
+               (df['low'] <= df['close']).all()):
+            logger.error(f"Invalid OHLC data detected for {symbol}")
+            session.increment_error_count()
+            return None
+        
+        # Add symbol for caching validation
+        df['symbol'] = symbol
+        
+        # Update session cache
+        session.update_data(df)
+        session.reset_error_count()
+        
+        logger.info(f"Successfully loaded {len(df)} data points for {symbol}")
+        return df
             
     except Exception as e:
         logger.exception(f"Critical error loading data for {symbol}: {e}")
