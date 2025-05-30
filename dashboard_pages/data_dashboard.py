@@ -223,16 +223,14 @@ class DataDashboard:
         )
 
         # Date range selection with validation
-        self._render_date_inputs()
-
-        # Options: clean old data files
+        self._render_date_inputs()        # Options: clean old data files
         col1, _ = st.columns(2)
         with col1:
-            self.clean_old = st.checkbox(
+            self.clean_old = self.session_manager.create_checkbox(
                 "Clean old CSVs before fetching?",
+                "clean_old_csvs",
                 value=self.clean_old,
-                help="Delete previously saved CSV files for these symbols before downloading new data.",
-                key="clean_old_checkbox"  # Static key
+                help="Delete previously saved CSV files for these symbols before downloading new data."
             )
         st.divider()
 

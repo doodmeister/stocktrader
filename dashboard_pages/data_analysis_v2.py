@@ -24,6 +24,7 @@ from core.dashboard_utils import (
     validate_ohlc_dataframe, 
     initialize_dashboard_session_state
 )
+from core.session_manager import create_session_manager, show_session_debug_info
 from security.authentication import get_openai_api_key
 from utils.chatgpt import get_chatgpt_insight as _get_chatgpt_insight
 
@@ -33,6 +34,9 @@ setup_page(
     logger_name=__name__,
     sidebar_title="Analysis Controls"
 )
+
+# Initialize SessionManager for conflict-free widget handling
+session_manager = create_session_manager("data_analysis_v2")
 
 @st.cache_data(show_spinner=False)
 def load_df(uploaded_file) -> pd.DataFrame:
@@ -447,7 +451,7 @@ class TechnicalAnalysisDashboard:
         summary_text = "\n".join(summary_lines)
         st.text_area("Copyable Analysis Summary", summary_text, height=400)
 
-        if st.button("Get ChatGPT Insight"):
+        if session_manager.create_button("Get ChatGPT Insight", "get_chatgpt_insight"):
             with st.spinner("Contacting ChatGPT..."):
                 chatgpt_insight = get_chatgpt_insight(summary_text)
             st.markdown("**ChatGPT Insight:**")

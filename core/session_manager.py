@@ -206,25 +206,33 @@ class SessionManager:
         logger.info(f"Cleaned up session state for page: {self.page_name}")
     
     @contextmanager
-    def form_container(self, form_name: str = "main", **form_kwargs):
+    def form_container(self, form_name: str = "main", location: str = None, **form_kwargs):
         """
-        Context manager for creating forms with automatic key management.
+        Context manager for creating forms with automatic key management and location support.
         
         Args:
             form_name: Name for the form
-            **form_kwargs: Additional arguments for st.form()
+            location: Where to place the form ("sidebar" or None for main area)
+            **form_kwargs: Additional arguments for st.form() (excluding location)
             
         Usage:
-            with session_manager.form_container("my_form") as form:
+            with session_manager.form_container("my_form", location="sidebar") as form:
                 # form content here
                 submitted = st.form_submit_button("Submit")
         """
         form_key = self.get_form_key(form_name)
         
         try:
-            with st.form(form_key, **form_kwargs) as form:
-                logger.debug(f"Created form with key: {form_key}")
-                yield form
+            # Handle location parameter - sidebar vs main area
+            if location == "sidebar":
+                with st.sidebar:
+                    with st.form(form_key, **form_kwargs) as form:
+                        logger.debug(f"Created sidebar form with key: {form_key}")
+                        yield form
+            else:
+                with st.form(form_key, **form_kwargs) as form:
+                    logger.debug(f"Created main area form with key: {form_key}")
+                    yield form
         except Exception as e:
             logger.error(f"Error in form container {form_key}: {e}")
             raise
@@ -255,6 +263,295 @@ class SessionManager:
             logger.error(f"Error creating button {button_key}: {e}")
             return False
     
+    def create_checkbox(self, label: str, checkbox_name: str = None, **checkbox_kwargs) -> bool:
+        """
+        Create a checkbox with automatic key management.
+        
+        Args:
+            label: Checkbox label text
+            checkbox_name: Internal name for the checkbox (defaults to label)
+            **checkbox_kwargs: Additional arguments for st.checkbox()
+            
+        Returns:
+            bool: True if checkbox is checked
+        """
+        if checkbox_name is None:
+            checkbox_name = label.lower().replace(" ", "_")
+        
+        checkbox_key = self.get_button_key(checkbox_name)  # Reuse button key logic for consistency
+        
+        try:
+            checked = st.checkbox(label, key=checkbox_key, **checkbox_kwargs)
+            logger.debug(f"Checkbox {checkbox_key}: {checked}")
+            return checked
+        except Exception as e:
+            logger.error(f"Error creating checkbox {checkbox_key}: {e}")
+            return False
+    
+    def create_selectbox(self, label: str, options, selectbox_name: str = None, **selectbox_kwargs):
+        """
+        Create a selectbox with automatic key management.
+        
+        Args:
+            label: Selectbox label text
+            options: List of options for the selectbox
+            selectbox_name: Internal name for the selectbox (defaults to label)
+            **selectbox_kwargs: Additional arguments for st.selectbox()
+            
+        Returns:
+            Selected option
+        """
+        if selectbox_name is None:
+            selectbox_name = label.lower().replace(" ", "_")
+        
+        selectbox_key = self.get_button_key(selectbox_name)  # Reuse button key logic for consistency
+        
+        try:
+            selected = st.selectbox(label, options, key=selectbox_key, **selectbox_kwargs)
+            logger.debug(f"Selectbox {selectbox_key}: {selected}")
+            return selected
+        except Exception as e:
+            logger.error(f"Error creating selectbox {selectbox_key}: {e}")
+            return options[0] if options else None
+
+    def create_multiselect(self, label: str, options, multiselect_name: str = None, **multiselect_kwargs):
+        """
+        Create a multiselect with automatic key management.
+        
+        Args:
+            label: Multiselect label text
+            options: List of options for the multiselect
+            multiselect_name: Internal name for the multiselect (defaults to label)
+            **multiselect_kwargs: Additional arguments for st.multiselect()
+            
+        Returns:
+            List of selected options
+        """
+        if multiselect_name is None:
+            multiselect_name = label.lower().replace(" ", "_")
+        
+        multiselect_key = self.get_unique_key(multiselect_name, "multiselect")
+        
+        try:
+            selected = st.multiselect(label, options, key=multiselect_key, **multiselect_kwargs)
+            logger.debug(f"Multiselect {multiselect_key}: {selected}")
+            return selected
+        except Exception as e:
+            logger.error(f"Error creating multiselect {multiselect_key}: {e}")
+            return []
+
+    def create_slider(self, label: str, min_value, max_value, value=None, slider_name: str = None, **slider_kwargs):
+        """
+        Create a slider with automatic key management.
+        
+        Args:
+            label: Slider label text
+            min_value: Minimum value
+            max_value: Maximum value
+            value: Initial value
+            slider_name: Internal name for the slider (defaults to label)
+            **slider_kwargs: Additional arguments for st.slider()
+            
+        Returns:
+            Selected value
+        """
+        if slider_name is None:
+            slider_name = label.lower().replace(" ", "_")
+        
+        slider_key = self.get_unique_key(slider_name, "slider")
+        
+        try:
+            selected = st.slider(label, min_value, max_value, value, key=slider_key, **slider_kwargs)
+            logger.debug(f"Slider {slider_key}: {selected}")
+            return selected
+        except Exception as e:
+            logger.error(f"Error creating slider {slider_key}: {e}")
+            return value if value is not None else min_value
+
+    def create_text_input(self, label: str, value="", text_input_name: str = None, **text_input_kwargs):
+        """
+        Create a text input with automatic key management.
+        
+        Args:
+            label: Text input label text
+            value: Initial value
+            text_input_name: Internal name for the text input (defaults to label)
+            **text_input_kwargs: Additional arguments for st.text_input()
+            
+        Returns:
+            Input text value
+        """
+        if text_input_name is None:
+            text_input_name = label.lower().replace(" ", "_")
+        
+        text_input_key = self.get_unique_key(text_input_name, "text_input")
+        
+        try:
+            text_value = st.text_input(label, value, key=text_input_key, **text_input_kwargs)
+            logger.debug(f"Text input {text_input_key}: {text_value}")
+            return text_value
+        except Exception as e:
+            logger.error(f"Error creating text input {text_input_key}: {e}")
+            return value
+
+    def create_number_input(self, label: str, min_value=None, max_value=None, value=None, number_input_name: str = None, **number_input_kwargs):
+        """
+        Create a number input with automatic key management.
+        
+        Args:
+            label: Number input label text
+            min_value: Minimum value
+            max_value: Maximum value
+            value: Initial value
+            number_input_name: Internal name for the number input (defaults to label)
+            **number_input_kwargs: Additional arguments for st.number_input()
+            
+        Returns:
+            Input number value
+        """
+        if number_input_name is None:
+            number_input_name = label.lower().replace(" ", "_")
+        
+        number_input_key = self.get_unique_key(number_input_name, "number_input")
+        
+        try:
+            number_value = st.number_input(label, min_value, max_value, value, key=number_input_key, **number_input_kwargs)
+            logger.debug(f"Number input {number_input_key}: {number_value}")
+            return number_value
+        except Exception as e:
+            logger.error(f"Error creating number input {number_input_key}: {e}")
+            return value if value is not None else 0
+
+    def create_date_input(self, label: str, value=None, date_input_name: str = None, **date_input_kwargs):
+        """
+        Create a date input with automatic key management.
+        
+        Args:
+            label: Date input label text
+            value: Initial date value
+            date_input_name: Internal name for the date input (defaults to label)
+            **date_input_kwargs: Additional arguments for st.date_input()
+            
+        Returns:
+            Selected date
+        """
+        if date_input_name is None:
+            date_input_name = label.lower().replace(" ", "_")
+        
+        date_input_key = self.get_unique_key(date_input_name, "date_input")
+        
+        try:
+            date_value = st.date_input(label, value, key=date_input_key, **date_input_kwargs)
+            logger.debug(f"Date input {date_input_key}: {date_value}")
+            return date_value
+        except Exception as e:
+            logger.error(f"Error creating date input {date_input_key}: {e}")
+            return value
+
+    def create_file_uploader(self, label: str, type=None, file_uploader_name: str = None, **file_uploader_kwargs):
+        """
+        Create a file uploader with automatic key management.
+        
+        Args:
+            label: File uploader label text
+            type: Accepted file types
+            file_uploader_name: Internal name for the file uploader (defaults to label)
+            **file_uploader_kwargs: Additional arguments for st.file_uploader()
+            
+        Returns:
+            Uploaded file object
+        """
+        if file_uploader_name is None:
+            file_uploader_name = label.lower().replace(" ", "_")
+        
+        file_uploader_key = self.get_unique_key(file_uploader_name, "file_uploader")
+        
+        try:
+            uploaded_file = st.file_uploader(label, type, key=file_uploader_key, **file_uploader_kwargs)
+            logger.debug(f"File uploader {file_uploader_key}: {uploaded_file.name if uploaded_file else None}")
+            return uploaded_file
+        except Exception as e:
+            logger.error(f"Error creating file uploader {file_uploader_key}: {e}")
+            return None
+
+    def create_radio(self, label: str, options, radio_name: str = None, **radio_kwargs):
+        """
+        Create a radio button group with automatic key management.
+        
+        Args:
+            label: Radio button label text
+            options: List of options for the radio buttons
+            radio_name: Internal name for the radio buttons (defaults to label)
+            **radio_kwargs: Additional arguments for st.radio()
+            
+        Returns:
+            Selected option
+        """
+        if radio_name is None:
+            radio_name = label.lower().replace(" ", "_")
+        
+        radio_key = self.get_unique_key(radio_name, "radio")
+        
+        try:
+            selected = st.radio(label, options, key=radio_key, **radio_kwargs)
+            logger.debug(f"Radio {radio_key}: {selected}")
+            return selected
+        except Exception as e:
+            logger.error(f"Error creating radio {radio_key}: {e}")
+            return options[0] if options else None
+
+    def create_time_input(self, label: str, value=None, time_input_name: str = None, **time_input_kwargs):
+        """
+        Create a time input with automatic key management.
+        
+        Args:
+            label: Time input label text
+            value: Initial time value
+            time_input_name: Internal name for the time input (defaults to label)
+            **time_input_kwargs: Additional arguments for st.time_input()
+            
+        Returns:
+            Selected time
+        """
+        if time_input_name is None:
+            time_input_name = label.lower().replace(" ", "_")
+        
+        time_input_key = self.get_unique_key(time_input_name, "time_input")
+        
+        try:
+            time_value = st.time_input(label, value, key=time_input_key, **time_input_kwargs)
+            logger.debug(f"Time input {time_input_key}: {time_value}")
+            return time_value
+        except Exception as e:
+            logger.error(f"Error creating time input {time_input_key}: {e}")
+            return value
+
+    def create_color_picker(self, label: str, value="#000000", color_picker_name: str = None, **color_picker_kwargs):
+        """
+        Create a color picker with automatic key management.
+        
+        Args:
+            label: Color picker label text
+            value: Initial color value
+            color_picker_name: Internal name for the color picker (defaults to label)
+            **color_picker_kwargs: Additional arguments for st.color_picker()
+            
+        Returns:
+            Selected color
+        """
+        if color_picker_name is None:
+            color_picker_name = label.lower().replace(" ", "_")
+        
+        color_picker_key = self.get_unique_key(color_picker_name, "color_picker")
+        
+        try:
+            color_value = st.color_picker(label, value, key=color_picker_key, **color_picker_kwargs)
+            logger.debug(f"Color picker {color_picker_key}: {color_value}")
+            return color_value
+        except Exception as e:
+            logger.error(f"Error creating color picker {color_picker_key}: {e}")
+            return value
+            
     def get_debug_info(self) -> Dict[str, Any]:
         """Get debug information about the current session state."""
         context_key = f"_page_context_{self.namespace}"

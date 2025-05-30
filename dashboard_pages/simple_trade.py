@@ -682,11 +682,10 @@ def render_trade_controls(client: ETradeClient, symbol: str, config: DashboardCo
         st.warning("⚠️ Trading requires valid API credentials")
         return
     
-    try:
-        # Risk warning
+    try:        # Risk warning
         if not st.session_state.get('risk_warnings_acknowledged', False):
             st.warning("⚠️ **RISK WARNING**: Trading involves substantial risk of loss")
-            if st.checkbox("I acknowledge the risks of trading"):
+            if _session_manager.create_checkbox("I acknowledge the risks of trading", "risk_acknowledge"):
                 st.session_state.risk_warnings_acknowledged = True
             else:
                 return
@@ -803,11 +802,10 @@ def place_order(
         if order_type == "Limit" and (price is None or price <= 0):
             st.error("❌ Limit orders require a valid price")
             return
-        
-        # Additional safety check for large orders
+          # Additional safety check for large orders
         if quantity > 1000:  # Configurable threshold
             st.warning("⚠️ Large order detected - please confirm")
-            if not st.checkbox(f"I confirm this {quantity} share order", key=f"large_order_{action}"):
+            if not _session_manager.create_checkbox(f"I confirm this {quantity} share order", f"large_order_{action}"):
                 return
         
         # Show detailed order confirmation to prevent accidental trades

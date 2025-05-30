@@ -33,6 +33,7 @@ import sys
 from train.model_manager import ModelManager
 from patterns.patterns_nn import PatternNN
 from core.dashboard_utils import setup_page, handle_streamlit_error
+from core.session_manager import create_session_manager, show_session_debug_info
 
 # Logging setup
 from utils.logger import get_dashboard_logger
@@ -480,7 +481,7 @@ class PatternNNDisplayHandler(ModelDisplayHandler):
     def _display_model_weights(self, model: Any, model_file: str) -> None:
         """Safely display model weights with memory considerations."""
         try:
-            if st.checkbox(f"Show weights for {model_file}", key=f"weights_{model_file}"):
+            if self.session_manager.create_checkbox(f"Show weights for {model_file}", f"weights_{model_file}"):
                 st.subheader("⚖️ Model Weights")
                 
                 if not hasattr(model, 'named_parameters'):
@@ -493,7 +494,7 @@ class PatternNNDisplayHandler(ModelDisplayHandler):
                 
                 if total_params > 1000000:  # 1M parameters
                     st.warning("⚠️ Large model detected. Showing limited weight information.")
-                    show_weights = st.checkbox("Show anyway (may be slow)", key=f"force_weights_{model_file}")
+                    show_weights = self.session_manager.create_checkbox("Show anyway (may be slow)", f"force_weights_{model_file}")
                     if not show_weights:
                         return
                 
@@ -804,6 +805,9 @@ class ModelVisualizerService:
         self.cache_manager = CacheManager(self.config)
         self.performance_monitor = PerformanceMonitor()
         
+        # Initialize SessionManager for conflict-free widget handling
+        self.session_manager = create_session_manager("model_visualizer_service")
+        
         # Initialize model services
         self.model_loader = SecureModelLoader(
             self.config, self.validator, self.cache_manager, self.performance_monitor
@@ -1038,8 +1042,7 @@ class ModelVisualizerDashboard:
     - Robust error handling and input validation
     - Security measures against malicious inputs
     - Performance optimization with caching
-    - Modular architecture following SOLID principles
-    - Comprehensive logging and monitoring
+    - Modular architecture following SOLID principles    - Comprehensive logging and monitoring
     - Responsive UI with progressive loading
     - Multi-model comparison capabilities
     """
@@ -1051,6 +1054,10 @@ class ModelVisualizerDashboard:
         try:
             # Initialize the main service
             self.service = ModelVisualizerService()
+            
+            # Initialize SessionManager for conflict-free widget handling
+            self.session_manager = create_session_manager("model_visualizer")
+            
             self.logger.info("ModelVisualizerDashboard initialized successfully")
             
         except Exception as e:

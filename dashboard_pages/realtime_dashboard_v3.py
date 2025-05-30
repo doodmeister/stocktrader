@@ -730,8 +730,8 @@ def render_main_dashboard():
     # Initialize session state
     state_manager.initialize_session_state()
     
-    # Use SessionManager for form creation to prevent key conflicts
-    with session_manager.form_container("main_dashboard_form"):
+    # Move form to sidebar with SessionManager for proper placement and key management
+    with session_manager.form_container("chart_parameters_form", location="sidebar"):
         st.header('Chart Parameters')
         ticker = st.text_input('Ticker', 'ADBE').upper().strip()
         time_period = st.selectbox('Time Period', VALID_TIME_PERIODS)
@@ -753,12 +753,12 @@ def render_main_dashboard():
             
         # Use SessionManager for button creation to prevent conflicts
         submitted = st.form_submit_button("Update")
-    
-    # Debug information for troubleshooting
-    if st.sidebar.checkbox("Show Form Debug", value=False):
-        st.sidebar.write(f"Form submitted: {submitted}")
-        st.sidebar.write(f"Ticker: {ticker if 'ticker' in locals() else 'Not set'}")
-        st.sidebar.write(f"Time period: {time_period if 'time_period' in locals() else 'Not set'}")    
+      # Debug information for troubleshooting
+    with st.sidebar:
+        if session_manager.create_checkbox("Show Form Debug", "form_debug", value=False):
+            st.write(f"Form submitted: {submitted}")
+            st.write(f"Ticker: {ticker if 'ticker' in locals() else 'Not set'}")
+            st.write(f"Time period: {time_period if 'time_period' in locals() else 'Not set'}")
     # Main content area
     analysis_data = None  # Track if we have analysis data
     
@@ -827,17 +827,34 @@ def render_main_dashboard():
                 }
                 session_manager.set_page_state('realtime_dashboard_analysis_data', analysis_data)
                 
-        except Exception as e:
-            # Use centralized error handling
+        except Exception as e:            # Use centralized error handling
             handle_streamlit_error(e, f"processing {ticker}")
             logger.error(f"Dashboard error for {ticker}: {e}\n{traceback.format_exc()}")
             st.session_state['error_count'] = st.session_state.get('error_count', 0) + 1
+    
     else:
-        # Show instructions when no form submission
+        # Show welcome message and instructions when no form submission
         if not submitted:
+            st.markdown("## 📊 Welcome to Real-Time Stock Dashboard V3")
+            st.markdown("""
+            **Get started by:**
+            1. 👈 Use the **sidebar form** to select a stock ticker (e.g., AAPL, MSFT, GOOGL)
+            2. Choose your preferred time period and chart type
+            3. Select technical indicators and candlestick patterns
+            4. Click the **'Update'** button to load real-time data and analysis
+            
+            ### Features Available:
+            - 📈 **Real-time stock charts** with candlestick and line views
+            - 🔍 **Technical indicators** (SMA, EMA)
+            - 🕯️ **Candlestick pattern detection**
+            - 🤖 **AI-powered analysis** via ChatGPT
+            - 📊 **Risk management metrics**
+            """)
             st.info("👈 Please fill out the form in the sidebar and click 'Update' to load stock data and analysis.")
         else:
-            st.warning("Please enter a valid ticker symbol.")    # AI Analysis Section
+            st.warning("Please enter a valid ticker symbol.")
+
+    # AI Analysis Section
     st.subheader("AI-Powered Analysis")
     
     # Use SessionManager for button creation to prevent key conflicts
@@ -877,6 +894,9 @@ def render_main_dashboard():
 def main():
     """Main dashboard function."""
     try:
+        # Create SessionManager for this function scope
+        session_manager = create_session_manager("realtime_dashboard_v3_main")
+        
         # Only setup page if we're not being loaded by the main dashboard
         # The main dashboard handles page configuration
         if '__main__' in str(globals().get('__name__', '')):
@@ -900,13 +920,14 @@ def main():
             'This dashboard provides stock data and technical indicators for various time periods. '
             'Use the sidebar to customize your view and get AI-powered insights.'
         )        # Display debug info in development
-        if st.sidebar.checkbox("Show Debug Info", value=False):
-            st.sidebar.subheader("Debug Information")
-            st.sidebar.json({
-                "Session State Keys": list(st.session_state.keys()),
-                "Error Count": st.session_state.get('error_count', 0),
-                "Last Update": str(st.session_state.get('last_update', 'Never'))
-            })
+        with st.sidebar:
+            if session_manager.create_checkbox("Show Debug Info", "debug_info", value=False):
+                st.subheader("Debug Information")
+                st.json({
+                    "Session State Keys": list(st.session_state.keys()),
+                    "Error Count": st.session_state.get('error_count', 0),
+                    "Last Update": str(st.session_state.get('last_update', 'Never'))
+                })
         
         # Show SessionManager debug info to help troubleshoot conflicts
         show_session_debug_info()

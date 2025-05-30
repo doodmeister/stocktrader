@@ -43,6 +43,7 @@ source venv/bin/activate
 2. **`core/dashboard_controller.py`** - UI orchestration and navigation  
 3. **`core/page_loader.py`** - Dynamic page discovery and management
 4. **`core/health_checks.py`** - System health monitoring with 30s caching
+5. **`core/session_manager.py`** - Manages user sessions and state
 
 #### Project Commands (PowerShell)
 ```powershell

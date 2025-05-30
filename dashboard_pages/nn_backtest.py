@@ -14,6 +14,7 @@ from core.dashboard_utils import (
     setup_page,
     handle_streamlit_error
 )
+from core.session_manager import create_session_manager, show_session_debug_info
 from utils.backtester import run_backtest_wrapper
 
 # Dashboard logger setup
@@ -26,6 +27,9 @@ setup_page(
     logger_name=__name__,
     sidebar_title="Backtest Configuration"
 )
+
+# Initialize SessionManager for conflict-free widget handling
+session_manager = create_session_manager("nn_backtest")
 
 # --- Model Loading Utilities ---
 
@@ -193,13 +197,11 @@ def main():
     classic_models = [f for f in model_files if f.endswith(".joblib")]
     patternnn_models = [f for f in model_files if f.endswith(".pth")]
 
-    st.subheader("Backtest Configuration")
-
-    # Set default dates: 1 year ago to today
+    st.subheader("Backtest Configuration")    # Set default dates: 1 year ago to today
     default_start = date.today() - timedelta(days=365)
     default_end = date.today()
 
-    with st.form("backtest_form"):
+    with session_manager.form_container("backtest_form"):
         symbol = st.text_input("Stock Symbol", value="AAPL")
         start_date = st.date_input("Start Date", value=default_start)
         end_date = st.date_input("End Date", value=default_end)

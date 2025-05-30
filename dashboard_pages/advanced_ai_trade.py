@@ -1066,8 +1066,8 @@ class TradingDashboard:
 
     def _render_settings(self) -> None:
         """Render settings controls."""
-        st.checkbox("Enable Debug Mode", key="debug_mode")
-        st.checkbox("Paper Trading Mode", value=True, key="paper_trading")
+        self.session_manager.create_checkbox("Enable Debug Mode", "debug_mode")
+        self.session_manager.create_checkbox("Paper Trading Mode", "paper_trading", value=True)
         
         if self.session_manager.create_button("Reset Settings"):
             self._reset_settings()
@@ -1123,11 +1123,15 @@ if __name__ == "__main__":
         st.error("🚨 Fatal Error: Dashboard failed to start")
         st.error(f"Error details: {e}")        # Emergency fallback UI
         st.markdown("### 🔧 Emergency Options")
-        if st.button("🔄 Restart Dashboard", key="emergency_restart"):
+        
+        # Create emergency session manager for fallback buttons
+        emergency_session_manager = create_session_manager("emergency_fallback")
+        
+        if emergency_session_manager.create_button("🔄 Restart Dashboard", "emergency_restart"):
             st.cache_data.clear()
             st.rerun()
         
-        if st.button("🗑️ Clear Session State", key="emergency_clear"):
+        if emergency_session_manager.create_button("🗑️ Clear Session State", "emergency_clear"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()

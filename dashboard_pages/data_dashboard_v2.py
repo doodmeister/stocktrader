@@ -272,18 +272,15 @@ class DataDashboard:
         with col1:
             symbols_input = st.text_input(
                 "🎯 Ticker Symbols",
-                value=", ".join(self.config.DEFAULT_SYMBOLS),
-                help="Enter stock symbols separated by commas (e.g., AAPL, MSFT, GOOGL)",
+                value=", ".join(self.config.DEFAULT_SYMBOLS),                help="Enter stock symbols separated by commas (e.g., AAPL, MSFT, GOOGL)",
                 placeholder="AAPL, MSFT, GOOGL",
-                key="symbol_input"
-            )
-        
-        with col2:
-            validate_clicked = st.button(
-                "🔄 Validate", 
-                help="Check symbol validity",
-                key="validate_button"
-            )
+                key="symbol_input"            )
+            with col2:
+                validate_clicked = self.session_manager.create_button(
+                    "🔄 Validate", 
+                    "validate_symbols",
+                    help="Check symbol validity"
+                )
         
         if validate_clicked:
             self._validate_symbols_realtime(symbols_input)
@@ -424,9 +421,7 @@ class DataDashboard:
             if "preset_start_date" in st.session_state:
                 del st.session_state["preset_start_date"]
             if "preset_end_date" in st.session_state:
-                del st.session_state["preset_end_date"]
-
-    # Validation
+                del st.session_state["preset_end_date"]    # Validation
         if not self.validator.validate_dates(self.start_date, self.end_date):
             st.error("❌ Invalid date range: Start date must be ≤ End date")
         else:
@@ -436,12 +431,12 @@ class DataDashboard:
     def _render_options(self) -> None:
         """Render additional options"""
         st.subheader("⚙️ Options")
-        
         col1, col2 = st.columns(2)
         
         with col1:
-            self.clean_old = st.checkbox(
+            self.clean_old = self.session_manager.create_checkbox(
                 "🧹 Clean old files",
+                "clean_old_files",
                 value=self.clean_old,
                 help="Remove existing CSV files before downloading new data"
             )
@@ -817,12 +812,11 @@ class DataDashboard:
                     time_display = f"{est_time_seconds // 60}m {est_time_seconds % 60}s"
                 
                 st.metric("Est. Download Time", time_display)
-
+    
     def _show_export_interface(self):
         """Export interface using io utilities"""
         st.subheader("📁 Export Downloaded Data")
-        
-        if st.button("❌ Close Export", key="close_export"):
+        if self.session_manager.create_button("❌ Close Export", "close_export"):
             st.session_state["show_export"] = False
             st.rerun()
             return
@@ -891,15 +885,14 @@ class DataDashboard:
             st.write("**Select files to include in export:**")
             
             selected_files = []
-            
-            # Group by symbol for organized selection
+              # Group by symbol for organized selection
             for symbol, files in symbol_groups.items():
                 with st.expander(f"{symbol} ({len(files)} files)", expanded=True):
                     for file_path in files:
                         file_info = get_file_info(file_path)
-                        if st.checkbox(
+                        if self.session_manager.create_checkbox(
                             f"{file_path.name} ({file_info.get('size_mb', 'Unknown')} MB)",
-                            key=f"select_{file_path.stem}"
+                            f"select_{file_path.stem}"
                         ):
                             selected_files.append(file_path)
             
@@ -917,13 +910,12 @@ class DataDashboard:
             ["CSV (Individual Files)", "CSV (Combined)", "JSON"],
             key="export_format_select"
         )
-        
-        # Export options
+          # Export options
         col1, col2 = st.columns(2)
         with col1:
-            include_metadata = st.checkbox("Include metadata", value=True, key="include_metadata")
+            include_metadata = self.session_manager.create_checkbox("Include metadata", "include_metadata", value=True)
         with col2:
-            compress_files = st.checkbox("Compress output", value=False, key="compress_files")
+            compress_files = self.session_manager.create_checkbox("Compress output", "compress_files", value=False)
         
         # Format descriptions
         format_descriptions = {
@@ -933,9 +925,8 @@ class DataDashboard:
         }
         
         st.info(f"ℹ️ {format_descriptions.get(export_format, 'Selected export format')}")
-        
-        # Export button
-        if st.button("📥 Create Export", type="primary", key="create_export"):
+          # Export button
+        if self.session_manager.create_button("📥 Create Export", "create_export", type="primary", help="Create and download export package"):
             try:
                 with st.spinner("Creating export package..."):
                     # Temporarily update saved_paths for export methods
@@ -1180,20 +1171,20 @@ class DataDashboard:
         
         with tabs[0]:  # Data Download Tab
             self._render_inputs()
-            
-            # Action buttons
+              # Action buttons
             col1, col2, col3 = st.columns([2, 1, 1])
             
             with col1:
-                fetch_clicked = st.button(
+                fetch_clicked = self.session_manager.create_button(
                     "🚀 Download Data",
+                    "download_data",
                     type="primary",
                     use_container_width=True,
                     help="Start the data download process"
                 )
             
             with col2:
-                if st.button("🧹 Clear Cache", help="Clear all cached data"):
+                if self.session_manager.create_button("🧹 Clear Cache", "clear_cache", help="Clear all cached data"):
                     try:
                         # Clear session state
                         for key in ["data_fetched", "saved_paths", "cache_hits", "total_records"]:
@@ -1209,8 +1200,7 @@ class DataDashboard:
                         meta_cleaned, _ = clean_directory(
                             directory=self.config.DATA_DIR,
                             pattern="*.meta.json",
-                            dry_run=False
-                        )
+                            dry_run=False                        )
                         
                         total_cleaned = cleaned_count + meta_cleaned
                         st.success(f"✅ Cache cleared - {total_cleaned} files removed")
@@ -1220,7 +1210,7 @@ class DataDashboard:
                         st.error(f"❌ Failed to clear cache: {e}")
             
             with col3:
-                if st.button("🔄 Refresh", help="Refresh the current view"):
+                if self.session_manager.create_button("🔄 Refresh", "refresh_view", help="Refresh the current view"):
                     st.rerun()
                 st.info("💡 Use refresh to update data display after changes")
 
@@ -1240,8 +1230,7 @@ class DataDashboard:
                         "then click **Download Data** to get started."
                     )
         
-        with tabs[1]:  # Analysis Hub
-            st.header("🔍 Data Analysis Hub")
+        with tabs[1]:  # Analysis Hub            st.header("🔍 Data Analysis Hub")
             st.info(
                 "🚀 **Advanced Analysis** • "
                 "Visit the **Data Analysis** page for pattern recognition, "
@@ -1250,9 +1239,8 @@ class DataDashboard:
             
             if self.saved_paths:
                 col1, col2 = st.columns(2)
-                
                 with col1:
-                    if st.button("📁 Export Data", type="primary", help="Export downloaded data"):
+                    if self.session_manager.create_button("📁 Export Data", "export_data", type="primary", help="Export downloaded data"):
                         st.session_state["show_export"] = True
                         st.rerun()
                 
@@ -1288,8 +1276,7 @@ class DataDashboard:
                 """)
             
             with col3:
-                st.markdown("""
-                **📈 Strategy Testing**
+                st.markdown("""                **📈 Strategy Testing**
                 - Historical Backtesting
                 - Performance Metrics
                 - Risk Analysis
@@ -1298,19 +1285,17 @@ class DataDashboard:
         with tabs[2]:  # Settings
             st.header("⚙️ Dashboard Settings")
             st.subheader("💾 Data Management")
-            
             col1, col2 = st.columns(2)
             with col1:
                 st.subheader("🗑️ Delete All Data")
                 st.warning("⚠️ This will permanently delete all downloaded data files")
                 
-                confirm_delete = st.checkbox(
+                confirm_delete = self.session_manager.create_checkbox(
                     "I understand this will delete all data", 
-                    key="confirm_delete"
+                    "confirm_delete_all"
                 )
-                
                 if confirm_delete:
-                    if st.button("🗑️ Delete Now", type="secondary", help="Permanently delete all data"):
+                    if self.session_manager.create_button("🗑️ Delete Now", "delete_all_data", type="secondary", help="Permanently delete all data"):
                         try:
                             # Clean using io utility
                             csv_cleaned, _ = clean_directory(
@@ -1340,7 +1325,7 @@ class DataDashboard:
                     st.info("Check the box above to enable deletion")
             
             with col2:
-                if st.button("📊 Export Session Info", help="Download session information"):
+                if self.session_manager.create_button("📊 Export Session Info", "export_session_info", help="Download session information"):
                     try:
                         # Use io utility for session export
                         session_json = export_session_data(

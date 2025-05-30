@@ -239,9 +239,10 @@ stocktrader/
 │
 ├── core/                             # 🆕 Core dashboard modules (COMPLETED ✅)
 │   ├── dashboard_controller.py       # Main UI orchestration and navigation
-│   ├── page_loader.py               # Dynamic page discovery and management
-│   ├── health_checks.py             # Comprehensive system health monitoring
-│   ├── ui_renderer.py               # ✅ NEW: UI component rendering and presentation layer
+│   ├── session_manager.py            # Handles user sessions and state
+│   ├── page_loader.py                # Dynamic page discovery and management
+│   ├── health_checks.py              # Comprehensive system health monitoring
+│   ├── ui_renderer.py                # ✅ NEW: UI component rendering and presentation layer
 │   ├── dashboard_utils.py            # Dashboard utilities
 │   ├── etrade_candlestick_bot.py     # Trading engine
 │   └── risk_manager_v2.py            # Risk management

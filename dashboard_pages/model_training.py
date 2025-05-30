@@ -45,6 +45,9 @@ setup_page(
     sidebar_title="Training Configuration"
 )
 
+# Initialize SessionManager for conflict-free widget handling
+session_manager = create_session_manager("model_training")
+
 @dataclass
 class TrainingConfigUnified:
     backend: str
@@ -189,25 +192,27 @@ def train_model_deep_learning(
     selected_patterns: List[str] = []
 ) -> Tuple[Any, Dict[str, float]]:
     available_tickers = list(data['symbol'].unique()) if 'symbol' in data.columns else []
-    selected_symbols = st.multiselect(
-        "Select stocks to include (Deep Learning)",
+    selected_symbols = session_manager.create_multiselect(        "Select stocks to include (Deep Learning)",
         options=available_tickers,
-        default=available_tickers[:min(3, len(available_tickers))]
+        default=available_tickers[:min(3, len(available_tickers))],
+        multiselect_name="dl_stocks"
     ) if available_tickers else []
 
     if not selected_symbols and available_tickers:
         st.warning("Please select at least one stock ticker")
-        selected_symbols = [available_tickers[0]]    # Filter data for selected symbols if applicable
+        selected_symbols = [available_tickers[0]]
+    
+    # Filter data for selected symbols if applicable
     if selected_symbols and 'symbol' in data.columns:
         data = data[data['symbol'].isin(selected_symbols)]
 
     pattern_detector = create_pattern_detector()
     available_patterns = pattern_detector.get_pattern_names()
-    selected_patterns = st.multiselect(
+    selected_patterns = session_manager.create_multiselect(
         "Select candlestick patterns to use for training",
         options=available_patterns,
         default=available_patterns,
-        key="dl_pattern_multiselect"
+        multiselect_name="dl_pattern_multiselect"
     )
 
     logger.info("Starting model training step")
@@ -393,13 +398,12 @@ def save_trained_model(
 def display_signal_analysis(config: MLConfig, model_trainer: ModelTrainer) -> None:
     st.header("Signal Analysis")
     model_manager = get_model_manager()
-    model_files = model_manager.list_models(pattern="*.*")
-    if not model_files:
+    model_files = model_manager.list_models(pattern="*.*")    if not model_files:
         st.warning("No trained models found. Train and save a model first.")
         return
 
-    selected_model_file = st.selectbox("Select Trained Model", options=model_files)
-    uploaded_data = st.file_uploader("Upload Data for Signal Analysis (CSV)", type="csv")
+    selected_model_file = session_manager.create_selectbox("Select Trained Model", options=model_files, selectbox_name="model_file")
+    uploaded_data = session_manager.create_file_uploader("Upload Data for Signal Analysis (CSV)", type="csv", file_uploader_name="signal_data")
     if not uploaded_data:
         st.info("Upload a CSV file to analyze signals.")
         return
@@ -455,7 +459,7 @@ def render_training_page():
     logger.info(f"Selected backend: {backend}")
     st.write(f"Selected backend: {backend}")
 
-    use_synthetic = st.checkbox("Generate synthetic data instead of uploading a file")
+    use_synthetic = session_manager.create_checkbox("Generate synthetic data instead of uploading a file", "use_synthetic")
     if use_synthetic:
         add_to_model_training_ui()
 
@@ -464,10 +468,8 @@ def render_training_page():
         "Upload Training Data (CSV)" if not use_synthetic else "Or upload your own data (CSV)", 
         type="csv",
         help=f"CSV file with {', '.join(REQUIRED_COLUMNS)} columns"
-    )
-
-    # Always show the form
-    with st.form("training_form"):  # renamed to avoid st.session_state["training_config"] conflict
+    )    # Always show the form
+    with session_manager.form_container("training_form"):  # renamed to avoid st.session_state["training_config"] conflict
         st.subheader("Training Configuration")
         config = st.session_state.training_config
 
@@ -640,7 +642,7 @@ def render_training_page():
     # ✅ Independent Save Block (always visible if model is present)
     if "trained_model" in st.session_state:
         st.subheader("Save Trained Model")
-        if st.button("Save Trained Model"):
+        if session_manager.create_button("Save Trained Model", "save_trained_model"):
             logger.info("Save Trained Model button clicked")
             try:
                 model = st.session_state.get("trained_model")

@@ -12,6 +12,7 @@ from core.dashboard_utils import (
     setup_page,
     handle_streamlit_error
 )
+from core.session_manager import create_session_manager, show_session_debug_info
 
 from security.authentication import get_openai_api_key  # Make sure this exists or replace with your API key logic
 
@@ -21,6 +22,9 @@ setup_page(
     logger_name=__name__,
     sidebar_title="Configuration"
 )
+
+# Initialize SessionManager for conflict-free widget handling
+session_manager = create_session_manager("realtime_dashboard_v2")
 
 # Set up Streamlit app
 # st.set_page_config(layout="wide")  # Handled by main dashboard
@@ -54,13 +58,12 @@ def fetch_data():
                 data.columns = data.columns.droplevel(1)
             else:
                 data.columns = ['_'.join(col).strip().lower() for col in data.columns.values]
-        
-        # Now, convert all columns to lowercase!
+          # Now, convert all columns to lowercase!
         data.columns = [col.lower() for col in data.columns]
-
+        
         expected_cols = ["open", "high", "low", "close", "volume"]
         data = data[[col for col in expected_cols if col in data.columns]]
-
+        
         if not data.empty:
             st.session_state["stock_data"] = data
             st.success("Stock data loaded successfully!")
@@ -69,8 +72,10 @@ def fetch_data():
     except Exception as e:
         st.error(f"Error fetching data: {e}")
 
-if st.sidebar.button("Fetch Data"):
-    fetch_data()
+# Use SessionManager for sidebar button with container parameter
+with st.sidebar:
+    if session_manager.create_button("Fetch Data", "fetch_data_btn"):
+        fetch_data()
 
 # Check if data is available and not empty
 if "stock_data" in st.session_state:
@@ -182,12 +187,11 @@ if "stock_data" in st.session_state:
             f"First, provide the recommendation, then, provide your detailed reasoning.\n\n"
             f"Ticker: {ticker}\n"
             f"Date Range: {start_date} to {end_date}\n"
-            f"Selected Indicators: {', '.join(indicators)}\n\n"
-            f"Here is the data (last {preview_rows} rows):\n"
+            f"Selected Indicators: {', '.join(indicators)}\n\n"            f"Here is the data (last {preview_rows} rows):\n"
             f"{csv_data}"
         )
-
-        if st.button("Run AI Analysis"):
+        
+        if session_manager.create_button("Run AI Analysis", "run_ai_analysis"):
             with st.spinner("Analyzing the data, please wait..."):
                 try:
                     openai.api_key = get_openai_api_key()
