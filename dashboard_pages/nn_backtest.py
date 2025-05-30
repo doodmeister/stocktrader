@@ -202,21 +202,21 @@ def main():
     default_end = date.today()
 
     with session_manager.form_container("backtest_form"):
-        symbol = st.text_input("Stock Symbol", value="AAPL")
-        start_date = st.date_input("Start Date", value=default_start)
-        end_date = st.date_input("End Date", value=default_end)
-        strategy = st.selectbox(
+        symbol = session_manager.create_text_input("Stock Symbol", value="AAPL", text_input_name="backtest_symbol")
+        start_date = session_manager.create_date_input("Start Date", value=default_start, date_input_name="backtest_start_date")
+        end_date = session_manager.create_date_input("End Date", value=default_end, date_input_name="backtest_end_date")
+        strategy = session_manager.create_selectbox(
             "Select Strategy",
-            ["SMA Crossover", "Pattern NN"] + (["Classic ML Model"] if classic_models else [])
+            options=["SMA Crossover", "Pattern NN"] + (["Classic ML Model"] if classic_models else []),            selectbox_name="backtest_strategy"
         )
         selected_classic_model = None
         selected_patternnn_model = None
         if strategy == "Classic ML Model":
-            selected_classic_model = st.selectbox("Select Classic ML Model", classic_models)
+            selected_classic_model = session_manager.create_selectbox("Select Classic ML Model", options=classic_models, selectbox_name="classic_model_select")
         if strategy == "Pattern NN":
-            selected_patternnn_model = st.selectbox("Select PatternNN Model", patternnn_models)
-        initial_capital = st.number_input("Initial Capital ($)", min_value=1000, value=100000)
-        risk_per_trade = st.number_input("Risk Per Trade (%)", min_value=0.1, max_value=100.0, value=1.0)
+            selected_patternnn_model = session_manager.create_selectbox("Select PatternNN Model", options=patternnn_models, selectbox_name="patternnn_model_select")
+        initial_capital = session_manager.create_number_input("Initial Capital ($)", min_value=1000, value=100000, number_input_name="initial_capital")
+        risk_per_trade = session_manager.create_number_input("Risk Per Trade (%)", min_value=0.1, max_value=100.0, value=1.0, number_input_name="risk_per_trade")
         run_button = st.form_submit_button("Run Backtest")
 
     if run_button:

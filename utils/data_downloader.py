@@ -12,7 +12,8 @@ import functools
 
 import yfinance as yf
 import pandas as pd
-from utils.config.validation import sanitize_input, validate_symbol, safe_request
+from core.data_validator import get_global_validator, validate_symbol
+from utils.config.validation import sanitize_input, safe_request
 
 # Set up basic + debug logging
 logger = setup_logger(__name__)
@@ -77,8 +78,7 @@ def download_stock_data(
     """
     # Normalize all symbols to uppercase
     symbols = [s.upper() for s in symbols]
-    
-    # Validate inputs
+      # Validate inputs
     if not symbols:
         logger.warning("No valid symbols provided")
         return None
@@ -87,9 +87,12 @@ def download_stock_data(
     sanitized_symbols = []
     for symbol in symbols:
         try:
-            sanitized = validate_symbol(symbol)
-            sanitized_symbols.append(sanitized)
-        except ValueError as e:
+            result = validate_symbol(symbol)
+            if result.is_valid:
+                sanitized_symbols.append(result.value)
+            else:
+                logger.warning(f"Skipping invalid symbol: {symbol} - {'; '.join(result.errors)}")
+        except Exception as e:
             logger.warning(f"Skipping invalid symbol: {symbol} - {e}")
             
     if not sanitized_symbols:

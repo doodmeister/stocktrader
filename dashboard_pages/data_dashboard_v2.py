@@ -38,6 +38,10 @@ from core.dashboard_utils import (
 # Import SessionManager to solve button key conflicts and session state issues
 from core.session_manager import create_session_manager, show_session_debug_info
 
+# Import UI renderer for home button functionality
+from core.ui_renderer import UIRenderer
+from core.page_loader import PageLoader
+
 # IO utilities
 from utils.io import (
     save_dataframe_with_metadata,
@@ -77,7 +81,6 @@ class DataValidator:
         
         if not self._symbol_pattern.match(symbol):
             raise ValueError(f"Invalid symbol format: {symbol}")
-        
         if len(symbol) > 10:
             raise ValueError("Symbol too long (max 10 characters)")
             
@@ -107,8 +110,44 @@ class DataValidator:
             
         return valid_symbols
     
-    def validate_dates(self, start_date: date, end_date: date) -> bool:
-        return start_date <= end_date and end_date <= date.today()
+    def validate_dates(self, start_date: date, end_date: date, interval: str = "1d") -> bool:
+        """Validate date range with interval-specific limitations"""
+        # Basic date validation
+        if not (start_date <= end_date and end_date <= date.today()):
+            return False
+        
+        # Calculate the number of days in the range
+        days_diff = (end_date - start_date).days
+        
+        # Yahoo Finance interval-specific limitations
+        interval_limits = {
+            "1m": 7,      # 7 days max for 1-minute data
+            "5m": 60,     # 60 days max for 5-minute data
+            "15m": 60,    # 60 days max for 15-minute data
+            "30m": 60,    # 60 days max for 30-minute data
+            "1h": 730,    # ~2 years max for hourly data
+            "1d": 36500   # ~100 years (essentially unlimited) for daily data
+        }
+        
+        max_days = interval_limits.get(interval, 730)
+        
+        if days_diff > max_days:
+            logger.warning(f"Date range too large for {interval} interval: {days_diff} days (max: {max_days})")
+            return False
+            
+        return True
+    
+    def get_max_date_range_message(self, interval: str) -> str:
+        """Get user-friendly message about max date range for interval"""
+        interval_messages = {
+            "1m": "📅 1-minute data: Maximum 7 days",
+            "5m": "📅 5-minute data: Maximum 60 days", 
+            "15m": "📅 15-minute data: Maximum 60 days",
+            "30m": "📅 30-minute data: Maximum 60 days",
+            "1h": "📅 Hourly data: Maximum ~2 years",
+            "1d": "📅 Daily data: No practical limit"
+        }
+        return interval_messages.get(interval, "📅 Check data provider limitations")
 
 # Utility functions
 def sanitize_filename(filename: str) -> str:
@@ -220,8 +259,7 @@ class DataDashboard:
         directories = [
             self.config.DATA_DIR,
             self.config.MODEL_DIR,
-            self.config.DATA_DIR / "exports"
-        ]
+            self.config.DATA_DIR / "exports"        ]
         
         for directory in directories:
             try:
@@ -233,8 +271,13 @@ class DataDashboard:
 
     def _render_performance_metrics(self) -> None:
         """Display performance metrics in sidebar"""
-        if not st.sidebar.checkbox("Show Performance Metrics", value=False):
-            return
+        with st.sidebar:
+            if not self.session_manager.create_checkbox(
+                "Show Performance Metrics", 
+                "show_performance_metrics",
+                value=False
+            ):
+                return
             
         with st.sidebar.expander("📊 Session Metrics", expanded=False):
             uptime = time.time() - self.start_time
@@ -259,7 +302,6 @@ class DataDashboard:
             f"Historical limit: {current_limit}. "
             f"Intraday data may have restrictions."
         )
-
         self._render_symbol_input()
         self._render_interval_selection()
         self._render_date_inputs()
@@ -270,22 +312,20 @@ class DataDashboard:
         col1, col2 = st.columns([3, 1])
         
         with col1:
-            symbols_input = st.text_input(
+            symbols_input = self.session_manager.create_text_input(
                 "🎯 Ticker Symbols",
-                value=", ".join(self.config.DEFAULT_SYMBOLS),                help="Enter stock symbols separated by commas (e.g., AAPL, MSFT, GOOGL)",
-                placeholder="AAPL, MSFT, GOOGL",
-                key="symbol_input"            )
-            with col2:
-                validate_clicked = self.session_manager.create_button(
-                    "🔄 Validate", 
-                    "validate_symbols",
-                    help="Check symbol validity"
-                )
+                value=", ".join(self.config.DEFAULT_SYMBOLS),
+                text_input_name="symbol_input",
+                help="Enter stock symbols separated by commas (e.g., AAPL, MSFT, GOOGL)",
+                placeholder="AAPL, MSFT, GOOGL"
+            )
+        with col2:
+            validate_clicked = self.session_manager.create_button(
+                "🔄 Validate", 
+                "validate_symbols",
+                help="Check symbol validity"            )
         
-        if validate_clicked:
-            self._validate_symbols_realtime(symbols_input)
-        
-        # Process symbols
+        # Process symbols automatically and show validation feedback
         previous_symbols = self.symbols.copy()
         try:
             self.symbols = self.validator.validate_symbols(symbols_input)
@@ -296,6 +336,10 @@ class DataDashboard:
         except ValueError as e:
             st.error(f"❌ Invalid symbols: {e}")
             self.symbols = []
+        
+        # Provide immediate validation feedback if validate button clicked
+        if validate_clicked:
+            self._validate_symbols_realtime(symbols_input)
 
         self._display_symbol_status()
 
@@ -308,7 +352,6 @@ class DataDashboard:
         with st.spinner("🔍 Validating symbols..."):
             try:
                 raw_symbols = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
-                
                 if not raw_symbols:
                     st.warning("⚠️ No valid symbols found in input")
                     return
@@ -328,33 +371,46 @@ class DataDashboard:
                     
                 if invalid_symbols:
                     st.error(f"❌ **Invalid symbols:** {', '.join(invalid_symbols)}")
-                        
+                    
             except Exception as e:
                 logger.error(f"Symbol validation error: {e}")
                 st.error(f"❌ Validation failed: {str(e)}")
 
     def _render_interval_selection(self) -> None:
-        """Render interval selection"""
+        """Render interval selection with date range validation"""
         intervals_with_desc = {
             "1m": "1 Minute (High frequency, limited history)",
             "5m": "5 Minutes (Intraday trading)",
             "15m": "15 Minutes (Short-term analysis)",
             "30m": "30 Minutes (Swing trading)",
             "1h": "1 Hour (Medium-term analysis)",
-            "1d": "1 Day (Long-term analysis)"
-        }
+            "1d": "1 Day (Long-term analysis)"        }
         
         current_index = 0
         if self.interval in self.config.VALID_INTERVALS:
             current_index = self.config.VALID_INTERVALS.index(self.interval)
         
-        self.interval = st.selectbox(
+        previous_interval = self.interval
+        self.interval = self.session_manager.create_selectbox(
             "📊 Data Interval",
             options=self.config.VALID_INTERVALS,
             index=current_index,
-            format_func=lambda x: intervals_with_desc.get(x, x),
+            selectbox_name="data_interval",            format_func=lambda x: intervals_with_desc.get(x, x),
             help="Choose the frequency of data points"
         )
+        
+        # Check if interval changed and warn about date range compatibility
+        if previous_interval != self.interval:
+            st.session_state["data_fetched"] = False
+            # Check if current date range is compatible with new interval
+            if not self.validator.validate_dates(self.start_date, self.end_date, self.interval):
+                days_span = (self.end_date - self.start_date).days
+                interval_limits = {
+                    "1m": 7, "5m": 60, "15m": 60, "30m": 60, "1h": 730, "1d": 36500
+                }
+                max_days = interval_limits.get(self.interval, 730)
+                st.warning(f"⚠️ Current date range ({days_span} days) is too large for **{self.interval}** interval (max: {max_days} days)")
+                st.info("🔧 Please adjust your date range below or the download will fail.")
 
     def _render_date_inputs(self) -> None:
         """Render date inputs with presets"""
@@ -364,52 +420,60 @@ class DataDashboard:
         col1, col2, col3, col4 = st.columns(4)
         today = date.today()
         
-        if col1.button("📅 1 Week", help="Last 7 days"):
-            st.session_state["preset_start_date"] = today - timedelta(days=7)
-            st.session_state["preset_end_date"] = today
-            st.session_state["data_fetched"] = False
-            st.rerun()
+        with col1:
+            if self.session_manager.create_button("📅 1 Week", "preset_week_btn", help="Last 7 days"):
+                st.session_state["preset_start_date"] = today - timedelta(days=7)
+                st.session_state["preset_end_date"] = today
+                st.session_state["data_fetched"] = False
+                st.success("✅ Date range set to last 7 days")
+                st.rerun()
             
-        if col2.button("📅 1 Month", help="Last 30 days"):
-            st.session_state["preset_start_date"] = today - timedelta(days=30)
-            st.session_state["preset_end_date"] = today
-            st.session_state["data_fetched"] = False
-            st.rerun()
+        with col2:
+            if self.session_manager.create_button("📅 1 Month", "preset_month_btn", help="Last 30 days"):
+                st.session_state["preset_start_date"] = today - timedelta(days=30)
+                st.session_state["preset_end_date"] = today
+                st.session_state["data_fetched"] = False
+                st.success("✅ Date range set to last 30 days")
+                st.rerun()
             
-        if col3.button("📅 3 Months", help="Last 90 days"):
-            st.session_state["preset_start_date"] = today - timedelta(days=90)
-            st.session_state["preset_end_date"] = today
-            st.session_state["data_fetched"] = False
-            st.rerun()
+        with col3:
+            if self.session_manager.create_button("📅 3 Months", "preset_3month_btn", help="Last 90 days"):
+                st.session_state["preset_start_date"] = today - timedelta(days=90)
+                st.session_state["preset_end_date"] = today
+                st.session_state["data_fetched"] = False
+                st.success("✅ Date range set to last 90 days")
+                st.rerun()
             
-        if col4.button("📅 1 Year", help="Last 365 days"):
-            st.session_state["preset_start_date"] = today - timedelta(days=365)
-            st.session_state["preset_end_date"] = today
-            st.session_state["data_fetched"] = False
-            st.rerun()
-
+        with col4:
+            if self.session_manager.create_button("📅 1 Year", "preset_year_btn", help="Last 365 days"):
+                st.session_state["preset_start_date"] = today - timedelta(days=365)
+                st.session_state["preset_end_date"] = today
+                st.session_state["data_fetched"] = False
+                st.success("✅ Date range set to last 365 days")
+                st.rerun()
+        
         # Use session state values if available, otherwise use instance values
         current_start = st.session_state.get("preset_start_date", self.start_date)
         current_end = st.session_state.get("preset_end_date", self.end_date)
-
+        
         # Manual date selection
         col1, col2 = st.columns(2)
         with col1:
-            new_start = st.date_input(
+            new_start = self.session_manager.create_date_input(
                 "Start Date",
                 value=current_start,
                 max_value=today,
                 help="Beginning of data range",
-                key="start_date_input"
+                date_input_name="start_date_input"
             )
             
         with col2:
-            new_end = st.date_input(
+            new_end = self.session_manager.create_date_input(
                 "End Date",
                 value=current_end,
                 max_value=today,
                 help="End of data range",
-                key="end_date_input"
+                date_input_name="end_date_input"
             )
 
         # Update dates and clear preset values
@@ -421,12 +485,43 @@ class DataDashboard:
             if "preset_start_date" in st.session_state:
                 del st.session_state["preset_start_date"]
             if "preset_end_date" in st.session_state:
-                del st.session_state["preset_end_date"]    # Validation
-        if not self.validator.validate_dates(self.start_date, self.end_date):
-            st.error("❌ Invalid date range: Start date must be ≤ End date")
+                del st.session_state["preset_end_date"]
+          # Validation with interval-specific limitations
+        basic_valid = self.start_date <= self.end_date and self.end_date <= date.today()
+        interval_valid = self.validator.validate_dates(self.start_date, self.end_date, self.interval)
+        
+        if not basic_valid:
+            st.error("❌ Invalid date range: Start date must be ≤ End date and not in the future")
+        elif not interval_valid:
+            days_span = (self.end_date - self.start_date).days
+            interval_limits = {
+                "1m": 7, "5m": 60, "15m": 60, "30m": 60, "1h": 730, "1d": 36500
+            }
+            max_days = interval_limits.get(self.interval, 730)
+            
+            # Show warning with automatic adjustment option
+            st.warning(f"⚠️ Date range too large for **{self.interval}** interval: {days_span} days (max: {max_days} days)")
+            st.info(self.validator.get_max_date_range_message(self.interval))
+            
+            # Offer automatic adjustment
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                if st.button("🔧 Auto-adjust range", help=f"Automatically adjust to last {max_days} days"):
+                    new_start = today - timedelta(days=max_days)
+                    st.session_state["preset_start_date"] = new_start
+                    st.session_state["preset_end_date"] = today
+                    st.session_state["data_fetched"] = False
+                    st.success(f"✅ Date range adjusted to last {max_days} days for {self.interval} interval")
+                    st.rerun()
+            with col2:
+                st.caption("💡 Consider using a daily (1d) interval for longer time periods")
         else:
             days_span = (self.end_date - self.start_date).days
-            st.info(f"📊 Range: {days_span} days ({self.start_date} to {self.end_date})")
+            st.success(f"✅ Valid range: {days_span} days ({self.start_date} to {self.end_date})")
+            
+            # Show helpful interval info for valid ranges
+            if self.interval in ["1m", "5m", "15m", "30m"]:
+                st.info(self.validator.get_max_date_range_message(self.interval))
 
     def _render_options(self) -> None:
         """Render additional options"""
@@ -442,11 +537,12 @@ class DataDashboard:
             )
             
         with col2:
-            self.max_workers = st.slider(
+            self.max_workers = self.session_manager.create_slider(
                 "🚀 Concurrent Downloads",
                 min_value=1,
                 max_value=10,
                 value=self.max_workers,
+                slider_name="max_workers",
                 help="Number of parallel download threads"
             )
 
@@ -634,17 +730,26 @@ class DataDashboard:
         st.session_state['saved_paths'] = [str(p) for p in saved_paths]
         st.session_state['total_records'] = total_records
         
-        return saved_paths, successful_saves
-
-    @handle_streamlit_exception
+        return saved_paths, successful_saves    @handle_streamlit_exception
     def _fetch_and_display_data(self) -> int:
         """Main data fetching workflow"""
         if not self.symbols:
             st.error("❌ Please enter at least one valid stock symbol")
             return 0
             
-        if not self.validator.validate_dates(self.start_date, self.end_date):
-            st.error("❌ Invalid date range selected")
+        if not self.validator.validate_dates(self.start_date, self.end_date, self.interval):
+            # Show specific error message for interval-related issues
+            days_span = (self.end_date - self.start_date).days
+            interval_limits = {
+                "1m": 7, "5m": 60, "15m": 60, "30m": 60, "1h": 730, "1d": 36500
+            }
+            max_days = interval_limits.get(self.interval, 730)
+            
+            if days_span > max_days:
+                st.error(f"❌ Date range too large for {self.interval} interval: {days_span} days (max: {max_days} days)")
+                st.info(f"💡 {self.validator.get_max_date_range_message(self.interval)}")
+            else:
+                st.error("❌ Invalid date range selected")
             return 0
         
         st.info("🚀 Starting data download process...")
@@ -849,8 +954,7 @@ class DataDashboard:
                 for file_path in files:
                     file_info = get_file_info(file_path)
                     meta_path = file_path.with_suffix('.meta.json')
-                    meta_indicator = " 📋" if meta_path.exists() else ""
-                    # Get file modification time
+                    meta_indicator = " 📋" if meta_path.exists() else ""                    # Get file modification time
                     try:
                         mod_time = datetime.fromtimestamp(file_path.stat().st_mtime)
                         timestamp_str = mod_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -861,14 +965,13 @@ class DataDashboard:
         # File selection options
         st.subheader("📂 Select Files to Export")
         
-        export_option = st.radio(
+        export_option = self.session_manager.create_radio(
             "Choose which files to export:",
-            ["All files", "Current session only", "Select specific files"],
-            key="export_option"
+            options=["All files", "Current session only", "Select specific files"],
+            radio_name="export_option"
         )
         
         files_to_export = []
-        
         if export_option == "All files":
             files_to_export = all_csv_files
             st.info(f"ℹ️ Will export all {len(files_to_export)} CSV files")
@@ -885,7 +988,7 @@ class DataDashboard:
             st.write("**Select files to include in export:**")
             
             selected_files = []
-              # Group by symbol for organized selection
+            # Group by symbol for organized selection
             for symbol, files in symbol_groups.items():
                 with st.expander(f"{symbol} ({len(files)} files)", expanded=True):
                     for file_path in files:
@@ -905,12 +1008,13 @@ class DataDashboard:
                 st.info(f"ℹ️ Selected {len(files_to_export)} files for export")
         
         # Export format and options (same as before)
-        export_format = st.selectbox(
+        export_format = self.session_manager.create_selectbox(
             "Choose export format:",
-            ["CSV (Individual Files)", "CSV (Combined)", "JSON"],
-            key="export_format_select"
+            options=["CSV (Individual Files)", "CSV (Combined)", "JSON"],
+            selectbox_name="export_format_select"
         )
-          # Export options
+        
+        # Export options
         col1, col2 = st.columns(2)
         with col1:
             include_metadata = self.session_manager.create_checkbox("Include metadata", "include_metadata", value=True)
@@ -1139,26 +1243,38 @@ class DataDashboard:
         else:
             # Use io utility for regular JSON
             from utils.io import save_dataframe
-            
-            # Convert to temporary dataframe for saving, or handle manually
+                  # Convert to temporary dataframe for saving, or handle manually
             json_content = json.dumps(export_data, indent=2, default=str)
             with open(export_path, 'w', encoding='utf-8') as f:
                 f.write(json_content)
         
         logger.info(f"Created JSON export: {export_path}")
         return export_path
-
+    
     def _get_mime_type(self, export_format: str) -> str:
         """Get MIME type for export format"""
         mime_types = {
             "CSV (Individual Files)": "application/zip",
             "CSV (Combined)": "text/csv",
-            "JSON": "application/json"
-        }
+            "JSON": "application/json"        }
         return mime_types.get(export_format, "application/octet-stream")
 
     def run(self) -> None:
         """Main dashboard application"""
+        # Render header with home button for navigation consistency
+        try:
+            page_loader = PageLoader(logger)
+            pages_config = page_loader.load_pages_configuration()
+            ui_renderer = UIRenderer()
+            ui_renderer.render_header(pages_config, None)
+        except Exception as e:
+            logger.warning(f"Could not render navigation header: {e}")
+            # Fallback home button
+            if st.button("🏠 Home", help="Return to main dashboard"):
+                st.session_state.current_page = 'home'
+                st.session_state.page_history = ['home']
+                st.rerun()
+        
         st.markdown(
             "**Enterprise-grade data acquisition** • "
             "Download, validate, and analyze market data with advanced features"

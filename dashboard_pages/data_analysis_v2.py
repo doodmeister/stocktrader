@@ -225,7 +225,7 @@ class TechnicalAnalysisDashboard:
         initialize_dashboard_session_state()
 
 
-        uploaded_file = st.file_uploader("Upload CSV Data", type='csv')
+        uploaded_file = session_manager.create_file_uploader("Upload CSV Data", type='csv', file_uploader_name="analysis_data_uploader")
         if not uploaded_file:
             st.info("Please upload a CSV file to begin.")
             return
@@ -283,15 +283,15 @@ class TechnicalAnalysisDashboard:
         st.markdown("## ⚙️ Indicator Settings")
         col1, col2, col3 = st.columns(3)
         with col1:
-            rsi_period = st.number_input("RSI Period", 2, 30, 14)
+            rsi_period = session_manager.create_number_input("RSI Period", min_value=2, max_value=30, value=14, number_input_name="rsi_period")
         with col2:
-            macd_fast = st.number_input("MACD Fast", 2, 30, 12)
-            macd_slow = st.number_input("MACD Slow", macd_fast+1, 60, 26)
-            fib_lookback = st.number_input("Fib Lookback", 5, 100, 30)
-            fib_ext      = st.number_input("Fib Extension", 0.1, 2.0, 0.618, step=0.001)
+            macd_fast = session_manager.create_number_input("MACD Fast", min_value=2, max_value=30, value=12, number_input_name="macd_fast")
+            macd_slow = session_manager.create_number_input("MACD Slow", min_value=macd_fast+1, max_value=60, value=26, number_input_name="macd_slow")
+            fib_lookback = session_manager.create_number_input("Fib Lookback", min_value=5, max_value=100, value=30, number_input_name="fib_lookback")
+            fib_ext = session_manager.create_number_input("Fib Extension", min_value=0.1, max_value=2.0, value=0.618, step=0.001, number_input_name="fib_ext")
         with col3:
-            bb_period = st.number_input("BB Period", 2, 30, 20)
-            bb_std = st.number_input("BB Std Dev", 1, 4, 2)
+            bb_period = session_manager.create_number_input("BB Period", min_value=2, max_value=30, value=20, number_input_name="bb_period")
+            bb_std = session_manager.create_number_input("BB Std Dev", min_value=1, max_value=4, value=2, number_input_name="bb_std")
 
         st.markdown("""
         ### 📚 Understanding Technical Indicators
@@ -391,7 +391,7 @@ class TechnicalAnalysisDashboard:
         # Create pattern detector instance to get pattern names
         pattern_detector = create_pattern_detector()
         pattern_names = pattern_detector.get_pattern_names()
-        selected = tuple(st.multiselect("Patterns to scan for", pattern_names, default=pattern_names[:6])) # default 6 patterns this can be upped to the max number in the patterns.py
+        selected = tuple(session_manager.create_multiselect("Patterns to scan for", options=pattern_names, default=pattern_names[:6], multiselect_name="pattern_selection")) # default 6 patterns this can be upped to the max number in the patterns.py
         patterns = get_pattern_results(df, selected)
 
         if patterns:

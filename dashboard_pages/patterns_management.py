@@ -29,7 +29,6 @@ from patterns.pattern_utils import (
     # Removed PatternBackupManager - not available
 )
 from patterns.patterns import CandlestickPatterns, create_pattern_detector  # Use existing detection
-from utils.technicals.performance_utils import PatternDetector  # Use existing detector
 from utils.data_validator import DataValidator
 
 # Import SessionManager to solve button key conflicts and session state issues
@@ -137,10 +136,9 @@ class PatternEditorUI:
             if not is_valid:
                 st.error(f"❌ {validation_msg}")
                 return
-            
-            # Normalize data
+              # Normalize data
             df_normalized = normalize_dataframe_columns(df)
-              # Use existing detect_patterns method from CandlestickPatterns
+            # Use existing detect_patterns method from CandlestickPatterns
             all_detections = {}
             
             for i in range(len(df_normalized)):
@@ -294,25 +292,31 @@ def main():
     
     with tab1:
         st.header("📊 Pattern Analysis")
-        
         # Data upload
         df = editor._render_data_upload()
         
         if df is not None:
             # Get available patterns from existing system
             available_patterns = get_pattern_names()
-            
             if available_patterns:
                 col1, col2 = st.columns([1, 1])
                 with col1:
                     st.subheader("Single Pattern Analysis")
-                    selected_pattern = st.selectbox("Select Pattern", available_patterns)
+                    selected_pattern = session_manager.create_selectbox(
+                        "Select Pattern", 
+                        options=available_patterns,
+                        selectbox_name="single_pattern_select"
+                    )
                     if session_manager.create_button("🔍 Analyze", "analyze_single_pattern"):
                         editor._analyze_single_pattern(selected_pattern, df)
                 
                 with col2:
                     st.subheader("Multi-Pattern Comparison")
-                    selected_patterns = st.multiselect("Select Patterns", available_patterns)
+                    selected_patterns = session_manager.create_multiselect(
+                        "Select Patterns", 
+                        options=available_patterns,
+                        multiselect_name="multi_pattern_select"
+                    )
                     if session_manager.create_button("📈 Compare", "compare_patterns") and selected_patterns:
                         editor._analyze_multiple_patterns(selected_patterns, df)
             else:
@@ -322,12 +326,118 @@ def main():
     
     with tab2:
         st.header("🔍 Pattern Explorer")
-        # Use existing get_pattern_names() and get_pattern_method()
-        # Show pattern documentation, signatures, etc.
+        # Pattern documentation and information viewer
+        available_patterns = get_pattern_names()
+        if available_patterns:
+            selected_pattern_info = session_manager.create_selectbox(
+                "Select Pattern to Explore", 
+                options=available_patterns,
+                selectbox_name="pattern_info_select"
+            )
+            
+            if selected_pattern_info:
+                # Get pattern method and documentation
+                pattern_method = get_pattern_method(selected_pattern_info)
+                if pattern_method:
+                    st.subheader(f"📋 {selected_pattern_info} Pattern Details")
+                    
+                    # Show pattern documentation
+                    doc = pattern_method.__doc__ if pattern_method.__doc__ else "No documentation available."
+                    st.markdown(f"**Description:** {doc}")
+                    
+                    # Show pattern source code
+                    with st.expander("🔍 View Source Code", expanded=False):
+                        try:
+                            import inspect
+                            source = inspect.getsource(pattern_method)
+                            st.code(source, language="python")
+                        except Exception as e:
+                            st.error(f"Could not retrieve source code: {e}")
+                    
+                    # Pattern characteristics
+                    try:
+                        pattern_detector = create_pattern_detector()
+                        pattern_obj = pattern_detector._patterns.get(selected_pattern_info)
+                        if pattern_obj:
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Min Rows Required", pattern_obj.min_rows)
+                            with col2:
+                                st.metric("Pattern Type", pattern_obj.pattern_type.value)
+                            with col3:
+                                st.metric("Strength", pattern_obj.strength.value)
+                    except Exception as e:
+                        st.warning(f"Could not load pattern details: {e}")
+                else:
+                    st.error(f"Pattern method for '{selected_pattern_info}' not found.")
+        else:
+            st.warning("⚠️ No patterns available to explore.")
         
     with tab3:
-        st.header("✏️ Code Editor")        # Use existing read_patterns_file(), validate_python_code()
-        # For editing the patterns.py file
+        st.header("✏️ Code Editor")
+        st.markdown("Edit the patterns.py file directly")
+        
+        # Read current patterns file
+        try:
+            patterns_content = read_patterns_file()
+            if patterns_content:
+                # Code editor
+                edited_code = st.text_area(
+                    "Edit Patterns Code",
+                    value=patterns_content,
+                    height=400,
+                    help="Edit the patterns.py file. Be careful with syntax!"
+                )
+                
+                col1, col2, col3 = st.columns([1, 1, 1])
+                with col1:
+                    if session_manager.create_button("💾 Save Changes", "save_pattern_code"):
+                        editor._save_pattern_changes(edited_code)
+                
+                with col2:
+                    if session_manager.create_button("✅ Validate Syntax", "validate_syntax"):
+                        is_valid, msg = validate_python_code(edited_code)
+                        if is_valid:
+                            st.success("✅ Code syntax is valid!")
+                        else:
+                            st.error(f"❌ Syntax error: {msg}")
+                
+                with col3:
+                    if session_manager.create_button("🔄 Reset to Original", "reset_code"):
+                        st.rerun()
+                
+                # Show code statistics
+                lines = len(edited_code.split('\n'))
+                words = len(edited_code.split())
+                st.caption(f"📊 Stats: {lines} lines, {words} words")
+                
+            else:
+                st.error("❌ Could not read patterns file.")
+                
+        except Exception as e:
+            st.error(f"❌ Error loading patterns file: {e}")
+            
+        # Additional tools
+        with st.expander("🛠️ Additional Tools", expanded=False):
+            st.markdown("**Pattern Management Tools:**")
+            if session_manager.create_button("📂 Backup Patterns", "backup_patterns"):
+                try:
+                    backup_path = Path("patterns/patterns_backup.py")
+                    current_content = read_patterns_file()
+                    if current_content:
+                        backup_path.write_text(current_content)
+                        st.success(f"✅ Backup created: {backup_path}")
+                    else:
+                        st.error("❌ Could not create backup - no content to backup")
+                except Exception as e:
+                    st.error(f"❌ Backup failed: {e}")
+            
+            if session_manager.create_button("🔍 Pattern Count", "count_patterns"):
+                try:
+                    pattern_count = len(get_pattern_names())
+                    st.info(f"📊 Total patterns available: {pattern_count}")
+                except Exception as e:
+                    st.error(f"❌ Could not count patterns: {e}")
 
 class PatternsManagementDashboard:
     def __init__(self):

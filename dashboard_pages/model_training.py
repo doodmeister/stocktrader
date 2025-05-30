@@ -398,7 +398,8 @@ def save_trained_model(
 def display_signal_analysis(config: MLConfig, model_trainer: ModelTrainer) -> None:
     st.header("Signal Analysis")
     model_manager = get_model_manager()
-    model_files = model_manager.list_models(pattern="*.*")    if not model_files:
+    model_files = model_manager.list_models(pattern="*.*")
+    if not model_files:
         st.warning("No trained models found. Train and save a model first.")
         return
 
@@ -444,15 +445,15 @@ def display_signal_analysis(config: MLConfig, model_trainer: ModelTrainer) -> No
 
 def render_training_page():
     st.title("🧠 Model Training and Deployment")
-
+    
     if "training_config" not in st.session_state:
         st.session_state.training_config = TrainingConfigUnified(backend="Deep Learning (PatternNN)")
-
-    backend = st.radio(
+    
+    backend = session_manager.create_radio(
         "Select Training Backend",
         options=["Deep Learning (PatternNN)", "Classic ML (RandomForest)"],
-        index=0,
-        key="backend_radio"
+        radio_name="backend_radio",
+        index=0
     )
     st.session_state.training_config.backend = backend
 
@@ -462,38 +463,39 @@ def render_training_page():
     use_synthetic = session_manager.create_checkbox("Generate synthetic data instead of uploading a file", "use_synthetic")
     if use_synthetic:
         add_to_model_training_ui()
-
+    
     # Place the file uploader outside the form so it's available immediately
-    uploaded_file = st.file_uploader(
+    uploaded_file = session_manager.create_file_uploader(
         "Upload Training Data (CSV)" if not use_synthetic else "Or upload your own data (CSV)", 
         type="csv",
+        file_uploader_name="training_data_uploader",
         help=f"CSV file with {', '.join(REQUIRED_COLUMNS)} columns"
-    )    # Always show the form
+    )
+      # Always show the form
     with session_manager.form_container("training_form"):  # renamed to avoid st.session_state["training_config"] conflict
         st.subheader("Training Configuration")
         config = st.session_state.training_config
-
+        
         if st.session_state.training_config.backend == "Deep Learning (PatternNN)":
             col1, col2 = st.columns(2)
             with col1:
-                config.epochs = st.slider("Epochs", 1, 100, config.epochs)
-                config.batch_size = st.slider("Batch Size", 16, 256, config.batch_size, step=16)
+                config.epochs = session_manager.create_slider("Epochs", 1, 100, value=config.epochs, slider_name="epochs_slider")
+                config.batch_size = session_manager.create_slider("Batch Size", 16, 256, value=config.batch_size, step=16, slider_name="batch_size_slider")
             with col2:
-                config.learning_rate = st.number_input(
+                config.learning_rate = session_manager.create_number_input(
                     "Learning Rate",
                     min_value=0.00001,
                     max_value=0.1,
-                    value=config.learning_rate,
-                    format="%.5f"
+                    value=config.learning_rate,                    number_input_name="learning_rate_input"
                 )
         else:
             col1, col2 = st.columns(2)
             with col1:
-                config.n_estimators = st.slider("n_estimators", 10, 500, config.n_estimators, step=10)
-                config.max_depth = st.slider("max_depth", 1, 50, config.max_depth)
+                config.n_estimators = session_manager.create_slider("n_estimators", 10, 500, value=config.n_estimators, step=10, slider_name="n_estimators_slider")
+                config.max_depth = session_manager.create_slider("max_depth", 1, 50, value=config.max_depth, slider_name="max_depth_slider")
             with col2:
-                config.min_samples_split = st.slider("min_samples_split", 2, 50, config.min_samples_split)
-                config.cv_folds = st.slider("cv_folds", 2, 10, config.cv_folds)
+                config.min_samples_split = session_manager.create_slider("min_samples_split", 2, 50, value=config.min_samples_split, slider_name="min_samples_split_slider")
+                config.cv_folds = session_manager.create_slider("cv_folds", 2, 10, value=config.cv_folds, slider_name="cv_folds_slider")
 
         is_valid, error_msg = config.validate()
         submitted = st.form_submit_button("Train Model")

@@ -135,13 +135,34 @@ session_manager = create_session_manager("realtime_dashboard")
 # Sidebar for user input parameters
 with session_manager.form_container("chart_parameters_form", location="sidebar"):
     st.header('Chart Parameters')
-    ticker = st.text_input('Ticker', 'ADBE')
-    time_period = st.selectbox('Time Period', ['1d', '1wk', '1mo', '1y', 'max'])
-    chart_type = st.selectbox('Chart Type', ['Candlestick', 'Line'])
-    indicators = st.multiselect('Technical Indicators', ['SMA 20', 'EMA 20'])    # Add pattern selection
+    ticker = session_manager.create_text_input(
+        'Ticker', 
+        value='ADBE',
+        text_input_name='ticker_input'
+    )
+    time_period = session_manager.create_selectbox(
+        'Time Period', 
+        options=['1d', '1wk', '1mo', '1y', 'max'],
+        selectbox_name='time_period_select'
+    )
+    chart_type = session_manager.create_selectbox(
+        'Chart Type', 
+        options=['Candlestick', 'Line'],
+        selectbox_name='chart_type_select'
+    )
+    indicators = session_manager.create_multiselect(
+        'Technical Indicators', 
+        options=['SMA 20', 'EMA 20'],
+        multiselect_name='indicators_select'
+    )    # Add pattern selection
     pattern_detector = create_pattern_detector()
     pattern_names = pattern_detector.get_pattern_names()
-    selected_patterns = st.multiselect("Patterns to scan for", pattern_names, default=pattern_names[:6])
+    selected_patterns = session_manager.create_multiselect(
+        "Patterns to scan for", 
+        options=pattern_names, 
+        default=pattern_names[:6],
+        multiselect_name="patterns_select"
+    )
     submitted = st.form_submit_button("Update")
 
 # Mapping of time periods to data intervals

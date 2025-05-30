@@ -689,36 +689,36 @@ def render_trade_controls(client: ETradeClient, symbol: str, config: DashboardCo
                 st.session_state.risk_warnings_acknowledged = True
             else:
                 return
-        
-        # Trading interface
+          # Trading interface
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("#### 📈 Buy Order")
-            buy_quantity = st.number_input(
+            buy_quantity = _session_manager.create_number_input(
                 "Quantity", 
                 min_value=1, 
                 max_value=10000, 
                 value=1, 
                 step=1,
-                key="buy_qty"
+                number_input_name="buy_qty"
             )
             
-            buy_order_type = st.radio(
+            buy_order_type = _session_manager.create_radio(
                 "Order Type", 
-                ["Market", "Limit"], 
-                key="buy_type"
+                options=["Market", "Limit"], 
+                radio_name="buy_type"
             )
             
             buy_price = None
             if buy_order_type == "Limit":
-                buy_price = st.number_input(
+                buy_price = _session_manager.create_number_input(
                     "Limit Price ($)", 
                     min_value=0.01, 
                     step=0.01,
-                    key="buy_price"
+                    number_input_name="buy_price"
                 )
-              # Calculate order value
+            
+            # Calculate order value
             estimated_price = buy_price if buy_price else (
                 st.session_state.trading_session.data_cache['close'].iloc[-1] 
                 if st.session_state.trading_session.data_cache is not None else 0
@@ -734,30 +734,31 @@ def render_trade_controls(client: ETradeClient, symbol: str, config: DashboardCo
         
         with col2:
             st.markdown("#### 📉 Sell Order")
-            sell_quantity = st.number_input(
+            sell_quantity = _session_manager.create_number_input(
                 "Quantity", 
                 min_value=1, 
                 max_value=10000, 
                 value=1, 
                 step=1,
-                key="sell_qty"
+                number_input_name="sell_qty"
             )
             
-            sell_order_type = st.radio(
+            sell_order_type = _session_manager.create_radio(
                 "Order Type", 
-                ["Market", "Limit"], 
-                key="sell_type"
+                options=["Market", "Limit"], 
+                radio_name="sell_type"
             )
             
             sell_price = None
             if sell_order_type == "Limit":
-                sell_price = st.number_input(
+                sell_price = _session_manager.create_number_input(
                     "Limit Price ($)", 
                     min_value=0.01, 
                     step=0.01,
-                    key="sell_price"
+                    number_input_name="sell_price"
                 )
-              # Calculate order value
+            
+            # Calculate order value
             estimated_price = sell_price if sell_price else (
                 st.session_state.trading_session.data_cache['close'].iloc[-1] 
                 if st.session_state.trading_session.data_cache is not None else 0

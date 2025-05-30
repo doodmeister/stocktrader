@@ -136,6 +136,321 @@ Get-ChildItem -Path "core\" -Filter "*.py" | ForEach-Object { python -c "import 
 - Streamlit caching and async data fetching  
 - Containerized deployment (Docker)  
 
+### 🛡️ World-Class Data Validation System (ENHANCED ✅)
+
+**Location**: `core/data_validator.py` (1,300+ lines of enterprise-grade validation)
+
+The StockTrader application features a **world-class data validation system** that provides comprehensive validation for financial data, user inputs, and system parameters. This centralized validation engine ensures data integrity, security, and performance across all application components.
+
+#### 🚀 Core Validation Capabilities
+
+**Symbol Validation with Real-Time API Checking**
+- Advanced symbol format validation with customizable patterns
+- Real-time Yahoo Finance API verification with intelligent caching
+- Thread-safe symbol caching with configurable TTL (4-hour default)
+- Batch validation support with rate limiting protection
+- Support for complex symbols (ETFs, mutual funds, international stocks)
+
+**Interval-Specific Date Range Validation**
+- Yahoo Finance interval limitations enforcement (1m: 7 days, 5m: 60 days, etc.)
+- Intelligent date range suggestions for optimal performance
+- Future date prevention and weekend/holiday awareness
+- Historical data availability checking
+
+**OHLCV Data Integrity Validation**
+- Statistical OHLC relationship verification (High ≥ Open/Close/Low, etc.)
+- Volume data validation with outlier detection
+- Price movement anomaly detection (>50% daily moves)
+- Data completeness analysis with gap detection
+- Null value percentage monitoring with configurable thresholds
+
+**Financial Parameter Validation**
+- Price range validation ($0.01 - $1,000,000)
+- Volume limits (0 - 1 trillion shares)
+- Quantity validation for position sizing
+- Percentage validation with configurable bounds
+- Currency amount validation with precision handling
+
+#### 🔒 Security & Performance Features
+
+**Security-Focused Input Sanitization**
+- Dangerous character pattern detection and removal
+- Path traversal attack prevention (.. detection)
+- HTML injection protection with optional allow-listing
+- Input length limiting with configurable maximums
+- File extension validation for uploads
+
+**Performance Optimization**
+- Thread-safe caching with RLock synchronization
+- LRU cache eviction with configurable size limits
+- API rate limiting to prevent service abuse
+- Batch processing for multiple symbol validation
+- Intelligent cache warming and expiration
+
+**Advanced Error Handling**
+- Structured exception hierarchy for different validation types
+- Detailed error messages with actionable suggestions
+- Warning system for non-critical issues
+- Metadata collection for debugging and analytics
+- Graceful degradation when external APIs unavailable
+
+#### 🎯 Integration Points
+
+**Dashboard Integration**
+- Used by all dashboard pages for input validation
+- Real-time symbol verification in data dashboards
+- Date range validation for historical data requests
+- File upload validation in model training pages
+
+**Core System Integration**
+- Risk manager integration for position validation
+- Model training pipeline data validation
+- Pattern detection data integrity checks
+- API response validation for external data sources
+
+#### 📊 Validation Result Types
+
+```python
+# Symbol validation with metadata
+result = validator.validate_symbol("AAPL", check_api=True)
+# Returns: ValidationResult(is_valid=True, value="AAPL", errors=[], warnings=[], metadata={})
+
+# Date range validation with interval checking
+result = validator.validate_dates(start_date, end_date, interval="1m")
+# Returns detailed validation with suggested alternatives
+
+# DataFrame validation with statistical analysis
+result = validator.validate_dataframe(df, required_cols=['open', 'high', 'low', 'close'])
+# Returns: DataFrameValidationResult with comprehensive analysis
+```
+
+#### ⚡ Performance Statistics
+
+The validator includes built-in performance monitoring:
+- **Validation operations**: Symbol, date, and DataFrame validation counts
+- **Cache performance**: Hit/miss ratios for optimization insights
+- **API usage**: Call counts and rate limiting statistics
+- **Error tracking**: Validation failure patterns and frequencies
+
+#### 🔧 Configuration Options
+
+```python
+# Configurable validation parameters
+ValidationConfig.SYMBOL_CACHE_TTL = 4 * 60 * 60  # 4 hours
+ValidationConfig.MAX_NULL_PERCENTAGE = 0.05      # 5% max nulls
+ValidationConfig.API_TIMEOUT = 5                 # 5 second timeout
+ValidationConfig.MAX_INVALID_OHLC_PERCENTAGE = 0.05  # 5% max invalid OHLC
+```
+
+#### 🆕 Migration from Legacy Validators
+
+The enhanced validator in `core/data_validator.py` supersedes the basic validator in `utils/data_validator.py`, providing:
+- **10x more validation rules** (1,300 vs 130 lines)
+- **Enterprise security features** not available in the basic version
+- **Performance optimization** with intelligent caching and rate limiting
+- **Comprehensive error handling** with structured exceptions
+
+**Migration Steps:**
+
+1. **Replace Import Statements**
+```python
+# OLD (legacy validator)
+from utils.data_validator import validate_symbol, validate_date_range
+
+# NEW (enhanced validator)
+from core.data_validator import UniversalDataValidator
+
+# Initialize the enhanced validator
+validator = UniversalDataValidator()
+```
+
+2. **Update Validation Calls**
+```python
+# OLD: Basic symbol validation
+if validate_symbol(symbol):
+    # process symbol
+
+# NEW: Enhanced symbol validation with API checking
+result = validator.validate_symbol(symbol, check_api=True)
+if result.is_valid:
+    # process symbol with confidence
+    print(f"Validated symbol: {result.value}")
+else:
+    print(f"Validation errors: {result.errors}")
+```
+
+3. **Enhanced Date Range Validation**
+```python
+# OLD: Basic date validation
+start_date, end_date = validate_date_range(start_str, end_str)
+
+# NEW: Interval-aware validation with optimization suggestions
+result = validator.validate_dates(start_str, end_str, interval="1m")
+if result.is_valid:
+    start_date, end_date = result.value
+    if result.warnings:
+        print(f"Optimization suggestions: {result.warnings}")
+```
+
+4. **Update Components Using Local Validators**
+
+Components with local validation logic should migrate to the centralized system:
+
+**Data Dashboard v2** (`dashboard_pages/data_dashboard_v2.py`):
+```python
+# Replace local validate_symbol function with:
+validator = UniversalDataValidator()
+result = validator.validate_symbol(symbol, check_api=True)
+```
+
+**Realtime Dashboard v3** (`dashboard_pages/realtime_dashboard_v3.py`):
+```python
+# Replace individual validation functions with unified validator
+validator = UniversalDataValidator()
+```
+
+#### 🔧 Practical Usage Examples
+
+**1. Symbol Validation in Dashboard Pages**
+```python
+from core.data_validator import UniversalDataValidator
+
+class DataDashboard:
+    def __init__(self):
+        self.validator = UniversalDataValidator()
+    
+    def process_symbol_input(self, symbol):
+        # Validate with real-time API checking
+        result = self.validator.validate_symbol(symbol, check_api=True)
+        
+        if not result.is_valid:
+            st.error(f"Invalid symbol: {', '.join(result.errors)}")
+            return None
+            
+        if result.warnings:
+            st.warning(f"Symbol warnings: {', '.join(result.warnings)}")
+            
+        # Use validated symbol with confidence
+        return result.value
+```
+
+**2. DataFrame Validation for Model Training**
+```python
+def prepare_training_data(self, df):
+    # Comprehensive DataFrame validation
+    result = self.validator.validate_dataframe(
+        df, 
+        required_cols=['open', 'high', 'low', 'close', 'volume'],
+        check_nulls=True,
+        check_ohlc_relationships=True
+    )
+    
+    if not result.is_valid:
+        logging.error(f"Data validation failed: {result.errors}")
+        return None
+        
+    # Log data quality metrics
+    logging.info(f"Data quality score: {result.metadata.get('quality_score', 'N/A')}")
+    logging.info(f"Null percentage: {result.metadata.get('null_percentage', 0):.2%}")
+    
+    return result.cleaned_data  # Returns cleaned/processed DataFrame
+```
+
+**3. Risk Management Integration**
+```python
+def validate_trade_parameters(self, trade_params):
+    # Validate financial parameters
+    price_result = self.validator.validate_price(trade_params['price'])
+    quantity_result = self.validator.validate_quantity(trade_params['quantity'])
+    
+    # Collect all validation results
+    all_valid = all([price_result.is_valid, quantity_result.is_valid])
+    
+    if not all_valid:
+        errors = []
+        errors.extend(price_result.errors)
+        errors.extend(quantity_result.errors)
+        raise ValidationError(f"Trade validation failed: {errors}")
+    
+    return {
+        'validated_price': price_result.value,
+        'validated_quantity': quantity_result.value
+    }
+```
+
+**4. Batch Symbol Validation for Watchlists**
+```python
+def validate_watchlist(self, symbols):
+    # Efficient batch validation with caching
+    validated_symbols = []
+    invalid_symbols = []
+    
+    for symbol in symbols:
+        result = self.validator.validate_symbol(symbol, check_api=True)
+        if result.is_valid:
+            validated_symbols.append(result.value)
+        else:
+            invalid_symbols.append((symbol, result.errors))
+    
+    # Report validation statistics
+    success_rate = len(validated_symbols) / len(symbols)
+    logging.info(f"Watchlist validation: {success_rate:.1%} success rate")
+    
+    return validated_symbols, invalid_symbols
+```
+
+**5. Security-Focused File Upload Validation**
+```python
+def process_uploaded_file(self, uploaded_file):
+    # Validate file security and format
+    filename_result = self.validator.sanitize_input(
+        uploaded_file.name,
+        remove_dangerous=True,
+        max_length=255
+    )
+    
+    if not filename_result.is_valid:
+        st.error("Invalid filename")
+        return None
+    
+    # Additional file validation can be added here
+    # (size limits, content validation, etc.)
+    
+    return filename_result.value
+```
+
+#### 📈 Performance Monitoring
+
+**Cache Performance Analysis**
+```python
+# Get validation performance statistics
+stats = validator.get_performance_stats()
+
+print(f"Symbol cache hit rate: {stats['cache_hit_rate']:.1%}")
+print(f"API calls made: {stats['api_calls']}")
+print(f"Validations performed: {stats['total_validations']}")
+print(f"Average validation time: {stats['avg_validation_time']:.3f}s")
+```
+
+**Custom Configuration for High-Performance Scenarios**
+```python
+# Configure for high-frequency validation
+from core.data_validator import ValidationConfig
+
+# Extend cache TTL for stable environments
+ValidationConfig.SYMBOL_CACHE_TTL = 8 * 60 * 60  # 8 hours
+
+# Increase cache size for large symbol sets
+ValidationConfig.CACHE_SIZE = 10000
+
+# Adjust API timeout for slow networks
+ValidationConfig.API_TIMEOUT = 10
+
+# Create validator with custom config
+validator = UniversalDataValidator()
+```
+
+This enhanced validation system ensures **enterprise-grade data integrity** across the entire StockTrader application while providing the flexibility and performance needed for real-time trading operations.
 ---
 
 ## System Requirements
@@ -239,6 +554,7 @@ stocktrader/
 │
 ├── core/                             # 🆕 Core dashboard modules (COMPLETED ✅)
 │   ├── dashboard_controller.py       # Main UI orchestration and navigation
+│   ├── data_validator.py             # Main data validator for all scripts
 │   ├── session_manager.py            # Handles user sessions and state
 │   ├── page_loader.py                # Dynamic page discovery and management
 │   ├── health_checks.py              # Comprehensive system health monitoring
@@ -275,7 +591,6 @@ stocktrader/
 │   │   ├── indicators.py             # Stateless technical indicator functions
 │   │   └── technical_analysis.py     # TechnicalAnalysis class: scoring, price targets
 │   ├── notifier.py                   # Notification system
-│   ├── data_validator.py             # Input validation helpers
 │   ├── data_downloader.py            # Data download utilities
 │   ├── logger.py                     # Logging utilities
 │   └── dashboard_utils.py            # Shared dashboard/session state logic

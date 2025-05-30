@@ -1,3 +1,4 @@
+# filepath: c:\dev\stocktrader\core\session_manager.py
 """
 Session State Management System for StockTrader Dashboards
 
@@ -82,11 +83,10 @@ class SessionManager:
         return f"dashboard_{int(time.time())}"
     
     def _generate_namespace(self) -> str:
-        """Generate a unique namespace for this page."""
-        # Create a stable but unique namespace based on page name and session
-        base_string = f"{self.page_name}_{st.session_state.get('session_id', 'default')}"
-        namespace_hash = hashlib.md5(base_string.encode()).hexdigest()[:8]
-        return f"{self.page_name}_{namespace_hash}"
+        """Generate a stable namespace for this page."""
+        # Create a stable namespace based only on page name for consistency
+        # This ensures buttons maintain their keys across page refreshes
+        return f"{self.page_name}_stable"
     
     def _get_or_create_session_id(self) -> str:
         """Get or create a unique session ID."""
@@ -107,34 +107,26 @@ class SessionManager:
     
     def get_unique_key(self, base_key: str, key_type: str = "button") -> str:
         """
-        Generate a unique key for buttons, forms, or other Streamlit components.
+        Generate a stable unique key for buttons, forms, or other Streamlit components.
         
         Args:
             base_key: Base name for the key (e.g., "update", "clear_data")
             key_type: Type of component ("button", "form", "input", etc.)
             
         Returns:
-            str: Unique key that won't conflict with other pages
+            str: Stable unique key that won't conflict with other pages
         """
-        context_key = f"_page_context_{self.namespace}"
-        context = st.session_state.get(context_key)
-        
-        if context and key_type == "button":
-            context.button_count += 1
-            count = context.button_count
-        elif context and key_type == "form":
-            context.form_count += 1
-            count = context.form_count
-        else:
-            count = int(time.time() * 1000) % 10000
-        
-        unique_key = f"{self.namespace}_{key_type}_{base_key}_{count}"
+        # Create stable keys using namespace and base_key only
+        # This ensures consistent keys across reruns for proper Streamlit functionality
+        unique_key = f"{self.namespace}_{key_type}_{base_key}"
         
         # Track this key for cleanup
-        if context:
+        context_key = f"_page_context_{self.namespace}"
+        context = st.session_state.get(context_key)
+        if context and unique_key not in context.cleanup_keys:
             context.cleanup_keys.append(unique_key)
         
-        logger.debug(f"Generated unique key: {unique_key}")
+        logger.debug(f"Generated stable key: {unique_key}")
         return unique_key
     
     def get_form_key(self, form_name: str = "main") -> str:

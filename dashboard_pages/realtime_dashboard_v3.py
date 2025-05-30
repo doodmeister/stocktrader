@@ -729,23 +729,38 @@ def render_main_dashboard():
     
     # Initialize session state
     state_manager.initialize_session_state()
-    
-    # Move form to sidebar with SessionManager for proper placement and key management
+      # Move form to sidebar with SessionManager for proper placement and key management
     with session_manager.form_container("chart_parameters_form", location="sidebar"):
         st.header('Chart Parameters')
-        ticker = st.text_input('Ticker', 'ADBE').upper().strip()
-        time_period = st.selectbox('Time Period', VALID_TIME_PERIODS)
-        chart_type = st.selectbox('Chart Type', VALID_CHART_TYPES)
-        indicators = st.multiselect('Technical Indicators', VALID_INDICATORS)
-        
-        # Pattern selection - fix: create instance of CandlestickPatterns
+        ticker = session_manager.create_text_input(
+            'Ticker',
+            value='ADBE',
+            text_input_name='ticker_input'
+        ).upper().strip()
+        time_period = session_manager.create_selectbox(
+            'Time Period',
+            options=VALID_TIME_PERIODS,
+            selectbox_name='time_period_select'
+        )
+        chart_type = session_manager.create_selectbox(
+            'Chart Type',
+            options=VALID_CHART_TYPES,
+            selectbox_name='chart_type_select'
+        )
+        indicators = session_manager.create_multiselect(
+            'Technical Indicators',
+            options=VALID_INDICATORS,
+            multiselect_name='indicators_select'
+        )
+          # Pattern selection - fix: create instance of CandlestickPatterns
         try:
             patterns_instance = CandlestickPatterns()
             pattern_names = patterns_instance.get_pattern_names()
-            selected_patterns = st.multiselect(
-                "Patterns to scan for", 
-                pattern_names, 
-                default=pattern_names[:6] if len(pattern_names) >= 6 else pattern_names
+            selected_patterns = session_manager.create_multiselect(
+                "Patterns to scan for",
+                options=pattern_names,
+                default=pattern_names[:6] if len(pattern_names) >= 6 else pattern_names,
+                multiselect_name="patterns_select"
             )
         except Exception as e:
             st.error(f"Error loading patterns: {e}")

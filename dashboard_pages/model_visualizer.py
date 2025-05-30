@@ -914,14 +914,13 @@ class ModelVisualizerService:
         try:
             # Display model count info
             st.info(f"📁 Found {len(model_files)} trained models")
-            
-            # Model selection widget
-            selected_files = st.multiselect(
+              # Model selection widget
+            selected_files = self.session_manager.create_multiselect(
                 "**Select Model Files to Analyze**",
                 options=model_files,
                 default=[model_files[0]] if model_files else [],
-                help=f"Select up to {self.config.max_models_to_compare} models for comparison",
-                key="model_selection"
+                multiselect_name="model_selection",
+                help=f"Select up to {self.config.max_models_to_compare} models for comparison"
             )
             
             if selected_files:

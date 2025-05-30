@@ -167,38 +167,43 @@ def validate_file_path(file_path: Union[str, Path],
 
 def prevent_path_traversal(file_path: Union[str, Path]) -> bool:
     """
-    Check for path traversal attempts in file paths.
-    
+    Quick first-pass check for path traversal attempts in file paths.
+
+    This is a fast, heuristic filter to catch obvious traversal attempts (e.g., '..', encoded variants),
+    but it is NOT a security guarantee. Always use Path(path).resolve().relative_to(base.resolve())
+    for actual security enforcement (see validate_file_path).
+
     Args:
         file_path: Path to check
-        
     Returns:
-        bool: True if path is safe, False if traversal detected
+        bool: True if path is likely safe, False if traversal detected
     """
     path_str = str(file_path)
-    
-    # Check for common path traversal patterns
+
+    # Normalize slashes and decode percent-encoded values for better detection
+    import urllib.parse
+    normalized = path_str.replace('\\', '/').replace('//', '/').lower()
+    decoded = urllib.parse.unquote(normalized)
+
+    # Check for common path traversal patterns (quick filter only)
     dangerous_patterns = [
         '..',      # Parent directory
         '~',       # Home directory
         '///',     # Multiple slashes
-        '\\\\\\',  # Multiple backslashes (Windows)
         '%2e%2e',  # URL encoded ..
         '%252e',   # Double URL encoded .
         '..%2f',   # Mixed encoding
         '..%5c',   # Mixed encoding (backslash)
     ]
-    
-    path_lower = path_str.lower()
     for pattern in dangerous_patterns:
-        if pattern in path_lower:
+        if pattern in decoded:
             return False
-    
+
     # Check for absolute paths when they shouldn't be allowed
     if os.path.isabs(path_str):
         # This might be OK depending on context, but flag for review
         logger.info(f"Absolute path detected: {file_path}")
-    
+
     return True
 
 
