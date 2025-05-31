@@ -411,21 +411,19 @@ def load_price_data(client: ETradeClient, symbol: str, session: TradingSession) 
         logger.info(f"Fetching live data for {symbol}")
         
         # Check if cached data is still valid to avoid unnecessary API calls
-        # Cache validity is based on CACHE_EXPIRY_MINUTES constant
         if session.is_cache_valid() and session.data_cache is not None:
             if len(session.data_cache) > 0:
-                # Verify cached data is for the same symbol to prevent cross-symbol contamination
                 last_symbol = session.data_cache.get('symbol', {}).get(0, '')
                 if last_symbol == symbol:
                     logger.debug(f"Using cached data for {symbol}")
                     return session.data_cache
         
-        # Fetch new data with retry mechanism to handle transient network issues
+        # Fetch new data with retry mechanism
         raw_data = safe_request(
             lambda: client.get_live_data(symbol),
             max_retries=3,
             retry_delay=2,
-            timeout=15  # Prevent hanging on slow API responses
+            timeout=15
         )
         
         if not raw_data:
@@ -436,15 +434,6 @@ def load_price_data(client: ETradeClient, symbol: str, session: TradingSession) 
         # Convert to DataFrame with validation
         df = pd.DataFrame(raw_data)
         
-        # Validate required columns
-        missing_cols = REQUIRED_DATA_COLUMNS - set(df.columns)
-        if missing_cols:
-            logger.error(f"Missing required columns in API response: {missing_cols}")
-            session.increment_error_count()
-            return None
-        
-        # Replace manual validation with centralized validation
-
         # Run centralized validation
         validation_result = validate_dataframe(
             df,
@@ -469,7 +458,7 @@ def load_price_data(client: ETradeClient, symbol: str, session: TradingSession) 
         df = df.sort_values('timestamp')
         df.set_index('timestamp', inplace=True)
         
-        # Validate data quality
+        # Convert numeric columns
         numeric_cols = ['open', 'high', 'low', 'close', 'volume']
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -482,15 +471,7 @@ def load_price_data(client: ETradeClient, symbol: str, session: TradingSession) 
             session.increment_error_count()
             return None
         
-        # Basic data validation
-        if not ((df['high'] >= df['low']).all() and 
-               (df['high'] >= df['open']).all() and 
-               (df['high'] >= df['close']).all() and
-               (df['low'] <= df['open']).all() and 
-               (df['low'] <= df['close']).all()):
-            logger.error(f"Invalid OHLC data detected for {symbol}")
-            session.increment_error_count()
-            return None
+        # Remove redundant OHLC validation since it's already handled by validate_dataframe
         
         # Add symbol for caching validation
         df['symbol'] = symbol

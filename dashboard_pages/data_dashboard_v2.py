@@ -35,6 +35,11 @@ from core.dashboard_utils import (
     initialize_dashboard_session_state
 )
 
+# Centralized validation and configuration
+from core.data_validator import get_global_validator, ValidationConfig
+from utils.config.config import DashboardConfig
+from security.utils import sanitize_filename
+
 # Import SessionManager to solve button key conflicts and session state issues
 from core.session_manager import create_session_manager, show_session_debug_info
 
@@ -59,106 +64,6 @@ setup_page(
     logger_name=__name__,
     sidebar_title="Configuration"
 )
-
-# Configuration class
-class DashboardConfig:
-    def __init__(self):
-        self.DATA_DIR = Path("data")
-        self.MODEL_DIR = Path("models")
-        self.DEFAULT_SYMBOLS = ["AAPL", "MSFT", "GOOGL"]
-        self.VALID_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "1d"]
-
-# Data validator class
-class DataValidator:
-    def __init__(self):
-        self._symbol_pattern = re.compile(r'^[A-Z0-9.-]{1,10}$')
-    
-    def validate_symbol(self, symbol: str) -> str:
-        if not symbol:
-            raise ValueError("Symbol cannot be empty")
-            
-        symbol = symbol.strip().upper()
-        
-        if not self._symbol_pattern.match(symbol):
-            raise ValueError(f"Invalid symbol format: {symbol}")
-        if len(symbol) > 10:
-            raise ValueError("Symbol too long (max 10 characters)")
-            
-        if not any(c.isalpha() for c in symbol):
-            raise ValueError("Symbol must contain at least one letter")
-        
-        return symbol
-    
-    def validate_symbols(self, symbols_input: str) -> List[str]:
-        if not symbols_input or not symbols_input.strip():
-            return []
-            
-        raw_symbols = [s.strip() for s in symbols_input.split(',')]
-        valid_symbols = []
-        
-        for symbol in raw_symbols:
-            if symbol:
-                try:
-                    validated = self.validate_symbol(symbol)
-                    valid_symbols.append(validated)
-                except ValueError as e:
-                    logger.warning(f"Invalid symbol {symbol}: {e}")
-                    continue
-        
-        if not valid_symbols:
-            raise ValueError("No valid symbols found in input")
-            
-        return valid_symbols
-    
-    def validate_dates(self, start_date: date, end_date: date, interval: str = "1d") -> bool:
-        """Validate date range with interval-specific limitations"""
-        # Basic date validation
-        if not (start_date <= end_date and end_date <= date.today()):
-            return False
-        
-        # Calculate the number of days in the range
-        days_diff = (end_date - start_date).days
-        
-        # Yahoo Finance interval-specific limitations
-        interval_limits = {
-            "1m": 7,      # 7 days max for 1-minute data
-            "5m": 60,     # 60 days max for 5-minute data
-            "15m": 60,    # 60 days max for 15-minute data
-            "30m": 60,    # 60 days max for 30-minute data
-            "1h": 730,    # ~2 years max for hourly data
-            "1d": 36500   # ~100 years (essentially unlimited) for daily data
-        }
-        
-        max_days = interval_limits.get(interval, 730)
-        
-        if days_diff > max_days:
-            logger.warning(f"Date range too large for {interval} interval: {days_diff} days (max: {max_days})")
-            return False
-            
-        return True
-    
-    def get_max_date_range_message(self, interval: str) -> str:
-        """Get user-friendly message about max date range for interval"""
-        interval_messages = {
-            "1m": "📅 1-minute data: Maximum 7 days",
-            "5m": "📅 5-minute data: Maximum 60 days", 
-            "15m": "📅 15-minute data: Maximum 60 days",
-            "30m": "📅 30-minute data: Maximum 60 days",
-            "1h": "📅 Hourly data: Maximum ~2 years",
-            "1d": "📅 Daily data: No practical limit"
-        }
-        return interval_messages.get(interval, "📅 Check data provider limitations")
-
-# Utility functions
-def sanitize_filename(filename: str) -> str:
-    if not filename:
-        return "unnamed_file"
-    
-    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
-    filename = re.sub(r'[^\w\s._-]', '', filename)
-    filename = re.sub(r'\s+', '_', filename)
-    filename = re.sub(r'_+', '_', filename)
-    return filename.strip('_').strip()
 
 def download_stock_data(symbols: List[str], start_date: date, end_date: date, 
                        interval: str) -> Dict[str, pd.DataFrame]:
@@ -206,7 +111,7 @@ class DataDashboard:
 
     def __init__(self):
         self.config = DashboardConfig()
-        self.validator = DataValidator()
+        self.validator = get_global_validator()
         
         # Initialize SessionManager for conflict-free button handling
         self.session_manager = create_session_manager("data_dashboard_v2")
@@ -290,13 +195,17 @@ class DataDashboard:
     def _render_inputs(self) -> None:
         """Render input controls"""
         st.subheader("📋 Data Configuration")
+          # Create display-friendly interval limits
+        interval_display_limits = {}
+        for interval, days in ValidationConfig.INTERVAL_LIMITS.items():
+            if days >= 36500:  # Essentially unlimited
+                interval_display_limits[interval] = "No limit"
+            elif days >= 365:
+                interval_display_limits[interval] = f"{days//365} years"
+            else:
+                interval_display_limits[interval] = f"{days} days"
         
-        interval_limits = {
-            "1m": "7 days", "5m": "60 days", "15m": "60 days",
-            "30m": "60 days", "1h": "2 years", "1d": "No limit"
-        }
-        
-        current_limit = interval_limits.get(self.interval, "Check provider")
+        current_limit = interval_display_limits.get(self.interval, "Check provider")
         st.info(
             f"💡 **Current interval ({self.interval})** - "
             f"Historical limit: {current_limit}. "
@@ -324,17 +233,26 @@ class DataDashboard:
                 "🔄 Validate", 
                 "validate_symbols",
                 help="Check symbol validity"            )
-        
-        # Process symbols automatically and show validation feedback
+          # Process symbols automatically and show validation feedback
         previous_symbols = self.symbols.copy()
         try:
-            self.symbols = self.validator.validate_symbols(symbols_input)
-            if self.symbols != previous_symbols:
-                st.session_state["data_fetched"] = False
-                logger.info(f"Symbols updated: {previous_symbols} → {self.symbols}")
+            result = self.validator.validate_symbols(symbols_input)
+            if result.is_valid:
+                self.symbols = result.value  # Use validated symbols from result
+                if self.symbols != previous_symbols:
+                    st.session_state["data_fetched"] = False
+                    logger.info(f"Symbols updated: {previous_symbols} → {self.symbols}")
+                    
+                # Show warnings if any
+                if result.warnings:
+                    for warning in result.warnings:
+                        st.warning(f"⚠️ {warning}")
+            else:
+                st.error(f"❌ Invalid symbols: {', '.join(result.errors)}")
+                self.symbols = []
                 
-        except ValueError as e:
-            st.error(f"❌ Invalid symbols: {e}")
+        except Exception as e:
+            st.error(f"❌ Symbol validation error: {e}")
             self.symbols = []
         
         # Provide immediate validation feedback if validate button clicked
@@ -351,26 +269,24 @@ class DataDashboard:
         
         with st.spinner("🔍 Validating symbols..."):
             try:
-                raw_symbols = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
-                if not raw_symbols:
-                    st.warning("⚠️ No valid symbols found in input")
-                    return
+                result = self.validator.validate_symbols(symbols_input)
                 
-                valid_symbols = []
-                invalid_symbols = []
-                
-                for symbol in raw_symbols:
-                    try:
-                        validated = self.validator.validate_symbol(symbol)
-                        valid_symbols.append(validated)
-                    except Exception as e:
-                        invalid_symbols.append(f"{symbol} ({str(e)})")
-                
-                if valid_symbols:
+                if result.is_valid:
+                    valid_symbols = result.value
                     st.success(f"✅ **Valid symbols:** {', '.join(valid_symbols)}")
                     
-                if invalid_symbols:
-                    st.error(f"❌ **Invalid symbols:** {', '.join(invalid_symbols)}")
+                    # Show warnings if any
+                    if result.warnings:
+                        for warning in result.warnings:
+                            st.warning(f"⚠️ {warning}")
+                            
+                    # Show validation metadata
+                    if hasattr(result, 'metadata') and result.metadata:
+                        metadata = result.metadata
+                        if 'valid_count' in metadata and 'total_input' in metadata:
+                            st.info(f"📊 Validation: {metadata['valid_count']}/{metadata['total_input']} symbols valid")
+                else:
+                    st.error(f"❌ **Validation failed:** {', '.join(result.errors)}")
                     
             except Exception as e:
                 logger.error(f"Symbol validation error: {e}")
@@ -397,20 +313,21 @@ class DataDashboard:
             index=current_index,
             selectbox_name="data_interval",            format_func=lambda x: intervals_with_desc.get(x, x),
             help="Choose the frequency of data points"
-        )
-        
-        # Check if interval changed and warn about date range compatibility
+        )        # Check if interval changed and warn about date range compatibility
         if previous_interval != self.interval:
             st.session_state["data_fetched"] = False
             # Check if current date range is compatible with new interval
-            if not self.validator.validate_dates(self.start_date, self.end_date, self.interval):
+            date_result = self.validator.validate_dates(self.start_date, self.end_date, self.interval)
+            if not date_result.is_valid:
                 days_span = (self.end_date - self.start_date).days
-                interval_limits = {
-                    "1m": 7, "5m": 60, "15m": 60, "30m": 60, "1h": 730, "1d": 36500
-                }
-                max_days = interval_limits.get(self.interval, 730)
+                max_days = ValidationConfig.INTERVAL_LIMITS.get(self.interval, 730)
                 st.warning(f"⚠️ Current date range ({days_span} days) is too large for **{self.interval}** interval (max: {max_days} days)")
                 st.info("🔧 Please adjust your date range below or the download will fail.")
+                
+                # Show validation errors
+                if date_result.errors:
+                    for error in date_result.errors:
+                        st.error(f"❌ {error}")
 
     def _render_date_inputs(self) -> None:
         """Render date inputs with presets"""
@@ -486,22 +403,24 @@ class DataDashboard:
                 del st.session_state["preset_start_date"]
             if "preset_end_date" in st.session_state:
                 del st.session_state["preset_end_date"]
-          # Validation with interval-specific limitations
+                  # Validation with interval-specific limitations
         basic_valid = self.start_date <= self.end_date and self.end_date <= date.today()
-        interval_valid = self.validator.validate_dates(self.start_date, self.end_date, self.interval)
+        date_result = self.validator.validate_dates(self.start_date, self.end_date, self.interval)
+        interval_valid = date_result.is_valid
         
         if not basic_valid:
             st.error("❌ Invalid date range: Start date must be ≤ End date and not in the future")
         elif not interval_valid:
             days_span = (self.end_date - self.start_date).days
-            interval_limits = {
-                "1m": 7, "5m": 60, "15m": 60, "30m": 60, "1h": 730, "1d": 36500
-            }
-            max_days = interval_limits.get(self.interval, 730)
+            max_days = ValidationConfig.INTERVAL_LIMITS.get(self.interval, 730)
             
             # Show warning with automatic adjustment option
             st.warning(f"⚠️ Date range too large for **{self.interval}** interval: {days_span} days (max: {max_days} days)")
-            st.info(self.validator.get_max_date_range_message(self.interval))
+            
+            # Show specific validation errors
+            if date_result.errors:
+                for error in date_result.errors:
+                    st.error(f"❌ {error}")
             
             # Offer automatic adjustment
             col1, col2 = st.columns([1, 2])
@@ -518,10 +437,15 @@ class DataDashboard:
         else:
             days_span = (self.end_date - self.start_date).days
             st.success(f"✅ Valid range: {days_span} days ({self.start_date} to {self.end_date})")
-            
-            # Show helpful interval info for valid ranges
+              # Show helpful interval info for valid ranges
             if self.interval in ["1m", "5m", "15m", "30m"]:
-                st.info(self.validator.get_max_date_range_message(self.interval))
+                max_days = ValidationConfig.INTERVAL_LIMITS.get(self.interval, 60)
+                st.info(f"💡 **{self.interval}** interval is limited to {max_days} days for optimal performance")
+                
+            # Show warnings from validation result
+            if interval_valid and date_result.warnings:
+                for warning in date_result.warnings:
+                    st.warning(f"⚠️ {warning}")
 
     def _render_options(self) -> None:
         """Render additional options"""
@@ -737,19 +661,22 @@ class DataDashboard:
             st.error("❌ Please enter at least one valid stock symbol")
             return 0
             
-        if not self.validator.validate_dates(self.start_date, self.end_date, self.interval):
-            # Show specific error message for interval-related issues
-            days_span = (self.end_date - self.start_date).days
-            interval_limits = {
-                "1m": 7, "5m": 60, "15m": 60, "30m": 60, "1h": 730, "1d": 36500
-            }
-            max_days = interval_limits.get(self.interval, 730)
+        date_result = self.validator.validate_dates(self.start_date, self.end_date, self.interval)
+        if not date_result.is_valid:
+            # Show specific error messages from the validator
+            for error in date_result.errors:
+                st.error(f"❌ {error}")
             
-            if days_span > max_days:
-                st.error(f"❌ Date range too large for {self.interval} interval: {days_span} days (max: {max_days} days)")
-                st.info(f"💡 {self.validator.get_max_date_range_message(self.interval)}")
-            else:
-                st.error("❌ Invalid date range selected")
+            # Show any warnings/suggestions
+            if date_result.warnings:
+                for warning in date_result.warnings:
+                    st.warning(f"⚠️ {warning}")
+            
+            # Show interval-specific guidance
+            if hasattr(date_result, 'metadata') and 'suggested_end_date' in date_result.metadata:
+                suggested = date_result.metadata['suggested_end_date']
+                st.info(f"💡 Try using end date: {suggested}")
+            
             return 0
         
         st.info("🚀 Starting data download process...")

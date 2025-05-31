@@ -38,7 +38,6 @@ from patterns.patterns_nn import PatternNN
 from utils.technicals.performance_utils import st_error_boundary, generate_combined_signals
 from utils.synthetic_trading_data import add_to_model_training_ui, generate_synthetic_data
 from train.ml_config import MLConfig
-from utils.config.stockticker_yahoo_validation import get_valid_tickers
 from train.deeplearning_trainer import train_pattern_model
 
 # Classic ML pipeline

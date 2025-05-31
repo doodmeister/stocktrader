@@ -254,13 +254,56 @@ class DataDashboard:
                 st.metric("Est. Download Size", size_display)
 
     def _render_date_inputs(self):
-        """Render start and end date inputs with validation."""
+        """Render start and end date inputs with validation and presets."""
+        st.subheader("📅 Date Range")
+        
+        # Quick preset buttons
+        col1, col2, col3, col4 = st.columns(4)
+        today = date.today()
+        
+        with col1:
+            if self.session_manager.create_button("📅 1 Week", "preset_week_btn", help="Last 7 days"):
+                st.session_state["preset_start_date"] = today - timedelta(days=7)
+                st.session_state["preset_end_date"] = today
+                st.session_state["data_fetched"] = False
+                st.success("✅ Date range set to last 7 days")
+                st.rerun()
+                
+        with col2:
+            if self.session_manager.create_button("📅 1 Month", "preset_month_btn", help="Last 30 days"):
+                st.session_state["preset_start_date"] = today - timedelta(days=30)
+                st.session_state["preset_end_date"] = today
+                st.session_state["data_fetched"] = False
+                st.success("✅ Date range set to last 30 days")
+                st.rerun()
+                
+        with col3:
+            if self.session_manager.create_button("📅 3 Months", "preset_3month_btn", help="Last 90 days"):
+                st.session_state["preset_start_date"] = today - timedelta(days=90)
+                st.session_state["preset_end_date"] = today
+                st.session_state["data_fetched"] = False
+                st.success("✅ Date range set to last 90 days")
+                st.rerun()
+                
+        with col4:
+            if self.session_manager.create_button("📅 1 Year", "preset_year_btn", help="Last 365 days"):
+                st.session_state["preset_start_date"] = today - timedelta(days=365)
+                st.session_state["preset_end_date"] = today
+                st.session_state["data_fetched"] = False
+                st.success("✅ Date range set to last 365 days")
+                st.rerun()
+        
+        # Use session state values if available, otherwise use instance values
+        current_start = st.session_state.get("preset_start_date", self.start_date)
+        current_end = st.session_state.get("preset_end_date", self.end_date)
+        
+        # Manual date selection
         col1, col2 = st.columns(2)
         with col1:
             new_start = self.session_manager.create_date_input(
                 "Start Date",
-                value=self.start_date,
-                max_value=date.today(),
+                value=current_start,
+                max_value=today,
                 help="Start date for historical data",
                 date_input_name="start_date_input"
             )
@@ -268,22 +311,30 @@ class DataDashboard:
         with col2:
             new_end = self.session_manager.create_date_input(
                 "End Date",
-                value=self.end_date,
-                max_value=date.today(),
+                value=current_end,
+                max_value=today,
                 help="End date for historical data",
                 date_input_name="end_date_input"
             )
 
-        # Update dates and reset data_fetched if they changed
+        # Update dates and clear preset values
         if new_start != self.start_date or new_end != self.end_date:
             self.start_date = new_start
             self.end_date = new_end
             st.session_state["data_fetched"] = False
+            # Clear preset values once they're applied
+            if "preset_start_date" in st.session_state:
+                del st.session_state["preset_start_date"]
+            if "preset_end_date" in st.session_state:
+                del st.session_state["preset_end_date"]
 
         # Use the global validate_dates function
         result = validate_dates(self.start_date, self.end_date)
         if not result.is_valid:
             st.error(f"Invalid date range: {result.errors}")
+        else:
+            days_span = (self.end_date - self.start_date).days
+            st.success(f"✅ Valid range: {days_span} days ({self.start_date} to {self.end_date})")
 
     @handle_streamlit_exception
     def _clean_existing_files(self):
@@ -303,29 +354,112 @@ class DataDashboard:
 
     def _download(self, symbols: List[str], start_date: date, end_date: date, interval: str) -> Optional[Dict[str, pd.DataFrame]]:
         """
-        Download OHLCV data for given symbols and date range using data_loader utility.
-        Handles MultiIndex columns by flattening them.
+        Download OHLCV data for given symbols with concurrent downloads and progress tracking.
         """
         if not symbols:
             logger.warning("No symbols provided to download.")
             return None
-        data = download_stock_data(
-            symbols=symbols,
-            start_date=start_date,
-            end_date=end_date,
-            interval=interval,
-            notifier=self.notifier
-        )
-        if not data:
-            logger.warning("No data returned from download_stock_data.")
-            return None
-
-        # Flatten MultiIndex columns if present
-        for symbol, df in data.items():
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = ['_'.join([str(lvl) for lvl in col if lvl]) for col in df.columns.values]
-                data[symbol] = df
-        return data
+            
+        # Show progress tracking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        total_symbols = len(symbols)
+        completed = 0
+        results = {}
+        errors = []
+        
+        try:
+            # Import here to avoid issues if not available
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            max_workers = min(3, total_symbols)  # Conservative concurrent limit
+            
+            status_text.text(f"Downloading {total_symbols} symbols with {max_workers} workers...")
+            
+            def download_single_symbol(symbol):
+                """Download data for a single symbol"""
+                try:
+                    from utils.data_downloader import download_stock_data as single_download
+                    data = single_download(
+                        symbols=[symbol],
+                        start_date=start_date,
+                        end_date=end_date,
+                        interval=interval,
+                        notifier=self.notifier
+                    )
+                    return symbol, data.get(symbol) if data else None
+                except Exception as e:
+                    logger.error(f"Failed to download {symbol}: {e}")
+                    return symbol, None
+            
+            # Use ThreadPoolExecutor for concurrent downloads
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all download tasks
+                future_to_symbol = {
+                    executor.submit(download_single_symbol, symbol): symbol 
+                    for symbol in symbols
+                }
+                
+                # Process completed downloads
+                for future in as_completed(future_to_symbol):
+                    symbol = future_to_symbol[future]
+                    completed += 1
+                    progress = completed / total_symbols
+                    progress_bar.progress(progress)
+                    status_text.text(f"Downloaded {completed}/{total_symbols}: {symbol}")
+                    
+                    try:
+                        symbol_result, df = future.result()
+                        if df is not None and not df.empty:
+                            # Flatten MultiIndex columns if present
+                            if isinstance(df.columns, pd.MultiIndex):
+                                df.columns = ['_'.join([str(lvl) for lvl in col if lvl]) for col in df.columns.values]
+                            results[symbol_result] = df
+                        else:
+                            errors.append(f"{symbol}: No data returned")
+                    except Exception as e:
+                        errors.append(f"{symbol}: {str(e)}")
+                        
+        except ImportError:
+            # Fallback to sequential downloads if concurrent.futures not available
+            status_text.text("Using sequential downloads...")
+            for i, symbol in enumerate(symbols):
+                progress = (i + 1) / total_symbols
+                progress_bar.progress(progress)
+                status_text.text(f"Downloading {i + 1}/{total_symbols}: {symbol}")
+                
+                try:
+                    data = download_stock_data(
+                        symbols=[symbol],
+                        start_date=start_date,
+                        end_date=end_date,
+                        interval=interval,
+                        notifier=self.notifier
+                    )
+                    if data and symbol in data:
+                        df = data[symbol]
+                        if isinstance(df.columns, pd.MultiIndex):
+                            df.columns = ['_'.join([str(lvl) for lvl in col if lvl]) for col in df.columns.values]
+                        results[symbol] = df
+                    else:
+                        errors.append(f"{symbol}: No data returned")
+                except Exception as e:
+                    errors.append(f"{symbol}: {str(e)}")
+                    
+        finally:
+            progress_bar.empty()
+            status_text.empty()
+            
+        # Show results summary
+        if results:
+            st.success(f"✅ Successfully downloaded {len(results)}/{total_symbols} symbols")
+        if errors:
+            st.warning(f"⚠️ {len(errors)} download(s) failed")
+            with st.expander("Error Details", expanded=False):
+                for error in errors:
+                    st.text(error)
+                    
+        return results if results else None
 
     def _save_data_safely(self, symbol: str, df: pd.DataFrame) -> bool:
         """Save dataframe using safe file operations from dashboard_utils."""
@@ -398,17 +532,20 @@ class DataDashboard:
                         st.success(f"{symbol}: {summary['valid']} valid records, {summary['invalid']} errors.")
                     else:
                         st.error(f"{symbol}: No valid records. Errors: {errors}")
-                
-                # Update session state using safe operations
+                  # Update session state using safe operations
                 st.session_state['saved_paths'] = [str(p) for p in self.saved_paths]
 
                 if successful > 0:
+                    # Calculate total records across all symbols
+                    total_records = sum(len(df) for df in raw_df.values())
+                    
                     st.session_state["data_fetched"] = True
                     st.session_state["last_fetch_time"] = datetime.now()
                     st.session_state["fetch_count"] = st.session_state.get("fetch_count", 0) + 1
+                    st.session_state["total_records"] = st.session_state.get("total_records", 0) + total_records
                     
-                    # Simple success message without unnecessary action buttons
-                    st.success(f"✅ Successfully downloaded data for {successful} symbol(s)!")
+                    # Enhanced success message with details
+                    st.success(f"🎉 Downloaded {successful} symbol(s) • {total_records:,} total records")
                     
                 for symbol, df in raw_df.items():
                     self._display_symbol_data(symbol, df)
@@ -497,25 +634,133 @@ class DataDashboard:
                 except Exception as e:
                     handle_streamlit_error(e, f"calculating metrics for {symbol}")
 
+    def _show_export_interface(self):
+        """Display simple export interface"""
+        st.subheader("📁 Export Downloaded Data")
+        
+        if self.session_manager.create_button("❌ Close Export", "close_export"):
+            st.session_state["show_export"] = False
+            st.rerun()
+            return
+        
+        if not self.saved_paths:
+            st.warning("⚠️ No data files available for export")
+            return
+        
+        # Show available files
+        st.write(f"**Found {len(self.saved_paths)} data files:**")
+        for path in self.saved_paths:
+            if path.exists():
+                try:
+                    size_mb = path.stat().st_size / (1024 * 1024)
+                    mod_time = datetime.fromtimestamp(path.stat().st_mtime)
+                    st.write(f"• {path.name} ({size_mb:.1f} MB) - {mod_time.strftime('%Y-%m-%d %H:%M')}")
+                except:
+                    st.write(f"• {path.name}")
+        
+        # Export options
+        export_format = self.session_manager.create_selectbox(
+            "Export Format:",
+            options=["ZIP Archive", "Individual CSV"],
+            selectbox_name="export_format"
+        )
+        
+        if self.session_manager.create_button("📥 Create Export", "create_export", type="primary"):
+            try:
+                with st.spinner("Creating export..."):
+                    export_dir = self.config.DATA_DIR / "exports"
+                    export_dir.mkdir(exist_ok=True)
+                    
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    
+                    if export_format == "ZIP Archive":
+                        import zipfile
+                        zip_path = export_dir / f"stockdata_export_{timestamp}.zip"
+                        
+                        with zipfile.ZipFile(zip_path, 'w') as zipf:
+                            for path in self.saved_paths:
+                                if path.exists():
+                                    zipf.write(path, path.name)
+                        
+                        # Offer download
+                        with open(zip_path, 'rb') as f:
+                            st.download_button(
+                                label=f"📁 Download {zip_path.name}",
+                                data=f.read(),
+                                file_name=zip_path.name,
+                                mime="application/zip"
+                            )
+                    else:
+                        # Individual CSV download buttons
+                        st.subheader("📄 Download Individual Files")
+                        for path in self.saved_paths:
+                            if path.exists():
+                                with open(path, 'rb') as f:
+                                    st.download_button(
+                                        label=f"📄 {path.name}",
+                                        data=f.read(),
+                                        file_name=path.name,
+                                        mime="text/csv"
+                                    )
+                    
+                    st.success("✅ Export ready for download!")
+                    
+            except Exception as e:
+                st.error(f"❌ Export failed: {e}")
+                logger.error(f"Export error: {e}")
+
     def run(self):
         """Main dashboard application entry point."""
         
-        # Add sidebar controls using dashboard state manager
+        # Enhanced sidebar controls with performance metrics
         with st.sidebar:
-            st.subheader("📊 Session Stats")
-            safe_streamlit_metric("Fetch Count", str(st.session_state.get("fetch_count", 0)))
-            if st.session_state.get("last_fetch_time"):
-                safe_streamlit_metric("Last Fetch", str(st.session_state["last_fetch_time"].strftime("%H:%M:%S")))
-              # Clear cache button with SessionManager
-            if self.session_manager.create_button("🗑️ Clear Cache", "clear_cache", help="Clear all cached data"):
-                try:
-                    clear_cache()
-                    st.success("Cache cleared!")
-                    import time
-                    time.sleep(1)  # Brief pause before rerun
+            st.subheader("📊 Dashboard Metrics")
+            
+            # Core session stats
+            col1, col2 = st.columns(2)
+            with col1:
+                safe_streamlit_metric("Downloads", str(st.session_state.get("fetch_count", 0)))
+                safe_streamlit_metric("Cache Hits", str(st.session_state.get("cache_hits", 0)))
+            with col2:
+                safe_streamlit_metric("Total Records", str(st.session_state.get("total_records", 0)))
+                if st.session_state.get("last_fetch_time"):
+                    safe_streamlit_metric("Last Fetch", str(st.session_state["last_fetch_time"].strftime("%H:%M:%S")))
+                else:
+                    safe_streamlit_metric("Last Fetch", "Never")
+            
+            # Data files summary
+            if self.saved_paths:
+                st.subheader("📁 Data Files")
+                total_size_mb = 0
+                for path in self.saved_paths:
+                    if path.exists():
+                        try:
+                            size_bytes = path.stat().st_size
+                            total_size_mb += size_bytes / (1024 * 1024)
+                        except:
+                            pass
+                safe_streamlit_metric("Saved Files", str(len(self.saved_paths)))
+                safe_streamlit_metric("Total Size", f"{total_size_mb:.1f} MB")
+            
+            st.divider()
+            
+            # Action buttons
+            col1, col2 = st.columns(2)
+            with col1:
+                if self.session_manager.create_button("🗑️ Clear Cache", "clear_cache", help="Clear all cached data"):
+                    try:
+                        clear_cache()
+                        st.success("Cache cleared!")
+                        import time
+                        time.sleep(1)  # Brief pause before rerun
+                        st.rerun()
+                    except Exception as e:
+                        handle_streamlit_error(e, "clearing cache")
+            
+            with col2:
+                if self.session_manager.create_button("📊 Export Data", "export_data", help="Export downloaded data"):
+                    st.session_state["show_export"] = True
                     st.rerun()
-                except Exception as e:
-                    handle_streamlit_error(e, "clearing cache")
           # Main content area
         self._render_inputs()
         
@@ -534,8 +779,7 @@ class DataDashboard:
         if fetch_clicked:
             success_count = self._fetch_and_display_data()
             if success_count > 0:
-                st.balloons()  # Celebrate success!
-        else:
+                st.balloons()  # Celebrate success!        else:
             # Show cached data if available
             if st.session_state.get("data_fetched") and self.saved_paths:
                 st.subheader("📂 Previously Downloaded Data")
@@ -554,6 +798,10 @@ class DataDashboard:
                     "👋 **Welcome!** Select your symbols and date range above, "
                     "then click **Download Data** to get started."
                 )
+        
+        # Show export interface if requested
+        if st.session_state.get("show_export", False):
+            self._show_export_interface()
                 
         # Show SessionManager debug info in a sidebar expandable section
         with st.sidebar.expander("🔧 Session Debug Info", expanded=False):

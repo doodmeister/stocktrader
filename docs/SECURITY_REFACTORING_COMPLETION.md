@@ -65,7 +65,7 @@ security/
 - `utils/chatgpt.py`
 - `train/model_training_pipeline.py`
 - `dashboard_pages/simple_trade.py`
-- `dashboard_pages/realtime_dashboard_v3.py`
+- `dashboard_pages/realtime_dashboard.py`
 - `dashboard_pages/realtime_dashboard_v2.py`
 - `dashboard_pages/realtime_dashboard.py`
 - `dashboard_pages/data_analysis_v2.py`

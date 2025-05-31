@@ -156,30 +156,17 @@ class PageLoader:
                     name="Candlestick Patterns Editor",
                     file="patterns_management.py",
                     description="Create and edit custom candlestick patterns",
-                    category="Analysis"
-                ),
+                    category="Analysis"                ),
                 "model_visualizer.py": PageConfig(
                     name="Model Visualizer",
                     file="model_visualizer.py",
                     description="Visualize model performance and predictions",
                     category="Machine Learning"
                 ),
-                "realtime_dashboard_v3.py": PageConfig(
-                    name="Real-time Dashboard v3",
-                    file="realtime_dashboard_v3.py",
-                    description="Advanced real-time stock analysis with AI insights",
-                    category="Analysis"
-                ),
-                "realtime_dashboard_v2.py": PageConfig(
-                    name="Real-time Dashboard v2",
-                    file="realtime_dashboard_v2.py",
-                    description="AI-powered technical stock analysis",
-                    category="Analysis"
-                ),
                 "realtime_dashboard.py": PageConfig(
-                    name="Real-time Dashboard (Classic)",
+                    name="Real-time Dashboard",
                     file="realtime_dashboard.py",
-                    description="Classic real-time stock analysis dashboard",
+                    description="Advanced real-time stock analysis with AI insights",
                     category="Analysis"
                 ),
                 "simple_trade.py": PageConfig(

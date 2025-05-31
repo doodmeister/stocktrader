@@ -303,7 +303,7 @@ validator = UniversalDataValidator()
 result = validator.validate_symbol(symbol, check_api=True)
 ```
 
-**Realtime Dashboard v3** (`dashboard_pages/realtime_dashboard_v3.py`):
+**Realtime Dashboard** (`dashboard_pages/realtime_dashboard.py`):
 ```python
 # Replace individual validation functions with unified validator
 validator = UniversalDataValidator()
@@ -573,9 +573,7 @@ stocktrader/
 │   ├── nn_backtest.py                # Neural net backtesting
 │   ├── classic_strategy_backtest.py  # Classic strategy backtesting
 │   ├── patterns_management.py        # Pattern management UI
-│   ├── realtime_dashboard.py         # Real-time trading dashboard
-│   ├── realtime_dashboard_v2.py      # Enhanced real-time dashboard
-│   ├── realtime_dashboard_v3.py      # Latest real-time dashboard
+│   ├── realtime_dashboard.py         # Latest real-time dashboard
 │   └── simple_trade.py               # Simple trading interface
 │
 ├── utils/                            # Utility modules
