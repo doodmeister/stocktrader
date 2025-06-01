@@ -1408,6 +1408,23 @@ def validate_dataframe(df: pd.DataFrame, required_cols: List[str] = None) -> Dat
     validator = get_global_validator()
     return validator.validate_dataframe(df, required_cols)
 
+def centralized_validate_dataframe(
+    df: pd.DataFrame,
+    required_cols: list = None,
+    validate_ohlc: bool = True,
+    check_statistical_anomalies: bool = True
+):
+    """
+    Flexible DataFrame validation for advanced use cases (patterns, etc).
+    """
+    validator = get_global_validator()
+    return validator.validate_dataframe(
+        df,
+        required_cols=required_cols,
+        validate_ohlc=validate_ohlc,
+        check_statistical_anomalies=check_statistical_anomalies
+    )
+
 from typing import List, Tuple, Dict, Any, Type, Union, Optional
 from pydantic import ValidationError, BaseModel
 import pandas as pd

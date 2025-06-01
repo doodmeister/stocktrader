@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 
 from utils.logger import setup_logger
-from core.data_validator import validate_dataframe as centralized_validate_dataframe
+from core.data_validator import centralized_validate_dataframe
 
 logger = setup_logger(__name__)
 

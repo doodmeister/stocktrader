@@ -75,18 +75,18 @@ def get_indicator_series(
 ) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
     """Calculate RSI, MACD lines, and Bollinger Bands using centralized indicators."""
     try:
-        # Use centralized technical analysis functions
-        rsi = calculate_rsi(df['close'], period=rsi_period)
-        macd_line, signal_line = calculate_macd(
-            df['close'], 
-            fast_period=macd_fast, 
-            slow_period=macd_slow, 
-            signal_period=9
+        # Use centralized technical analysis functions with correct parameter names
+        rsi = calculate_rsi(df, length=rsi_period)
+        macd_line, signal_line, _ = calculate_macd(
+            df, 
+            fast=macd_fast, 
+            slow=macd_slow, 
+            signal=9
         )
         bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(
-            df['close'], 
-            period=bb_period, 
-            std_dev=bb_std
+            df, 
+            length=bb_period, 
+            std=bb_std
         )
         return rsi, macd_line, signal_line, bb_upper, bb_lower
     except IndicatorError as e:
@@ -117,7 +117,6 @@ def validate_dataframe_for_analysis(df: pd.DataFrame) -> bool:
     """Ensure required columns are present using core validation."""
     required = ['open', 'high', 'low', 'close', 'volume']
     validation_result = validate_dataframe(df, required_cols=required)
-    
     if not validation_result.is_valid:
         for error in validation_result.errors:
             st.error(f"Validation error: {error}")
@@ -322,14 +321,14 @@ class TechnicalAnalysisDashboard:
             **Bollinger Bands:** Price volatility bands. Price touching upper/lower bands may signal reversal points.
             
             **ATR:** Measures volatility without indicating direction. Higher values = more volatile price action.
-            """)
-
-        # Calculate and display indicators (single calculation)
+            """)        # Calculate and display indicators (single calculation)
         with st.spinner("Calculating technical indicators..."):
             rsi, macd_line, signal_line, upper_band, lower_band = get_indicator_series(
                 df, rsi_period, macd_fast, macd_slow, bb_period, bb_std
             )
-            plot_technical_indicators(rsi, macd_line, signal_line, df, upper_band, lower_band)        # Combined Technical Signal
+            plot_technical_indicators(rsi, macd_line, signal_line, df, upper_band, lower_band)
+            
+        # Combined Technical Signal
         st.markdown("### 🧮 Combined Technical Signal")
         
         # Use centralized TechnicalAnalysis class for high-level evaluation
@@ -343,7 +342,6 @@ class TechnicalAnalysisDashboard:
             bb_period=bb_period,
             bb_std=bb_std,
         )
-        
         col1, col2 = st.columns([2, 1])
         with col1:
             st.metric("Combined Technical Signal", f"{signal_value:.3f}" if signal_value is not None else "N/A", help="Range: -1 (bearish) to 1 (bullish)")
@@ -353,31 +351,32 @@ class TechnicalAnalysisDashboard:
             with st.expander("Component Scores"):
                 st.metric("RSI", f"{rsi_score:.2f}" if rsi_score is not None else "N/A")
                 st.metric("MACD", f"{macd_score:.2f}" if macd_score is not None else "N/A")
-                st.metric("BB", f"{bb_score:.2f}" if bb_score is not None else "N/A")        # ATR & Price Target - compact layout
+                st.metric("BB", f"{bb_score:.2f}" if bb_score is not None else "N/A")
+
+        # ATR & Price Target - compact layout
         st.markdown("### 📏 Volatility & Price Targets")
         col1, col2, col3 = st.columns(3)
+        
+        # Calculate ATR for both display and summary
+        atr_value = None
+        try:
+            atr_series = calculate_atr(df, length=14)
+            atr_value = atr_series.iloc[-1] if len(atr_series) > 0 and not pd.isna(atr_series.iloc[-1]) else None
+        except IndicatorError as e:
+            logger.warning(f"ATR calculation failed: {e}")
+        
         with col1:
-            # Use centralized function for ATR calculation
-            try:
-                atr = calculate_atr(df, length=14)
-                atr_value = atr.iloc[-1] if len(atr) > 0 and not pd.isna(atr.iloc[-1]) else None
-                st.metric("ATR", f"{atr_value:.3f}" if atr_value is not None else "N/A", 
-                         help="Average True Range - measures volatility")
-            except IndicatorError as e:
-                logger.warning(f"ATR calculation failed: {e}")
-                st.metric("ATR", "N/A", help="Average True Range - calculation failed")
-            
+            st.metric("ATR", f"{atr_value:.3f}" if atr_value is not None else "N/A", help="Average True Range - measures volatility")
         with col2:
             # Use centralized TechnicalAnalysis class for price target calculation
             ta = TechnicalAnalysis(df)
             pt = ta.calculate_price_target()
-            st.metric("Price Target", f"{pt:.3f}" if pt is not None else "N/A", 
-                     help="Based on trend, volatility, momentum")
-            
+            st.metric("Price Target", f"{pt:.3f}" if pt is not None else "N/A", help="Based on trend, volatility, momentum")
         with col3:
             # Use centralized TechnicalAnalysis class for Fibonacci price target
+            ta = TechnicalAnalysis(df)
             pt_fib = ta.calculate_price_target_fib(lookback=fib_lookback, extension=fib_ext)
-            st.metric("Fib Price Target", f"{pt_fib:.3f}", help="Fibonacci-based projection")
+            st.metric("Fib Price Target", f"{pt_fib:.3f}" if pt_fib is not None else "N/A", help="Fibonacci-based projection")
 
         # Pattern detection
         st.markdown("---")
@@ -420,7 +419,7 @@ class TechnicalAnalysisDashboard:
             f"RSI (period={rsi_period}): {rsi.iloc[-1]:.2f}" if not rsi.isna().all() else "RSI: N/A",
             f"MACD ({macd_fast}/{macd_slow}): {macd_line.iloc[-1]:.2f}, Signal: {signal_line.iloc[-1]:.2f}",
             f"Bollinger Bands ({bb_period}±{bb_std}): Upper={upper_band.iloc[-1]:.2f}, Lower={lower_band.iloc[-1]:.2f}",
-            f"ATR: {atr:.3f}" if atr is not None else "ATR: N/A",
+            f"ATR: {atr_value:.3f}" if atr_value is not None else "ATR: N/A",
             f"Price Target: {pt:.3f}" if pt is not None else "Price Target: N/A",
             f"Combined Signal: {signal_value:.3f}" if signal_value is not None else "Combined Signal: N/A",
             "",
