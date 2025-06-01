@@ -12,7 +12,6 @@ import pandas as pd
 from core.dashboard_utils import (
     initialize_dashboard_session_state,
     create_candlestick_chart,
-    validate_ohlc_dataframe,
     safe_file_write,
     normalize_dataframe_columns,
     render_file_upload_section,
@@ -29,7 +28,7 @@ from patterns.pattern_utils import (
     # Removed PatternBackupManager - not available
 )
 from patterns.patterns import CandlestickPatterns, create_pattern_detector  # Use existing detection
-from utils.data_validator import DataValidator
+from core.data_validator import get_global_validator, validate_dataframe, ValidationResult, DataFrameValidationResult
 
 # Import SessionManager to solve button key conflicts and session state issues
 from core.session_manager import create_session_manager, show_session_debug_info
@@ -65,20 +64,19 @@ class PatternExample:
 
 class PatternEditorUI:
     """Pure UI controller - delegates to existing business logic."""
-    
     def __init__(self):
-        # Use existing classes, no custom implementations
-        self.data_validator = DataValidator()
+        # Use centralized validator from core module
+        self.data_validator = get_global_validator()
         # Remove backup_manager since PatternBackupManager doesn't exist
         # self.backup_manager = PatternBackupManager()
 
     def _analyze_single_pattern(self, pattern_name: str, df: pd.DataFrame):
         """Analyze single pattern using existing business logic."""
-        try:
-            # Use existing validation from utils
-            is_valid, validation_msg = validate_ohlc_dataframe(df)
-            if not is_valid:
-                st.error(f"❌ {validation_msg}")
+        try:            # Use validation from core data_validator
+            required_cols = ['open', 'high', 'low', 'close']
+            validation_result = validate_dataframe(df, required_cols=required_cols)
+            if not validation_result.is_valid:
+                st.error(f"❌ {'; '.join(validation_result.errors)}")
                 return
             
             # Normalize using existing utility
@@ -131,10 +129,11 @@ class PatternEditorUI:
     def _analyze_multiple_patterns(self, pattern_names: List[str], df: pd.DataFrame):
         """Analyze multiple patterns using existing CandlestickPatterns.detect_patterns."""
         try:
-            # Use existing validation
-            is_valid, validation_msg = validate_ohlc_dataframe(df)
-            if not is_valid:
-                st.error(f"❌ {validation_msg}")
+            # Use validation from core data_validator
+            required_cols = ['open', 'high', 'low', 'close'] # Assuming these are the required columns
+            validation_result = validate_dataframe(df, required_cols=required_cols)
+            if not validation_result.is_valid:
+                st.error(f"❌ {'; '.join(validation_result.errors)}")
                 return
               # Normalize data
             df_normalized = normalize_dataframe_columns(df)
@@ -210,12 +209,12 @@ class PatternEditorUI:
         if uploaded_file:
             try:
                 df = pd.read_csv(uploaded_file)
-                
-                # Use existing validation
-                is_valid, validation_msg = validate_ohlc_dataframe(df)
-                if not is_valid:
-                    st.error(f"❌ {validation_msg}")
-                    return None
+                # Use validation from core data_validator
+                required_cols = ['open', 'high', 'low', 'close'] # Assuming these are the required columns
+                validation_result = validate_dataframe(df, required_cols=required_cols)
+                if not validation_result.is_valid:
+                    st.error(f"❌ {'; '.join(validation_result.errors)}")
+                    return
                 
                 # Use existing normalization
                 df = normalize_dataframe_columns(df)

@@ -122,15 +122,9 @@ class PageLoader:
                     description="Simple data download",
                     category="Data"
                 ),
-                "data_dashboard_v2.py": PageConfig(
-                    name="Data Dashboard V2",
-                    file="data_dashboard_v2.py",
-                    description="Robust data download with file handling",
-                    category="Data"
-                ),
-                "data_analysis_v2.py": PageConfig(
+                "data_analysis.py": PageConfig(
                     name="Technical Analysis Tools",
-                    file="data_analysis_v2.py",
+                    file="data_analysis.py",
                     description="Advanced technical analysis and pattern detection",
                     category="Analysis"
                 ),

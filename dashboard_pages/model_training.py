@@ -50,7 +50,12 @@ from core.dashboard_utils import (
     handle_streamlit_error
 )
 from core.session_manager import create_session_manager, show_session_debug_info
-from utils.technicals.technical_analysis import TechnicalAnalysis
+# Import centralized technical analysis modules
+from core.technical_indicators import (
+    calculate_rsi, calculate_macd, calculate_bollinger_bands, 
+    calculate_atr, IndicatorError
+)
+from utils.technicals.analysis import TechnicalAnalysis
 
 # Initialize the page (setup_page returns a logger, but we already have one)
 setup_page(
@@ -188,32 +193,61 @@ def compute_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add key technical indicators and candlestick pattern flags to the DataFrame.
     
-    This is a unified preprocessing step suitable for training ML models.
+    This function has been refactored to use the centralized technical analysis 
+    architecture (core.technical_indicators.py and utils.technicals.analysis.py)
+    for improved performance, reliability, and maintainability.
     """
-    df = df.copy()
+    try:
+        df = df.copy()
+        logger.info("Computing technical features using centralized architecture")
 
-    # Compute Technical Indicators
-    ta = TechnicalAnalysis(df)
-    df['RSI'] = ta.rsi(period=14)
-    df['MACD'], df['MACD_Signal'] = ta.macd(fast_period=12, slow_period=26)
-    df['BB_Upper'], df['BB_Lower'] = ta.bollinger_bands(period=20, std_dev=2)
+        # Use centralized core functions for technical indicators
+        logger.debug("Calculating RSI using core.technical_indicators")
+        df['RSI'] = calculate_rsi(df, length=14)
+        
+        logger.debug("Calculating MACD using core.technical_indicators")
+        macd_line, macd_signal, _ = calculate_macd(df, fast=12, slow=26, signal=9)
+        df['MACD'] = macd_line
+        df['MACD_Signal'] = macd_signal
+        
+        logger.debug("Calculating Bollinger Bands using core.technical_indicators")
+        bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(df, length=20, std=2)
+        df['BB_Upper'] = bb_upper
+        df['BB_Lower'] = bb_lower
+        
+        logger.debug("Calculating ATR using core.technical_indicators")
+        df['ATR'] = calculate_atr(df, length=14)  # Changed from period=3 to standard length=14
+        
+        # Add Candlestick Pattern flags using existing pattern detection logic
+        logger.debug("Adding candlestick pattern features")
+        pattern_detector = create_pattern_detector()
+        for pattern_name in pattern_detector.get_pattern_names():
+            try:
+                method = getattr(CandlestickPatterns, pattern_name)
+                df[pattern_name.replace(" ", "")] = df.apply(
+                    lambda row: int(method(df.loc[max(0, row.name-4):row.name])), axis=1
+                )
+            except Exception as e:
+                logger.warning(f"Failed to compute pattern {pattern_name}: {e}")
+                df[pattern_name.replace(" ", "")] = 0
 
-    # Compute ATR for use in model or risk estimation
-    df['ATR'] = ta.atr(period=3)    # Add Candlestick Pattern flags
-    pattern_detector = create_pattern_detector()
-    for pattern_name in pattern_detector.get_pattern_names():
-        try:
-            method = getattr(CandlestickPatterns, pattern_name)
-            df[pattern_name.replace(" ", "")] = df.apply(
-                lambda row: int(method(df.loc[max(0, row.name-4):row.name])), axis=1
-            )
-        except Exception:
-            df[pattern_name.replace(" ", "")] = 0
+        # Drop rows with NaN values introduced by indicators
+        original_rows = len(df)
+        df.dropna(inplace=True)
+        dropped_rows = original_rows - len(df)
+        
+        if dropped_rows > 0:
+            logger.info(f"Dropped {dropped_rows} rows with NaN values from technical indicators")
 
-    # Drop rows with NaN values introduced by indicators
-    df.dropna(inplace=True)
-
-    return df
+        logger.info(f"Successfully computed technical features. Final dataset: {len(df)} rows")
+        return df
+        
+    except IndicatorError as e:
+        logger.error(f"Technical indicator calculation failed: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in compute_technical_features: {e}")
+        raise
 
 def train_model_deep_learning(
     data: pd.DataFrame,

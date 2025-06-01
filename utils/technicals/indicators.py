@@ -1,12 +1,28 @@
 """
+DEPRECATED: This module is deprecated. Use utils.technicals.analysis and core.technical_indicators instead.
+
 indicators.py
 
-Unified technical indicators module for financial analysis.
+This module has been refactored. Core indicator calculations have been moved to:
+- core.technical_indicators.py (for core calculation functions)
 
-Provides wrapper functions around technical analysis libraries with fallback implementations.
-Handles input validation, error cases, and proper typing.
-Adds composite signal and price target logic from technical_analysis.py.
+Higher-level analysis functionality has been moved to:
+- utils.technicals.analysis.py (for composite analysis and signal generation)
+
+This file is kept for backward compatibility but will be removed in a future version.
 """
+
+import warnings
+warnings.warn(
+    "utils.technicals.indicators is deprecated. Use utils.technicals.analysis and core.technical_indicators instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Re-export everything from the new modules for backward compatibility
+from utils.technicals.analysis import *
+from core.technical_indicators import IndicatorError
+
 from utils.logger import setup_logger
 from typing import Optional, Union, List, Any, Dict
 import numpy as np

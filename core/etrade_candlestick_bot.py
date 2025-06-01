@@ -39,7 +39,7 @@ from utils.logger import setup_logger
 from security.authentication import get_api_credentials
 from patterns.patterns_nn import PatternNN
 from utils.notifier import Notifier
-from utils.technicals.indicators import TechnicalIndicators
+from utils.technicals.analysis import TechnicalIndicators
 from core.risk_manager_v2 import RiskManager
 
 

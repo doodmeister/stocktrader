@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 
 from utils.logger import setup_logger
+from core.data_validator import validate_dataframe as centralized_validate_dataframe
 
 logger = setup_logger(__name__)
 
@@ -72,7 +73,19 @@ class PatternConfigurationError(PatternDetectionError):
     pass
 
 def validate_dataframe(func: Callable) -> Callable:
-    """Decorator for comprehensive DataFrame validation."""
+    """
+    Enhanced decorator for comprehensive DataFrame validation using centralized validation system.
+    
+    This decorator now leverages the enterprise-grade validation from core.data_validator.py
+    while maintaining backward compatibility with the existing decorator interface.
+    
+    Features:
+    - Comprehensive OHLC relationship validation
+    - Statistical anomaly detection for better pattern reliability
+    - Performance optimization with caching
+    - Rich error reporting and metadata
+    - Configurable validation levels
+    """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         # Handle both static functions and instance methods
@@ -93,51 +106,49 @@ def validate_dataframe(func: Callable) -> Callable:
                 error_code="MISSING_DATAFRAME_PARAM"
             )
         
-        if not isinstance(df, pd.DataFrame):
-            raise DataValidationError(
-                f"Input must be a pandas DataFrame, got {type(df).__name__}",
-                error_code="INVALID_INPUT_TYPE"
+        # Use centralized validation system for comprehensive validation
+        try:
+            logger.debug("Running centralized validation for pattern detection")
+            validation_result = centralized_validate_dataframe(
+                df, 
+                required_cols=['open', 'high', 'low', 'close'],
+                validate_ohlc=True,
+                check_statistical_anomalies=True  # Enhanced validation for better pattern reliability
             )
-        
-        if df.empty:
-            raise DataValidationError(
-                "DataFrame cannot be empty",
-                error_code="EMPTY_DATAFRAME"
-            )
-        
-        required_cols = {"open", "high", "low", "close"}
-        missing_cols = required_cols - set(df.columns)
-        if missing_cols:
-            raise DataValidationError(
-                f"Missing required columns: {missing_cols}",
-                error_code="MISSING_COLUMNS"
-            )
-        
-        # Check for valid OHLC relationships
-        invalid_rows = df[
-            (df['high'] < df[['open', 'close', 'low']].max(axis=1)) |
-            (df['low'] > df[['open', 'close', 'high']].min(axis=1))
-        ]
-        
-        if not invalid_rows.empty:
-            logger.warning(f"Found {len(invalid_rows)} rows with invalid OHLC relationships")
-        
-        # Check for non-numeric data
-        numeric_cols = ['open', 'high', 'low', 'close']
-        for col in numeric_cols:
-            if not pd.api.types.is_numeric_dtype(df[col]):
+            
+            if not validation_result.is_valid:
+                error_message = "; ".join(validation_result.errors)
+                logger.error(f"Pattern validation failed: {error_message}")
                 raise DataValidationError(
-                    f"Column '{col}' must contain numeric data",
-                    error_code="NON_NUMERIC_DATA"
+                    f"DataFrame validation failed: {error_message}",
+                    error_code="VALIDATION_FAILED"
                 )
-        
-        # Check for null values
-        null_counts = df[numeric_cols].isnull().sum()
-        if null_counts.any():
-            raise DataValidationError(
-                f"Null values found in columns: {null_counts[null_counts > 0].to_dict()}",
-                error_code="NULL_VALUES"
-            )
+            
+            # Log warnings from centralized validation (statistical anomalies, etc.)
+            if validation_result.warnings:
+                for warning in validation_result.warnings:
+                    logger.warning(f"Pattern validation warning: {warning}")
+            
+            # Log enhanced validation metadata for pattern analysis
+            if hasattr(validation_result, 'statistics') and validation_result.statistics:
+                stats = validation_result.statistics
+                if 'price_range' in stats:
+                    logger.debug(f"Price range analysis: {stats['price_range']}")
+                if any(key.endswith('_outliers') for key in stats.keys()):
+                    outlier_info = {k: v for k, v in stats.items() if k.endswith('_outliers')}
+                    logger.debug(f"Statistical anomalies detected: {outlier_info}")
+            
+            logger.debug("Centralized validation passed for pattern detection")
+            
+        except Exception as e:
+            if isinstance(e, DataValidationError):
+                raise  # Re-raise our custom validation errors
+            else:
+                logger.error(f"Validation error: {e}")
+                raise DataValidationError(
+                    f"Validation error: {str(e)}",
+                    error_code="VALIDATION_ERROR"
+                )
         
         return func(*args, **kwargs)
     
@@ -160,6 +171,82 @@ def performance_monitor(func: Callable) -> Callable:
             logger.error(f"{func.__name__} failed after {execution_time:.3f}s: {e}")
             raise
     return wrapper
+
+def validate_pattern_data(df: pd.DataFrame, enable_statistical_analysis: bool = True) -> Dict[str, any]:
+    """
+    Convenience function for direct centralized validation of pattern data.
+    
+    This function provides easy access to the centralized validation system
+    for pattern detection modules that need more control over validation behavior.
+    
+    Args:
+        df: DataFrame to validate for pattern detection
+        enable_statistical_analysis: Whether to perform statistical anomaly detection
+        
+    Returns:
+        Dict containing validation results and enhanced metadata
+        
+    Raises:
+        DataValidationError: If validation fails
+    """
+    try:
+        logger.debug("Running centralized pattern data validation")
+        validation_result = centralized_validate_dataframe(
+            df,
+            required_cols=['open', 'high', 'low', 'close'],
+            validate_ohlc=True,
+            check_statistical_anomalies=enable_statistical_analysis
+        )
+        
+        if not validation_result.is_valid:
+            error_message = "; ".join(validation_result.errors)
+            logger.error(f"Pattern data validation failed: {error_message}")
+            raise DataValidationError(
+                f"Pattern data validation failed: {error_message}",
+                error_code="PATTERN_VALIDATION_FAILED"
+            )
+        
+        # Extract enhanced metadata for pattern analysis
+        validation_metadata = {
+            'is_valid': validation_result.is_valid,
+            'row_count': validation_result.row_count,
+            'column_count': validation_result.column_count,
+            'warnings': validation_result.warnings,
+            'statistics': validation_result.statistics if hasattr(validation_result, 'statistics') else {}
+        }
+        
+        # Log any statistical insights that may affect pattern detection
+        if validation_result.warnings:
+            for warning in validation_result.warnings:
+                logger.warning(f"Pattern data warning: {warning}")
+        
+        if hasattr(validation_result, 'statistics') and validation_result.statistics:
+            stats = validation_result.statistics
+            
+            # Log price range information
+            if 'price_range' in stats:
+                logger.debug(f"Price range for pattern analysis: {stats['price_range']}")
+            
+            # Log outlier information that may affect pattern reliability
+            outlier_keys = [k for k in stats.keys() if k.endswith('_outliers')]
+            if outlier_keys:
+                for key in outlier_keys:
+                    outlier_info = stats[key]
+                    if outlier_info.get('percentage', 0) > 0.05:  # More than 5% outliers
+                        logger.warning(f"High outlier percentage detected in {key}: {outlier_info['percentage']:.1%}")
+        
+        logger.debug("Centralized pattern data validation completed successfully")
+        return validation_metadata
+        
+    except Exception as e:
+        if isinstance(e, DataValidationError):
+            raise  # Re-raise validation errors
+        else:
+            logger.error(f"Pattern validation error: {e}")
+            raise DataValidationError(
+                f"Pattern validation error: {str(e)}",
+                error_code="PATTERN_VALIDATION_ERROR"
+            )
 
 class PatternDetector(ABC):
     """Abstract base class for pattern detectors."""

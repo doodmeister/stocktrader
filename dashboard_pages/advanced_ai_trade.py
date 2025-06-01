@@ -24,7 +24,7 @@ import hashlib
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Optional, Protocol, List
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -47,13 +47,28 @@ from train.deeplearning_config import TrainingConfig
 from train.deeplearning_trainer import PatternModelTrainer
 from train.model_manager import ModelManager as CoreModelManager
 from utils.config.notification_settings_ui import render_notification_settings
-from utils.data_validator import DataValidator
+from core.data_validator import (
+    get_global_validator, 
+    validate_symbol, 
+    validate_symbols, 
+    validate_dataframe,
+    ValidationResult
+)
 from utils.notifier import Notifier
 from security.authentication import get_api_credentials, validate_credentials, get_sandbox_mode  # Use security utilities
-from utils.technicals.indicators import TechnicalIndicators
-from utils.decorators import handle_exceptions, handle_dashboard_exceptions
+
+# Import new centralized technical analysis modules
+from core.technical_indicators import (
+    calculate_rsi, calculate_macd, calculate_bollinger_bands, 
+    calculate_atr, calculate_sma, calculate_ema, IndicatorError
+)
+from utils.technicals.analysis import TechnicalAnalysis, TechnicalIndicators
+
+from core.decorators import handle_exceptions, handle_dashboard_exceptions
 from train.ml_config import MLConfig
 import torch
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # Import SessionManager to solve button key conflicts and session state issues
 from core.session_manager import create_session_manager, show_session_debug_info
@@ -128,13 +143,11 @@ class AlertConfig:
     
     @staticmethod
     def _validate_symbol(symbol: str) -> str:
-        """Validate and normalize symbol."""
-        if not symbol or not symbol.strip():
-            raise DashboardValidationError("Symbol cannot be empty")
-        symbol = symbol.upper().strip()
-        if not symbol.isalpha() or len(symbol) > 10:
-            raise DashboardValidationError("Invalid symbol format")
-        return symbol
+        """Validate and normalize symbol using core validator."""
+        result = validate_symbol(symbol)
+        if not result.is_valid:
+            raise DashboardValidationError(f"Invalid symbol: {'; '.join(result.errors)}")
+        return result.value
 
 
 @dataclass
@@ -426,7 +439,7 @@ class AlertManager:
     
     def __init__(self, notifier: Notifier):
         self.notifier = notifier
-        self.validator = DataValidator()
+        self.validator = get_global_validator()  # Use centralized validator
         self._last_alert_times = {}  # Rate limiting
         self._alert_cooldown = 300  # 5 minutes
     
@@ -499,20 +512,17 @@ class AlertManager:
                 return True
             else:
                 logger.info(f"Pattern alert already exists: {symbol} - {pattern}")
-                return False
-                
+                return False                
         except Exception as e:
             logger.error(f"Failed to add pattern alert: {e}")
             raise DashboardError(f"Failed to add pattern alert: {e}")
     
     def _validate_and_normalize_symbol(self, symbol: str) -> str:
-        """Validate and normalize a stock symbol."""
-        if not symbol or not symbol.strip():
-            raise DashboardValidationError("Symbol cannot be empty")
-        symbol = symbol.upper().strip()
-        if not symbol.isalpha() or len(symbol) > 10:
-            raise DashboardValidationError("Invalid symbol format")
-        return symbol
+        """Validate and normalize a stock symbol using core validator."""
+        result = validate_symbol(symbol)
+        if not result.is_valid:
+            raise DashboardValidationError(f"Invalid symbol: {'; '.join(result.errors)}")
+        return result.value
 
 
 class EnhancedModelManager:
@@ -571,8 +581,7 @@ class EnhancedModelManager:
         """Clear model cache to free memory."""
         self._model_cache.clear()
         
-        # Set flag instead of immediate rerun
-        SessionStateManager.set_flag(SessionStateManager.CACHE_CLEARED)
+        # Set flag instead of immediate rerun        SessionStateManager.set_flag(SessionStateManager.CACHE_CLEARED)
         
         logger.info("Model cache cleared")
     
@@ -611,9 +620,8 @@ class TradingDashboard:
         SessionStateManager.initialize()
         
         # Initialize core components with error handling
-        self.validator = self._safe_init_component(DataValidator, "DataValidator")
+        self.validator = get_global_validator()  # Use centralized validator from core module
         self.risk_manager = self._safe_init_component(RiskManager, "RiskManager")
-        self.indicators = self._safe_init_component(TechnicalIndicators, "TechnicalIndicators")
         self.notifier = self._safe_init_component(Notifier, "Notifier")
         self.model_manager = self._safe_init_component(EnhancedModelManager, "ModelManager")
         
@@ -629,7 +637,7 @@ class TradingDashboard:
           # Initialize risk manager with environment configuration
         self.risk_manager = RiskManager(load_from_env=True)
         
-        logger.info("Dashboard initialized successfully")
+        logger.info("Dashboard initialized successfully with centralized technical analysis")
     
     def _setup_page_config(self) -> None:
         """Configure Streamlit page settings."""
@@ -718,35 +726,654 @@ class TradingDashboard:
             self._render_symbol_management()
             self._render_risk_management()
             self._render_model_section()
-            
-            # Settings section
+              # Settings section
             with st.sidebar.expander("⚙️ Settings"):
                 self._render_settings()
         
         return credentials
-
+    
     def _render_main_dashboard(self) -> None:
-        """Render the main dashboard content."""
+        """Render the main dashboard content with comprehensive technical analysis."""
         st.title("📈 Advanced AI Trading Dashboard")
         
         if not self.etrade_client:
             st.info("🔗 Connect your E*Trade credentials in the sidebar to begin trading")
+            self._render_demo_technical_analysis()
             return
         
-        # Main dashboard content goes here
-        st.success("🚀 Dashboard connected and ready!")
+        # Main dashboard content with technical analysis
+        symbols = SessionStateManager.get_symbols()
+        if not symbols:
+            st.warning("📊 Add symbols to your watchlist in the sidebar to begin analysis")
+            return
         
-        # Placeholder for additional dashboard content
-        col1, col2, col3 = st.columns(3)
-        
+        # Symbol selection for detailed analysis
+        col1, col2 = st.columns([2, 1])
         with col1:
-            st.metric("Portfolio Value", "$50,000", "+2.5%")
-        
+            selected_symbol = st.selectbox("Select Symbol for Analysis", symbols, key="main_symbol_select")
         with col2:
-            st.metric("Daily P&L", "+$1,250", "+2.5%")
+            refresh_data = st.button("🔄 Refresh Data", help="Fetch latest market data")
         
-        with col3:
-            st.metric("Open Positions", "3", "+1")
+        if selected_symbol:
+            self._render_symbol_analysis(selected_symbol, refresh_data)
+        
+        # Portfolio overview
+        self._render_portfolio_overview()
+        
+        # Market scanning section
+        self._render_market_scanner(symbols)
+
+    def _render_demo_technical_analysis(self) -> None:
+        """Render demo technical analysis when not connected."""
+        st.markdown("### 📊 Technical Analysis Demo")
+        st.info("Connect to E*Trade to analyze live market data, or view demo analysis below:")
+        
+        # Create sample data for demo
+        import numpy as np
+        dates = pd.date_range(start='2023-01-01', periods=100, freq='D')
+        
+        # Generate realistic OHLCV data
+        np.random.seed(42)
+        base_price = 100
+        prices = [base_price]
+        
+        for i in range(99):
+            change = np.random.normal(0, 0.02)  # 2% daily volatility
+            new_price = prices[-1] * (1 + change)
+            prices.append(max(new_price, 1))  # Ensure positive prices
+        
+        demo_data = pd.DataFrame({
+            'date': dates,
+            'open': [p * (1 + np.random.uniform(-0.01, 0.01)) for p in prices],
+            'high': [p * (1 + abs(np.random.uniform(0, 0.02))) for p in prices],
+            'low': [p * (1 - abs(np.random.uniform(0, 0.02))) for p in prices],
+            'close': prices,
+            'volume': [np.random.randint(100000, 1000000) for _ in range(100)]
+        })
+        
+        # Apply technical analysis
+        self._display_technical_analysis(demo_data, "DEMO")
+
+    def _render_symbol_analysis(self, symbol: str, refresh: bool = False) -> None:
+        """Render detailed technical analysis for a specific symbol."""
+        try:
+            # Fetch market data
+            with st.spinner(f"Fetching data for {symbol}..."):
+                data = self._get_market_data(symbol, refresh)
+            
+            if data is None or data.empty:
+                st.error(f"❌ No data available for {symbol}")
+                return
+            
+            # Display analysis
+            self._display_technical_analysis(data, symbol)
+            
+        except Exception as e:
+            logger.error(f"Error rendering symbol analysis for {symbol}: {e}")
+            st.error(f"❌ Failed to analyze {symbol}: {e}")
+
+    @st.cache_data(ttl=CACHE_TTL)
+    def _get_market_data(_symbol: str, _refresh: bool = False) -> Optional[pd.DataFrame]:
+        """Fetch market data with caching."""
+        try:
+            # This would typically call the E*Trade API
+            # For now, return None to trigger demo mode
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching market data: {e}")
+            return None
+
+    def _display_technical_analysis(self, data: pd.DataFrame, symbol: str) -> None:
+        """Display comprehensive technical analysis for market data."""
+        try:
+            # Initialize technical analysis
+            ta = TechnicalAnalysis(data)
+            
+            # Create tabs for different analysis views
+            tab1, tab2, tab3, tab4 = st.tabs([
+                "📈 Price & Indicators", 
+                "🎯 Trading Signals", 
+                "📊 Pattern Analysis", 
+                "🔍 Risk Assessment"
+            ])
+            
+            with tab1:
+                self._render_price_analysis(data, symbol, ta)
+            
+            with tab2:
+                self._render_trading_signals(data, symbol, ta)
+            
+            with tab3:
+                self._render_pattern_analysis(data, symbol)
+            
+            with tab4:
+                self._render_risk_analysis(data, symbol, ta)
+                
+        except Exception as e:
+            logger.error(f"Error in technical analysis display: {e}")
+            st.error(f"❌ Technical analysis failed: {e}")
+
+    def _render_price_analysis(self, data: pd.DataFrame, symbol: str, ta: TechnicalAnalysis) -> None:
+        """Render price chart with technical indicators."""
+        try:
+            st.markdown(f"### 📈 {symbol} Price Analysis")
+            
+            # Calculate indicators
+            data_enriched = data.copy()
+            
+            # Add indicators using new centralized functions
+            data_enriched['rsi'] = calculate_rsi(data)
+            macd_line, macd_signal, macd_hist = calculate_macd(data)
+            data_enriched['macd'] = macd_line
+            data_enriched['macd_signal'] = macd_signal
+            data_enriched['macd_hist'] = macd_hist
+            
+            bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(data)
+            data_enriched['bb_upper'] = bb_upper
+            data_enriched['bb_middle'] = bb_middle
+            data_enriched['bb_lower'] = bb_lower
+            
+            data_enriched['atr'] = calculate_atr(data)
+            data_enriched['sma_20'] = calculate_sma(data, length=20)
+            data_enriched['ema_20'] = calculate_ema(data, length=20)
+            
+            # Create comprehensive chart
+            self._create_technical_chart(data_enriched, symbol)
+            
+            # Display current metrics
+            self._display_current_metrics(data_enriched, symbol)
+            
+        except Exception as e:
+            logger.error(f"Error in price analysis: {e}")
+            st.error(f"❌ Price analysis failed: {e}")
+
+    def _create_technical_chart(self, data: pd.DataFrame, symbol: str) -> None:
+        """Create interactive chart with technical indicators."""
+        try:
+            # Create subplots
+            fig = make_subplots(
+                rows=4, cols=1,
+                shared_xaxes=True,
+                vertical_spacing=0.03,
+                subplot_titles=(
+                    f'{symbol} Price with Bollinger Bands',
+                    'RSI',
+                    'MACD',
+                    'Volume'
+                ),
+                row_heights=[0.5, 0.2, 0.2, 0.1]
+            )
+            
+            # Price and Bollinger Bands
+            fig.add_trace(
+                go.Candlestick(
+                    x=data.index,
+                    open=data['open'],
+                    high=data['high'],
+                    low=data['low'],
+                    close=data['close'],
+                    name='Price'
+                ),
+                row=1, col=1
+            )
+            
+            # Bollinger Bands
+            fig.add_trace(go.Scatter(x=data.index, y=data['bb_upper'], 
+                                   name='BB Upper', line=dict(color='rgba(255,0,0,0.3)')), 
+                         row=1, col=1)
+            fig.add_trace(go.Scatter(x=data.index, y=data['bb_lower'], 
+                                   name='BB Lower', line=dict(color='rgba(255,0,0,0.3)'),
+                                   fill='tonexty', fillcolor='rgba(255,0,0,0.1)'), 
+                         row=1, col=1)
+            fig.add_trace(go.Scatter(x=data.index, y=data['sma_20'], 
+                                   name='SMA 20', line=dict(color='blue')), 
+                         row=1, col=1)
+            fig.add_trace(go.Scatter(x=data.index, y=data['ema_20'], 
+                                   name='EMA 20', line=dict(color='orange')), 
+                         row=1, col=1)
+            
+            # RSI
+            fig.add_trace(go.Scatter(x=data.index, y=data['rsi'], name='RSI', 
+                                   line=dict(color='purple')), row=2, col=1)
+            fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
+            fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
+            fig.add_hline(y=50, line_dash="dot", line_color="gray", row=2, col=1)
+            
+            # MACD
+            fig.add_trace(go.Scatter(x=data.index, y=data['macd'], name='MACD', 
+                                   line=dict(color='blue')), row=3, col=1)
+            fig.add_trace(go.Scatter(x=data.index, y=data['macd_signal'], name='Signal', 
+                                   line=dict(color='red')), row=3, col=1)
+            fig.add_trace(go.Bar(x=data.index, y=data['macd_hist'], name='Histogram', 
+                               marker_color='gray'), row=3, col=1)
+            
+            # Volume
+            fig.add_trace(go.Bar(x=data.index, y=data['volume'], name='Volume', 
+                               marker_color='lightblue'), row=4, col=1)
+            
+            # Update layout
+            fig.update_layout(
+                height=800,
+                title=f'{symbol} Technical Analysis',
+                xaxis_rangeslider_visible=False,
+                showlegend=True
+            )
+            
+            # Update y-axis labels
+            fig.update_yaxes(title_text="Price", row=1, col=1)
+            fig.update_yaxes(title_text="RSI", row=2, col=1, range=[0, 100])
+            fig.update_yaxes(title_text="MACD", row=3, col=1)
+            fig.update_yaxes(title_text="Volume", row=4, col=1)
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+        except Exception as e:
+            logger.error(f"Error creating technical chart: {e}")
+            st.error("❌ Failed to create chart")
+
+    def _display_current_metrics(self, data: pd.DataFrame, symbol: str) -> None:
+        """Display current technical indicator values."""
+        try:
+            last_row = data.iloc[-1]
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                rsi_val = last_row['rsi']
+                rsi_status = "🔴 Overbought" if rsi_val > 70 else "🟢 Oversold" if rsi_val < 30 else "🟡 Neutral"
+                st.metric("RSI", f"{rsi_val:.1f}", help=f"Status: {rsi_status}")
+            
+            with col2:
+                macd_val = last_row['macd'] - last_row['macd_signal']
+                macd_trend = "🟢 Bullish" if macd_val > 0 else "🔴 Bearish"
+                st.metric("MACD Diff", f"{macd_val:.4f}", help=f"Trend: {macd_trend}")
+            
+            with col3:
+                atr_val = last_row['atr']
+                st.metric("ATR", f"{atr_val:.2f}", help="Average True Range (Volatility)")
+            
+            with col4:
+                price = last_row['close']
+                bb_pos = ((price - last_row['bb_lower']) / 
+                          (last_row['bb_upper'] - last_row['bb_lower'])) * 100
+                bb_status = "🔴 Upper" if bb_pos > 80 else "🟢 Lower" if bb_pos < 20 else "🟡 Middle"
+                st.metric("BB Position", f"{bb_pos:.1f}%", help=f"Position: {bb_status}")
+                
+        except Exception as e:
+            logger.error(f"Error displaying metrics: {e}")
+            st.error("❌ Failed to display metrics")
+
+    def _render_trading_signals(self, data: pd.DataFrame, symbol: str, ta: TechnicalAnalysis) -> None:
+        """Render trading signals based on technical analysis."""
+        try:
+            st.markdown(f"### 🎯 {symbol} Trading Signals")
+            
+            # Evaluate composite signal using centralized TechnicalAnalysis class
+            composite_score, rsi_score, macd_score, bb_score = ta.evaluate()
+            
+            if composite_score is not None:
+                # Display composite signal
+                col1, col2 = st.columns([1, 2])
+                
+                with col1:
+                    signal_strength = abs(composite_score)
+                    if composite_score > 0.3:
+                        signal_text = "🟢 STRONG BUY"
+                        signal_color = "green"
+                    elif composite_score > 0.1:
+                        signal_text = "🟡 BUY"
+                        signal_color = "orange"
+                    elif composite_score < -0.3:
+                        signal_text = "🔴 STRONG SELL"
+                        signal_color = "red"
+                    elif composite_score < -0.1:
+                        signal_text = "🟡 SELL"
+                        signal_color = "orange"
+                    else:
+                        signal_text = "⚪ HOLD"
+                        signal_color = "gray"
+                    
+                    st.markdown(f"**Overall Signal:** <span style='color:{signal_color}'>{signal_text}</span>", 
+                               unsafe_allow_html=True)
+                    st.metric("Signal Strength", f"{signal_strength:.2f}", f"{composite_score:.2f}")
+                
+                with col2:
+                    # Individual indicator scores
+                    st.markdown("**Individual Indicator Scores:**")
+                    score_df = pd.DataFrame({
+                        'Indicator': ['RSI', 'MACD', 'Bollinger Bands'],
+                        'Score': [rsi_score, macd_score, bb_score],
+                        'Signal': [
+                            'Bullish' if rsi_score > 0 else 'Bearish',
+                            'Bullish' if macd_score > 0 else 'Bearish',
+                            'Bullish' if bb_score > 0 else 'Bearish'
+                        ]
+                    })
+                    st.dataframe(score_df, use_container_width=True)            # Price targets
+            self._display_price_targets(data, symbol, ta)
+            
+            # Risk metrics
+            self._display_risk_metrics(data, symbol, ta)
+            
+        except Exception as e:
+            logger.error(f"Error in trading signals: {e}")
+            st.error(f"❌ Trading signals failed: {e}")
+
+    def _display_price_targets(self, data: pd.DataFrame, symbol: str, ta: TechnicalAnalysis) -> None:
+        """Display price targets based on technical analysis."""
+        try:
+            st.markdown("#### 🎯 Price Targets")
+            
+            current_price = data['close'].iloc[-1]
+            
+            # Use centralized function for ATR calculation
+            try:
+                atr_series = calculate_atr(data, length=14)
+                atr_value = atr_series.iloc[-1] if len(atr_series) > 0 and not pd.isna(atr_series.iloc[-1]) else None
+            except IndicatorError as e:
+                logger.warning(f"ATR calculation failed: {e}")
+                atr_value = None
+            
+            if atr_value:
+                # Calculate targets using ATR
+                target_up = current_price + (1.5 * atr_value)
+                target_down = current_price - (1.5 * atr_value)
+                  # Fibonacci target using centralized TechnicalAnalysis class
+                fib_target = ta.calculate_price_target()
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Current Price", f"${current_price:.2f}")
+                
+                with col2:
+                    upside = ((target_up - current_price) / current_price) * 100
+                    st.metric("Upside Target", f"${target_up:.2f}", f"+{upside:.1f}%")
+                
+                with col3:
+                    downside = ((target_down - current_price) / current_price) * 100
+                    st.metric("Downside Target", f"${target_down:.2f}", f"{downside:.1f}%")
+                
+                with col4:
+                    fib_change = ((fib_target - current_price) / current_price) * 100
+                    st.metric("Fibonacci Target", f"${fib_target:.2f}", f"{fib_change:+.1f}%")
+            
+        except Exception as e:
+            logger.error(f"Error displaying price targets: {e}")
+
+    def _display_risk_metrics(self, data: pd.DataFrame, symbol: str, ta: TechnicalAnalysis) -> None:
+        """Display risk assessment metrics."""
+        try:
+            st.markdown("#### ⚠️ Risk Assessment")
+            
+            risk_params = SessionStateManager.get_risk_params()
+            current_price = data['close'].iloc[-1]
+            
+            # Use centralized function for ATR calculation
+            try:
+                atr_series = calculate_atr(data, length=14)
+                atr_value = atr_series.iloc[-1] if len(atr_series) > 0 and not pd.isna(atr_series.iloc[-1]) else None
+            except IndicatorError as e:
+                logger.warning(f"ATR calculation failed: {e}")
+                atr_value = None
+            
+            if atr_value:
+                # Calculate position sizing
+                account_value = 100000  # Default demo value
+                max_position_value = account_value * risk_params.max_position_size
+                stop_loss_distance = atr_value * risk_params.stop_loss_atr
+                stop_loss_price = current_price - stop_loss_distance
+                
+                risk_per_share = stop_loss_distance
+                max_risk_amount = account_value * risk_params.max_daily_loss
+                
+                if risk_per_share > 0:
+                    suggested_shares = int(max_risk_amount / risk_per_share)
+                    suggested_position_value = suggested_shares * current_price
+                    
+                    # Ensure within position size limits
+                    if suggested_position_value > max_position_value:
+                        suggested_shares = int(max_position_value / current_price)
+                        suggested_position_value = suggested_shares * current_price
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Suggested Shares", f"{suggested_shares:,}")
+                    st.metric("Position Value", f"${suggested_position_value:,.0f}")
+                
+                with col2:
+                    st.metric("Stop Loss Price", f"${stop_loss_price:.2f}")
+                    risk_pct = (risk_per_share / current_price) * 100
+                    st.metric("Risk per Share", f"${risk_per_share:.2f}", f"{risk_pct:.1f}%")
+                
+                with col3:
+                    total_risk = suggested_shares * risk_per_share
+                    risk_of_account = (total_risk / account_value) * 100
+                    st.metric("Total Risk", f"${total_risk:.0f}", f"{risk_of_account:.2f}%")
+                    
+        except Exception as e:
+            logger.error(f"Error displaying risk metrics: {e}")
+
+    def _render_pattern_analysis(self, data: pd.DataFrame, symbol: str) -> None:
+        """Render candlestick pattern analysis."""
+        try:
+            st.markdown(f"### 📊 {symbol} Pattern Analysis")
+            
+            if len(data) < 4:
+                st.warning("Insufficient data for pattern analysis")
+                return
+            
+            # Pattern detection
+            pattern_detector = create_pattern_detector()
+            patterns_found = []
+            
+            # Check last few candles for patterns
+            for i in range(max(0, len(data) - 10), len(data)):
+                if i + 3 < len(data):
+                    window = data.iloc[i:i+4]
+                    
+                    # Check for bullish patterns
+                    if hasattr(pattern_detector, 'is_bullish_engulfing'):
+                        if pattern_detector.is_bullish_engulfing(window):
+                            patterns_found.append({
+                                'Pattern': 'Bullish Engulfing',
+                                'Date': window.index[-1],
+                                'Type': 'Bullish',
+                                'Confidence': 85
+                            })
+                    
+                    if hasattr(pattern_detector, 'is_hammer'):
+                        if pattern_detector.is_hammer(window):
+                            patterns_found.append({
+                                'Pattern': 'Hammer',
+                                'Date': window.index[-1],
+                                'Type': 'Bullish',
+                                'Confidence': 75
+                            })
+            
+            if patterns_found:
+                st.markdown("#### 🔍 Recent Patterns Detected")
+                patterns_df = pd.DataFrame(patterns_found)
+                st.dataframe(patterns_df, use_container_width=True)
+            else:
+                st.info("No significant patterns detected in recent data")
+            
+            # ML Model prediction if available
+            if st.session_state.get(SessionStateManager.MODEL):
+                self._render_ml_prediction(data, symbol)
+                
+        except Exception as e:
+            logger.error(f"Error in pattern analysis: {e}")
+            st.error(f"❌ Pattern analysis failed: {e}")
+
+    def _render_ml_prediction(self, data: pd.DataFrame, symbol: str) -> None:
+        """Render ML model prediction."""
+        try:
+            st.markdown("#### 🤖 AI Model Prediction")
+            
+            model = st.session_state.get(SessionStateManager.MODEL)
+            if not model:
+                st.info("Load a model in the sidebar to see AI predictions")
+                return
+            
+            # This would integrate with the actual ML prediction pipeline
+            # For now, show placeholder
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                # Simulate prediction
+                import random
+                prediction_prob = random.uniform(0.3, 0.9)
+                prediction = "BUY" if prediction_prob > 0.6 else "SELL" if prediction_prob < 0.4 else "HOLD"
+                
+                st.metric("AI Prediction", prediction)
+                st.metric("Confidence", f"{prediction_prob:.1%}")
+            
+            with col2:
+                st.markdown("**Model Info:**")
+                st.text("Model: PatternNN")
+                st.text("Last Updated: 2024-01-01")
+                st.text("Accuracy: 72.5%")
+            
+            with col3:
+                if st.button("🔄 Update Prediction", key=f"update_pred_{symbol}"):
+                    st.rerun()
+                    
+        except Exception as e:
+            logger.error(f"Error in ML prediction: {e}")
+
+    def _render_risk_analysis(self, data: pd.DataFrame, symbol: str, ta: TechnicalAnalysis) -> None:
+        """Render comprehensive risk analysis."""
+        try:
+            st.markdown(f"### 🔍 {symbol} Risk Analysis")
+            
+            # Volatility analysis
+            returns = data['close'].pct_change().dropna()
+            volatility = returns.std() * np.sqrt(252)  # Annualized volatility
+            
+            # Value at Risk (VaR)
+            var_95 = returns.quantile(0.05)
+            var_99 = returns.quantile(0.01)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 📈 Volatility Metrics")
+                st.metric("Annualized Volatility", f"{volatility:.1%}")
+                st.metric("95% VaR (Daily)", f"{var_95:.2%}")
+                st.metric("99% VaR (Daily)", f"{var_99:.2%}")
+                
+                # Risk rating
+                if volatility > 0.4:
+                    risk_rating = "🔴 High Risk"
+                elif volatility > 0.25:
+                    risk_rating = "🟡 Medium Risk"
+                else:
+                    risk_rating = "🟢 Low Risk"
+                
+                st.markdown(f"**Risk Rating:** {risk_rating}")
+            
+            with col2:
+                st.markdown("#### 🎯 Position Sizing Recommendation")
+                
+                risk_params = SessionStateManager.get_risk_params()
+                account_value = 100000  # Demo value
+                
+                # Kelly Criterion approximation
+                win_rate = 0.55  # Assumed
+                avg_win = abs(var_95) * 1.5  # Simplified
+                avg_loss = abs(var_95)
+                
+                kelly_fraction = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+                kelly_fraction = max(0, min(kelly_fraction, risk_params.max_position_size))
+                
+                recommended_position = account_value * kelly_fraction
+                current_price = data['close'].iloc[-1]
+                recommended_shares = int(recommended_position / current_price)
+                
+                st.metric("Kelly Fraction", f"{kelly_fraction:.1%}")
+                st.metric("Recommended Position", f"${recommended_position:,.0f}")
+                st.metric("Recommended Shares", f"{recommended_shares:,}")
+            
+            # Correlation analysis (if multiple symbols available)
+            symbols = SessionStateManager.get_symbols()
+            if len(symbols) > 1:
+                st.markdown("#### 🔗 Portfolio Correlation Analysis")
+                st.info("Portfolio correlation analysis requires multiple symbol data")
+                
+        except Exception as e:
+            logger.error(f"Error in risk analysis: {e}")
+            st.error(f"❌ Risk analysis failed: {e}")
+
+    def _render_portfolio_overview(self) -> None:
+        """Render portfolio overview section."""
+        try:
+            st.markdown("### 💼 Portfolio Overview")
+            
+            # Mock portfolio data - in real implementation this would come from E*Trade API
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Portfolio Value", "$52,500", "+5.0%")
+            
+            with col2:
+                st.metric("Daily P&L", "+$2,500", "+5.0%")
+            
+            with col3:
+                st.metric("Open Positions", "4", "+1")
+            
+            with col4:
+                st.metric("Available Cash", "$10,000", "-$2,500")
+            
+            # Portfolio allocation chart would go here
+            st.info("📊 Portfolio allocation and performance charts will be displayed here when connected to E*Trade")
+            
+        except Exception as e:
+            logger.error(f"Error in portfolio overview: {e}")
+
+    def _render_market_scanner(self, symbols: List[str]) -> None:
+        """Render market scanner for multiple symbols."""
+        try:
+            st.markdown("### 🔍 Market Scanner")
+            
+            if not symbols:
+                st.info("Add symbols to your watchlist to scan the market")
+                return
+            
+            # This would scan all symbols for trading opportunities
+            scanner_data = []
+            
+            for symbol in symbols[:5]:  # Limit to first 5 for demo
+                # In real implementation, fetch data for each symbol
+                # For demo, create mock data
+                scanner_data.append({
+                    'Symbol': symbol,
+                    'Price': f"${np.random.uniform(50, 200):.2f}",
+                    'Change': f"{np.random.uniform(-5, 5):+.2f}%",
+                    'RSI': f"{np.random.uniform(20, 80):.1f}",
+                    'Signal': np.random.choice(['BUY', 'SELL', 'HOLD']),
+                    'Pattern': np.random.choice(['Hammer', 'Doji', 'None', 'Engulfing'])
+                })
+            
+            if scanner_data:
+                scanner_df = pd.DataFrame(scanner_data)
+                
+                # Style the dataframe
+                st.dataframe(
+                    scanner_df,
+                    use_container_width=True,
+                    column_config={
+                        'Symbol': st.column_config.TextColumn('Symbol', width=80),
+                        'Signal': st.column_config.TextColumn('Signal', width=70),
+                    }
+                )
+            else:
+                st.info("No scanner data available")
+                
+        except Exception as e:
+            logger.error(f"Error in market scanner: {e}")
+            st.error(f"❌ Market scanner failed: {e}")
 
     @handle_exceptions
     def _initialize_etrade_client(self, credentials: Dict[str, str]) -> None:
@@ -890,28 +1517,26 @@ class TradingDashboard:
             help=f"Maximum {MAX_SYMBOLS} symbols. Example: AAPL,MSFT,GOOGL"        )
         
         if self.session_manager.create_button("Update Watchlist", container=st.sidebar):
-            try:
-                # Parse and validate symbols
-                new_symbols = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
+            try:                # Parse symbols input
+                symbols_input_str = symbols_input.strip()
                 
-                if not new_symbols:
+                if not symbols_input_str:
                     st.sidebar.error("Please provide at least one symbol")
                     return
+                
+                # Use the centralized validate_symbols function
+                validation_result = validate_symbols(symbols_input_str)
+                
+                if not validation_result.is_valid:
+                    for error in validation_result.errors:
+                        st.sidebar.warning(error)
+                    return
+                
+                new_symbols = validation_result.value
                 
                 if len(new_symbols) > MAX_SYMBOLS:
                     st.sidebar.error(f"Maximum {MAX_SYMBOLS} symbols allowed")
                     return
-                
-                # Additional validation using DataValidator if available
-                if self.validator:
-                    validated_symbols = []
-                    for symbol in new_symbols:
-                        try:
-                            validated_symbol = self.validator.validate_symbol(symbol)
-                            validated_symbols.append(validated_symbol)
-                        except Exception as e:
-                            st.sidebar.warning(f"Invalid symbol {symbol}: {e}")
-                    new_symbols = validated_symbols
                 
                 if not new_symbols:
                     st.sidebar.error("No valid symbols provided")

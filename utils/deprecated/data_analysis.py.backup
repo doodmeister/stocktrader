@@ -1,35 +1,46 @@
+"""
+Enhanced Technical Analysis Dashboard
+
+Refactored to use the new centralized technical analysis architecture:
+- core.technical_indicators: Pure calculation functions
+- utils.technicals.analysis: High-level analysis classes
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from typing import List, Dict, Any, Tuple
+from plotly.subplots import make_subplots
+from typing import List, Dict, Any, Tuple, Optional
 import os
 from collections import defaultdict
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
+# Core imports
 from utils.logger import get_dashboard_logger
-logger = get_dashboard_logger(__name__)
-
-from patterns.patterns import CandlestickPatterns, create_pattern_detector
-from utils.technicals.technical_analysis import TechnicalAnalysis
-from utils.technicals.indicators import add_bollinger_bands, compute_price_stats, compute_return_stats
 from core.dashboard_utils import (
-    setup_page, 
-    handle_streamlit_error, 
-    safe_streamlit_metric, 
-    create_candlestick_chart, 
-    validate_ohlc_dataframe, 
-    initialize_dashboard_session_state
+    setup_page, handle_streamlit_error, initialize_dashboard_session_state
 )
-from core.session_manager import create_session_manager, show_session_debug_info
+from core.data_validator import validate_dataframe
+from core.session_manager import create_session_manager
+
+# New centralized technical analysis imports
+from core.technical_indicators import (
+    calculate_rsi, calculate_macd, calculate_bollinger_bands, 
+    calculate_atr, IndicatorError
+)
+from utils.technicals.analysis import TechnicalAnalysis, compute_price_stats, compute_return_stats
+
+# Pattern detection and utilities
+from patterns.patterns import create_pattern_detector
 from security.authentication import get_openai_api_key
 from utils.chatgpt import get_chatgpt_insight as _get_chatgpt_insight
 
-# Initialize the page (setup_page returns a logger, but we already have one)
-setup_page(
+# Initialize the page and logger
+logger = setup_page(
     title="📊 Technical Analysis Dashboard",
     logger_name=__name__,
     sidebar_title="Analysis Controls"
@@ -57,22 +68,6 @@ def cached_compute_return_stats(df: pd.DataFrame) -> pd.DataFrame:
     return compute_return_stats(df)
 
 @st.cache_data
-def compute_return_stats(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute distribution statistics for daily returns."""
-    daily_returns = df['close'].pct_change() * 100
-    return pd.DataFrame({
-        "Daily Returns (%)": [
-            daily_returns.min(),
-            daily_returns.quantile(0.25),
-            daily_returns.median(),
-            daily_returns.quantile(0.75),
-            daily_returns.max(),
-            daily_returns.mean(),
-            daily_returns.std()
-        ]
-    }, index=["Min","25%","Median","75%","Max","Mean","Std"])
-
-@st.cache_data
 def get_indicator_series(
     df: pd.DataFrame,
     rsi_period: int,
@@ -81,15 +76,27 @@ def get_indicator_series(
     bb_period: int,
     bb_std: int
 ) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
-    """Calculate RSI, MACD lines, and Bollinger Bands using indicators.py."""
-    ta = TechnicalAnalysis(df)
-    rsi = ta.rsi(period=rsi_period)
-    macd_line, signal_line = ta.macd(fast_period=macd_fast, slow_period=macd_slow)
-    # Use add_bollinger_bands directly
-    bb_df = add_bollinger_bands(df, length=bb_period, std=bb_std)
-    upper_band = bb_df['bb_upper']
-    lower_band = bb_df['bb_lower']
-    return rsi, macd_line, signal_line, upper_band, lower_band
+    """Calculate RSI, MACD lines, and Bollinger Bands using centralized indicators."""
+    try:
+        # Use centralized technical analysis functions
+        rsi = calculate_rsi(df['close'], period=rsi_period)
+        macd_line, signal_line = calculate_macd(
+            df['close'], 
+            fast_period=macd_fast, 
+            slow_period=macd_slow, 
+            signal_period=9
+        )
+        bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(
+            df['close'], 
+            period=bb_period, 
+            std_dev=bb_std
+        )
+        return rsi, macd_line, signal_line, bb_upper, bb_lower
+    except IndicatorError as e:
+        logger.error(f"Error calculating indicators: {e}")
+        # Return empty series with same index as fallback
+        empty_series = pd.Series(index=df.index, dtype=float)
+        return empty_series, empty_series, empty_series, empty_series, empty_series
 
 def get_pattern_results(df: pd.DataFrame, patterns: Tuple[str, ...]) -> List[Dict[str, Any]]:
     """Detect and return selected candlestick patterns."""
@@ -110,13 +117,15 @@ def get_pattern_results(df: pd.DataFrame, patterns: Tuple[str, ...]) -> List[Dic
     return results
 
 
-def validate_dataframe(df: pd.DataFrame) -> bool:
-    """Ensure required columns are present."""
-    required = {'open','high','low','close','volume'}
-    missing = required - set(df.columns)
-    if missing:
-        st.error(f"Missing columns: {', '.join(missing)}")
-        logger.error(f"Missing columns: {missing}")
+def validate_dataframe_for_analysis(df: pd.DataFrame) -> bool:
+    """Ensure required columns are present using core validation."""
+    required = ['open', 'high', 'low', 'close', 'volume']
+    validation_result = validate_dataframe(df, required_cols=required)
+    
+    if not validation_result.is_valid:
+        for error in validation_result.errors:
+            st.error(f"Validation error: {error}")
+            logger.error(f"Validation error: {error}")
         return False
     return True
 
@@ -129,40 +138,47 @@ def plot_technical_indicators(
     upper_band: pd.Series,
     lower_band: pd.Series,
     width: int = 1200,
-    height: int = 600
+    height: int = 400
 ):
-    st.markdown("""
-    ### 📈 Technical Indicator Analysis
-
-    **Technical indicators** are mathematical calculations based on price, volume, or open interest.
-    - **RSI (>70 overbought, <30 oversold)**
-    - **MACD (line vs. signal)**
-    - **Bollinger Bands (volatility bands)**
-    """)
-
-    # RSI Plot
-    fig_rsi = go.Figure()
-    fig_rsi.add_trace(go.Scatter(x=rsi.index, y=rsi, mode='lines', name='RSI'))
-    fig_rsi.update_layout(title="RSI", width=width, height=height)
-    st.plotly_chart(fig_rsi, use_container_width=False)
-    st.caption(f"RSI (last: {rsi.iloc[-1]:.2f}) — >70 overbought, <30 oversold.")
-
-    # MACD Plot
-    fig_macd = go.Figure()
-    fig_macd.add_trace(go.Scatter(x=macd_line.index, y=macd_line, mode='lines', name='MACD'))
-    fig_macd.add_trace(go.Scatter(x=signal_line.index, y=signal_line, mode='lines', name='Signal'))
-    fig_macd.update_layout(title="MACD", width=width, height=height)
-    st.plotly_chart(fig_macd, use_container_width=False)
-    st.caption(f"MACD diff (last): {(macd_line.iloc[-1] - signal_line.iloc[-1]):.2f}.")
-
-    # Bollinger Bands Plot
-    fig_bb = go.Figure()
-    fig_bb.add_trace(go.Scatter(x=df.index, y=df['close'], mode='lines', name='Close'))
-    fig_bb.add_trace(go.Scatter(x=upper_band.index, y=upper_band, mode='lines', name='Upper Band'))
-    fig_bb.add_trace(go.Scatter(x=lower_band.index, y=lower_band, mode='lines', name='Lower Band'))
-    fig_bb.update_layout(title="Bollinger Bands", width=width, height=height)
-    st.plotly_chart(fig_bb, use_container_width=False)
-    st.caption("Bollinger Bands visualize volatility.")
+    """Streamlined technical indicators plotting."""
+    st.markdown("### 📈 Technical Indicator Analysis")
+    
+    # Create subplot for all indicators
+    fig = make_subplots(
+        rows=3, cols=1,
+        subplot_titles=('RSI', 'MACD', 'Price with Bollinger Bands'),
+        vertical_spacing=0.08,
+        row_heights=[0.25, 0.25, 0.5]
+    )
+    
+    # RSI subplot
+    fig.add_trace(go.Scatter(x=rsi.index, y=rsi, mode='lines', name='RSI', line=dict(color='purple')), row=1, col=1)
+    fig.add_hline(y=70, line_dash="dash", line_color="red", row=1, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="green", row=1, col=1)
+    
+    # MACD subplot  
+    fig.add_trace(go.Scatter(x=macd_line.index, y=macd_line, mode='lines', name='MACD', line=dict(color='blue')), row=2, col=1)
+    fig.add_trace(go.Scatter(x=signal_line.index, y=signal_line, mode='lines', name='Signal', line=dict(color='orange')), row=2, col=1)
+    
+    # Bollinger Bands with price
+    fig.add_trace(go.Scatter(x=df.index, y=df['close'], mode='lines', name='Close', line=dict(color='black')), row=3, col=1)
+    fig.add_trace(go.Scatter(x=upper_band.index, y=upper_band, mode='lines', name='Upper BB', line=dict(color='red', dash='dot')), row=3, col=1)
+    fig.add_trace(go.Scatter(x=lower_band.index, y=lower_band, mode='lines', name='Lower BB', line=dict(color='green', dash='dot')), row=3, col=1)
+    
+    fig.update_layout(height=height*2, width=width, showlegend=True, title_text="Technical Indicators Overview")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Quick stats
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        rsi_last = rsi.iloc[-1] if not rsi.isna().all() else 0
+        st.metric("RSI", f"{rsi_last:.1f}", help="70+ overbought, 30- oversold")
+    with col2:
+        macd_diff = (macd_line.iloc[-1] - signal_line.iloc[-1]) if not macd_line.isna().all() else 0
+        st.metric("MACD Signal", f"{macd_diff:.3f}", help="Positive = bullish, Negative = bearish")
+    with col3:
+        bb_position = (df['close'].iloc[-1] - lower_band.iloc[-1]) / (upper_band.iloc[-1] - lower_band.iloc[-1]) * 100 if not upper_band.isna().all() else 50
+        st.metric("BB Position", f"{bb_position:.1f}%", help="Position within Bollinger Bands")
 
 
 def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[str, Any]], width: int = 1400, height: int = 800):
@@ -219,79 +235,102 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
 class TechnicalAnalysisDashboard:
     def __init__(self):
         pass
-
+        
     def run(self):
         """Main dashboard application entry point."""
         initialize_dashboard_session_state()
-
-
+        
         uploaded_file = session_manager.create_file_uploader("Upload CSV Data", type='csv', file_uploader_name="analysis_data_uploader")
         if not uploaded_file:
             st.info("Please upload a CSV file to begin.")
             return
-
+            
         filename = uploaded_file.name
         stock_ticker = filename.split('_')[0].upper() if '_' in filename else os.path.splitext(filename)[0].upper()
         st.markdown(f"### Stock Ticker: {stock_ticker}")
-
+        
         if st.session_state.get('filename') != filename:
             df = load_df(uploaded_file)
             st.session_state.df = df
             st.session_state.filename = filename
         else:
             df = st.session_state.df
-
-        if df is None or not validate_dataframe(df):
-            return
-
-        st.subheader("Data Preview")
-        st.dataframe(df.head(5), height=200)
-
-        price_stats = cached_compute_price_stats(df)
-        st.markdown("### 📈 Price Statistics")
-        st.table(price_stats.round(2))
-
-        return_stats = compute_return_stats(df)
-        st.markdown("### 🔄 Returns Analysis")
-        st.table(return_stats.round(2))
-
-        # Key metrics row 1
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Bars", len(df))
-        date_range = f"{df.index[0]} → {df.index[-1]}" if hasattr(df.index, 'name') else f"1 → {len(df)}"
-        col2.metric("Date Range", date_range)
-        price_range = f"${df['low'].min():.2f}–${df['high'].max():.2f}"
-        col3.metric("Price Range", price_range)
-
-        # Key metrics row 2
-        col1, col2, col3 = st.columns(3)
-        avg_daily_range = ((df['high'] - df['low']) / df['low'] * 100).mean().round(2)
-        col1.metric("Avg Daily Range %", f"{avg_daily_range}")
-        avg_volume = int(df['volume'].mean())
-        col2.metric("Avg Volume", f"{avg_volume:,}")
-        max_volume = int(df['volume'].max())
-        col3.metric("Max Volume", f"{max_volume:,}")
-
-        # Key metrics row 3
-        col1, _, _ = st.columns(3)
-        daily_returns = df['close'].pct_change() * 100
-        annualized_vol = (daily_returns.std() * (252 ** 0.5)).round(2)
-        col1.metric("Annualized Volatility", f"{annualized_vol}")
-
-        # Indicator settings
-        st.markdown("---")
-        st.markdown("## ⚙️ Indicator Settings")
-        col1, col2, col3 = st.columns(3)
+            
+        if df is None or not validate_dataframe_for_analysis(df):
+            return        # Data overview and statistics
+        st.subheader("📊 Data Overview")
+        
+        col1, col2 = st.columns(2)
         with col1:
-            rsi_period = session_manager.create_number_input("RSI Period", min_value=2, max_value=30, value=14, number_input_name="rsi_period")
+            st.dataframe(df.head(5), height=200)
         with col2:
-            macd_fast = session_manager.create_number_input("MACD Fast", min_value=2, max_value=30, value=12, number_input_name="macd_fast")
-            macd_slow = session_manager.create_number_input("MACD Slow", min_value=macd_fast+1, max_value=60, value=26, number_input_name="macd_slow")
-            fib_lookback = session_manager.create_number_input("Fib Lookback", min_value=5, max_value=100, value=30, number_input_name="fib_lookback")
-            fib_ext = session_manager.create_number_input("Fib Extension", min_value=0.1, max_value=2.0, value=0.618, step=0.001, number_input_name="fib_ext")
-        with col3:
-            bb_period = session_manager.create_number_input("BB Period", min_value=2, max_value=30, value=20, number_input_name="bb_period")
-            bb_std = session_manager.create_number_input("BB Std Dev", min_value=1, max_value=4, value=2, number_input_name="bb_std")
+            # Key metrics
+            st.metric("Total Bars", len(df))
+            date_range = f"{df.index[0]} → {df.index[-1]}" if hasattr(df.index, 'name') else f"1 → {len(df)}"
+            st.metric("Date Range", date_range)
+            price_range = f"${df['low'].min():.2f}–${df['high'].max():.2f}"
+            st.metric("Price Range", price_range)
+            
+            # Quick stats
+            daily_returns = df['close'].pct_change() * 100
+            avg_daily_range = ((df['high'] - df['low']) / df['low'] * 100).mean()
+            annualized_vol = daily_returns.std() * (252 ** 0.5)
+            
+            st.metric("Avg Daily Range %", f"{avg_daily_range:.2f}")
+            st.metric("Annualized Volatility", f"{annualized_vol:.2f}")
+            st.metric("Avg Volume", f"{int(df['volume'].mean()):,}")
+
+        # Price and return statistics in expandable sections
+        with st.expander("📈 Detailed Price Statistics"):
+            price_stats = cached_compute_price_stats(df)
+            st.table(price_stats.round(2))
+        
+        with st.expander("🔄 Detailed Returns Analysis"):
+            return_stats = cached_compute_return_stats(df)
+            st.table(return_stats.round(2))        # Technical analysis settings and calculations
+        st.markdown("---")
+        st.markdown("## 🎯 Technical Analysis")
+        
+        # Streamlined settings in collapsible sections
+        with st.expander("⚙️ Indicator Settings", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("**Momentum**")
+                rsi_period = session_manager.create_number_input("RSI Period", min_value=2, max_value=30, value=14, number_input_name="rsi_period")
+            with col2:
+                st.markdown("**Trend**") 
+                macd_fast = session_manager.create_number_input("MACD Fast", min_value=2, max_value=30, value=12, number_input_name="macd_fast")
+                macd_slow = session_manager.create_number_input("MACD Slow", min_value=macd_fast+1, max_value=60, value=26, number_input_name="macd_slow")
+            with col3:
+                st.markdown("**Volatility**")
+                bb_period = session_manager.create_number_input("BB Period", min_value=2, max_value=30, value=20, number_input_name="bb_period")
+                bb_std = session_manager.create_number_input("BB Std Dev", min_value=1, max_value=4, value=2, number_input_name="bb_std")
+                
+            # Additional settings
+            col1, col2 = st.columns(2)
+            with col1:
+                fib_lookback = session_manager.create_number_input("Fib Lookback", min_value=5, max_value=100, value=30, number_input_name="fib_lookback")
+            with col2:
+                fib_ext = session_manager.create_number_input("Fib Extension", min_value=0.1, max_value=2.0, value=0.618, step=0.001, number_input_name="fib_ext")
+
+        # Educational content in collapsible section  
+        with st.expander("📚 Understanding Technical Indicators"):
+            st.markdown("""
+            **RSI (Relative Strength Index):** Momentum oscillator (0-100). Values >70 suggest overbought, <30 oversold conditions.
+            
+            **MACD:** Shows relationship between moving averages. Crossovers indicate potential trend changes.
+            
+            **Bollinger Bands:** Price volatility bands. Price touching upper/lower bands may signal reversal points.
+            
+            **ATR:** Measures volatility without indicating direction. Higher values = more volatile price action.
+            """)
+
+        # Calculate and display indicators
+        with st.spinner("Calculating technical indicators..."):
+            rsi, macd_line, signal_line, upper_band, lower_band = get_indicator_series(
+                df, rsi_period, macd_fast, macd_slow, bb_period, bb_std
+            )
+            plot_technical_indicators(rsi, macd_line, signal_line, df, upper_band, lower_band)
 
         st.markdown("""
         ### 📚 Understanding Technical Indicators

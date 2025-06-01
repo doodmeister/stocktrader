@@ -29,8 +29,8 @@ from pydantic import BaseModel, Field, validator, ValidationError
 
 # Local imports
 from core.etrade_candlestick_bot import ETradeClient
-from utils.technicals.indicators import add_technical_indicators
-from utils.config.validation import validate_symbol, safe_request
+from utils.technicals.analysis import add_technical_indicators
+from core.safe_requests import safe_request
 from security.authentication import get_api_credentials
 from core.dashboard_utils import (
     initialize_dashboard_session_state,
@@ -39,7 +39,7 @@ from core.dashboard_utils import (
 )
 from utils.live_inference import make_trade_decision
 from patterns.pattern_utils import add_candlestick_pattern_features
-from core.data_validator import validate_dataframe, validate_ohlc_data
+from core.data_validator import validate_dataframe, validate_ohlc_data, validate_symbols
 
 # Import SessionManager to solve button key conflicts and session state issues
 from core.session_manager import create_session_manager, show_session_debug_info
@@ -105,12 +105,14 @@ class DashboardConfig(BaseModel):
     
     @validator('symbol')
     def validate_symbol_format(cls, v):
-        """Ensure symbol is valid using the project's validator."""
+        """Ensure symbol is valid using the centralized validator."""
         try:
-            # use the core util directly
-            return validate_symbol(v)
+            result = validate_symbols(v)
+            if not result.is_valid:
+                raise ValueError(f"Invalid symbol format: {result.errors}")
+            return v
         except Exception as e:
-            raise ValueError(f"Invalid symbol format: {e}")
+            raise ValueError(f"Validation error: {e}")
     
     @validator('indicators')
     def validate_indicators(cls, v):

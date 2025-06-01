@@ -15,6 +15,9 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 
+# Import the centralized data validator
+from core.data_validator import get_global_validator, validate_dataframe
+
 # Configure logging
 logger = setup_logger(__name__)
 
@@ -83,22 +86,46 @@ class Backtest:
     def __init__(self, config: BacktestConfig):
         self.config = config
         self.reset()
-
+        
     def reset(self):
         self.equity_curve: pd.Series = pd.Series()
         self.trades: List[Trade] = []
         self.positions: Dict[str, int] = {}
         self.capital: float = self.config.initial_capital
-
+        
     def validate_data(self, data: Dict[str, pd.DataFrame]) -> None:
-        required_columns = {'open', 'high', 'low', 'close', 'volume'}
+        """
+        Validate market data using the centralized data validator.
+        
+        Args:
+            data: Dictionary mapping symbols to DataFrames with OHLCV data
+        
+        Raises:
+            ValueError: If any DataFrame fails validation
+        """
+        validator = get_global_validator()
+        required_columns = ['open', 'high', 'low', 'close', 'volume']
+        
         for symbol, df in data.items():
+            # Validate DataFrame structure and integrity
+            result = validator.validate_dataframe(
+                df, 
+                required_cols=required_columns,
+                validate_ohlc=True,
+                check_statistical_anomalies=True
+            )
+            
+            # Check for DatetimeIndex specifically
             if not isinstance(df.index, pd.DatetimeIndex):
                 raise ValueError(f"DataFrame for {symbol} must have DatetimeIndex")
-            if not required_columns.issubset(df.columns):
-                raise ValueError(f"DataFrame for {symbol} missing required columns")
-            if df.isnull().any().any():
-                logger.warning(f"Found NaN values in data for {symbol}")
+            
+            # Handle validation errors
+            if not result.is_valid:
+                raise ValueError(f"Invalid data for {symbol}: {', '.join(result.errors)}")
+            
+            # Display warnings but don't halt execution
+            for warning in result.warnings:
+                logger.warning(f"{symbol}: {warning}")
 
     def simulate(
         self,
@@ -243,7 +270,18 @@ class Backtest:
 # Strategy functions and lookup registry
 
 def load_ohlcv(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
-    """Example OHLCV loader. Replace with real data source."""
+    """
+    Example OHLCV loader with validation using the central data validator.
+    
+    Args:
+        symbol: Stock ticker symbol
+        start: Start date for data range
+        end: End date for data range
+        
+    Returns:
+        DataFrame with validated OHLCV data
+    """
+    # Generate sample data
     dates = pd.date_range(start, end, freq='B')
     np.random.seed(hash(symbol) % 2**32)
     price = np.cumsum(np.random.randn(len(dates))) + 100
@@ -255,6 +293,19 @@ def load_ohlcv(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
         'volume':np.random.randint(100000, 200000, len(dates))
     }, index=dates)
     df.index.name = 'date'
+    
+    # Validate the generated data using the centralized validator
+    required_cols = ['open', 'high', 'low', 'close', 'volume']
+    result = validate_dataframe(df, required_cols)
+    
+    if not result.is_valid:
+        logger.error(f"Generated data validation failed: {', '.join(result.errors)}")
+        
+    # Log statistics and warnings for monitoring
+    if result.warnings:
+        for warning in result.warnings:
+            logger.warning(f"Data quality warning for {symbol}: {warning}")
+    
     return df
 
 def moving_average_crossover_strategy(df: pd.DataFrame, fast: int=10, slow: int=26) -> float:
@@ -286,6 +337,23 @@ def run_backtest(
     **kwargs  # <-- Accept extra strategy parameters
 ) -> Dict[str, Any]:
     """Run a backtest for a given trading strategy with improved safety."""
+    # Validate dates using the modular data validator
+    validator = get_global_validator()
+    date_result = validator.validate_dates(
+        start_date.date() if hasattr(start_date, 'date') else start_date, 
+        end_date.date() if hasattr(end_date, 'date') else end_date
+    )
+    
+    if not date_result.is_valid:
+        logger.error(f"Invalid date range: {', '.join(date_result.errors)}")
+        return {
+            'metrics': empty_backtest_result(initial_capital)[0], 
+            'equity_curve': empty_backtest_result(initial_capital)[1],
+            'trade_log': empty_backtest_result(initial_capital)[2],
+            'validation_errors': date_result.errors
+        }
+    
+    # Load data after validation
     df = load_ohlcv(symbol, start_date, end_date)
     data = {symbol: df}
 

@@ -44,7 +44,6 @@ from core.exceptions import (
     SecurityValidationError,
     PerformanceValidationError,
 )
-
 # Configure logger for this module
 logger = get_dashboard_logger(__name__)
 
@@ -1508,7 +1507,6 @@ __all__ = [
     'get_global_validator',
     'reset_global_validator',
     'validate_dataframe',
-    'validate_dates',
-    'validate_symbol',
+    'validate_dates',    'validate_symbol',
     'validate_symbols',
 ]

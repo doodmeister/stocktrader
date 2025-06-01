@@ -8,6 +8,10 @@ import streamlit as st
 from pathlib import Path
 import sys
 import time
+from dotenv import load_dotenv
+
+# Load environment variables at application startup
+load_dotenv()
 
 # Configure Streamlit page FIRST, before any other Streamlit commands
 st.set_page_config(

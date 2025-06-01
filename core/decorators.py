@@ -1,4 +1,4 @@
-# utils/decorators.py
+# core/decorators.py
 import streamlit as st
 import functools
 import logging

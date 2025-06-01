@@ -148,17 +148,20 @@ class PatternModelTrainer:
         # Validate inputs during initialization
         self._validate_training_params()
         self._validate_patterns()
-        
         logger.info(f"Initialized PatternModelTrainer with {len(selected_patterns)} patterns")
 
     def _validate_training_params(self) -> None:
         """Validate training configuration parameters."""
         try:
-            # Import validation utility if available
-            from utils.config.validation import validate_training_params
-            validate_training_params(self.config)
-        except ImportError:
-            logger.warning("Config validation module not found, skipping validation")
+            # Local validation to avoid circular import with core.data_validator
+            if self.config.epochs <= 0:
+                raise ValueError("epochs must be > 0")
+            if not (0 < self.config.validation_split < 1):
+                raise ValueError("validation_split must be in (0,1)")
+            if self.config.learning_rate <= 0:
+                raise ValueError("learning_rate must be > 0")
+            if self.config.batch_size <= 0:
+                raise ValueError("batch_size must be > 0")
         except Exception as e:
             raise TrainingError(f"Training configuration validation failed: {e}")
 

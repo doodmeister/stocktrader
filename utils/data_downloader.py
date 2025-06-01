@@ -27,10 +27,8 @@ from core.data_validator import (
     validate_dataframe,
     get_global_validator,
 )
-from utils.config.validation import safe_request
 
 logger = setup_logger(__name__)
-
 
 def fetch_daily_ohlcv(symbol: str, start: str, end: str) -> pd.DataFrame:
     """

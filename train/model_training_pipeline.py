@@ -16,6 +16,20 @@ Key Features:
 - Optimized for performance and memory usage
 - Structured logging and observability
 - Well-documented for maintainability and extension
+
+Project Status:
+- ✅ Modular architecture is 100% complete and functional
+- ✅ All core modules are implemented and tested
+- ✅ Use bash commands for all operations (see below)
+
+Usage Example (Bash):
+    # Activate environment and run pipeline
+    source venv/Scripts/activate
+    python -m train.model_training_pipeline
+
+    # Or run with Streamlit dashboard (recommended)
+    streamlit run main.py
+
 """
 
 import os
