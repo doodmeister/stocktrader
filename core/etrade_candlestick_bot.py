@@ -14,11 +14,6 @@ Author: Trading Bot Team
 License: MIT
 """
 
-import asyncio
-import os
-import sys
-import time
-import signal
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -27,9 +22,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Tuple, Any
 import datetime as dt
-
-import pandas as pd
+import os
+import signal
+import sys
+import time
 import requests
+import pandas as pd
+import numpy as np
 from requests.adapters import HTTPAdapter
 from requests_oauthlib import OAuth1Session
 from urllib3.util.retry import Retry
@@ -97,21 +96,21 @@ class TradeConfig:
     def __post_init__(self):
         """Validate configuration parameters"""
         if not (1 <= self.max_positions <= 50):
-            raise ValueError("max_positions must be between 1 and 50")
+            raise ValueError(f"max_positions must be between 1 and 50, got {self.max_positions}")
         if not (0.001 <= self.max_loss_percent <= 0.20):
-            raise ValueError("max_loss_percent must be between 0.1% and 20%")
+            raise ValueError(f"max_loss_percent must be between 0.1% and 20%, got {self.max_loss_percent}")
         if not (0.005 <= self.profit_target_percent <= 1.0):
-            raise ValueError("profit_target_percent must be between 0.5% and 100%")
+            raise ValueError(f"profit_target_percent must be between 0.5% and 100%, got {self.profit_target_percent}")
         if not (0.01 <= self.max_daily_loss <= 0.50):
-            raise ValueError("max_daily_loss must be between 1% and 50%")
+            raise ValueError(f"max_daily_loss must be between 1% and 50%, got {self.max_daily_loss}")
         if not (10 <= self.polling_interval <= 3600):
-            raise ValueError("polling_interval must be between 10 and 3600 seconds")
+            raise ValueError(f"polling_interval must be between 10 and 3600 seconds, got {self.polling_interval}")
         if not (0.0001 <= self.risk_per_trade_pct <= 0.10):
-            raise ValueError("risk_per_trade_pct must be between 0.01% and 10%")
+            raise ValueError(f"risk_per_trade_pct must be between 0.01% and 10%, got {self.risk_per_trade_pct}")
         if not (0.01 <= self.max_position_size_pct <= 0.50):
-            raise ValueError("max_position_size_pct must be between 1% and 50%")
+            raise ValueError(f"max_position_size_pct must be between 1% and 50%, got {self.max_position_size_pct}")
         if not (0.0 <= self.pattern_confidence_threshold <= 1.0):
-            raise ValueError("pattern_confidence_threshold must be between 0 and 1")
+            raise ValueError(f"pattern_confidence_threshold must be between 0 and 1, got {self.pattern_confidence_threshold}")
 
 
 @dataclass
@@ -255,7 +254,7 @@ class ETradeClient:
         
         missing = [name for name, value in required_creds.items() if not value or not str(value).strip()]
         if missing:
-            raise ValueError(f"Missing required E*Trade API credentials: {', '.join(missing)}")
+            raise ValueError(f"Missing required credentials: {missing}")
     
     def _create_session(self, consumer_key: str, consumer_secret: str, 
                        oauth_token: str, oauth_token_secret: str) -> OAuth1Session:
@@ -336,35 +335,35 @@ class ETradeClient:
             try:
                 response = self.session.request(method, url, **kwargs)
                 
-                # Handle different HTTP status codes
-                if response.status_code == 200:
-                    return response.json()
-                elif response.status_code == 401:
+                if response.status_code == 401:
                     self._handle_authentication_error(response)
+                    continue
                 elif response.status_code == 429:
                     self._handle_rate_limit(response, attempt)
-                elif response.status_code >= 500:
+                    continue
+                elif 500 <= response.status_code < 600:
                     self._handle_server_error(response, attempt)
-                else:
+                    continue
+                elif 400 <= response.status_code < 500:
                     self._handle_client_error(response)
                     
+                response.raise_for_status()
+                return response.json()
+                
             except requests.exceptions.Timeout:
                 logger.warning(f"Request timeout on attempt {attempt + 1}")
                 if attempt == self.config.max_retries:
-                    raise APIException("Request timeout after all retries")
-                time.sleep(self.config.retry_delay * (2 ** attempt))
+                    raise APIException("Request timed out after all retries")
                 
             except requests.exceptions.ConnectionError as e:
                 logger.warning(f"Connection error on attempt {attempt + 1}: {e}")
                 if attempt == self.config.max_retries:
                     raise APIException("Connection failed after all retries")
-                time.sleep(self.config.retry_delay * (2 ** attempt))
                 
             except Exception as e:
-                logger.error(f"Unexpected error in request: {e}")
+                logger.error(f"Unexpected error on attempt {attempt + 1}: {e}")
                 if attempt == self.config.max_retries:
-                    raise APIException(f"Request failed: {str(e)}")
-                time.sleep(self.config.retry_delay)
+                    raise APIException(f"Request failed: {e}")
         
         raise APIException("Request failed after all retries")
     
@@ -503,8 +502,7 @@ class ETradeClient:
             products = response.get("ProductLookupResponse", {}).get("Data", {}).get("Products", [])
             
             if not products:
-                logger.warning(f"Symbol {symbol} not found")
-                return pd.DataFrame()
+                raise ValueError(f"Symbol {symbol} not found")
             
             # Fetch candle data
             candle_url = f"{self.base_url}/market/productlookup"
@@ -517,8 +515,7 @@ class ETradeClient:
             candles = response.get("Data", {}).get("candles", [])
             
             if not candles:
-                logger.warning(f"No candle data available for {symbol}")
-                return pd.DataFrame()
+                raise ValueError(f"No candle data found for {symbol}")
             
             # Convert to DataFrame
             df = pd.DataFrame(candles)
@@ -535,8 +532,8 @@ class ETradeClient:
             
             # Convert datetime
             if 'datetime' in df.columns:
-                df['datetime'] = pd.to_datetime(df['datetime'], unit='ms', errors='coerce')
-                df = df.set_index('datetime')
+                df['datetime'] = pd.to_datetime(df['datetime'])
+                df.set_index('datetime', inplace=True)
             
             # Ensure numeric columns
             numeric_cols = ['open', 'high', 'low', 'close', 'volume']
@@ -614,9 +611,9 @@ class ETradeClient:
             
             order_id = response.get("PlaceOrderResponse", {}).get("orderId")
             if order_id:
-                logger.info(f"Order placed successfully: {instruction} {quantity} {symbol} (ID: {order_id})")
+                logger.info(f"Order placed successfully: {order_id} for {symbol}")
             else:
-                logger.warning(f"Order placed but no order ID returned: {instruction} {quantity} {symbol}")
+                logger.warning(f"Order response missing order ID: {response}")
             
             return response
             
@@ -821,7 +818,7 @@ class MarketHours:
         now = dt.datetime.now(et_tz)
         
         # Check if it's a weekend
-        if now.weekday() > 4:  # Saturday = 5, Sunday = 6
+        if now.weekday() > 4:
             return MarketState.CLOSED
         
         # Define market hours (9:30 AM - 4:00 PM ET)
@@ -863,11 +860,11 @@ class MarketHours:
         
         # If market opening time has passed today, move to next trading day
         if now.time() >= dt.time(9, 30):
-            next_open += dt.timedelta(days=1)
+            next_open = next_open + dt.timedelta(days=1)
         
         # Skip weekends
         while next_open.weekday() > 4:
-            next_open += dt.timedelta(days=1)
+            next_open = next_open + dt.timedelta(days=1)
         
         return next_open - now
 
@@ -921,14 +918,11 @@ class StrategyEngine:
         
         validated_symbols = []
         for symbol in symbols:
-            if isinstance(symbol, str) and symbol.strip():
-                clean_symbol = symbol.strip().upper()
-                if clean_symbol.isalpha() and len(clean_symbol) <= 5:
-                    validated_symbols.append(clean_symbol)
-                else:
-                    logger.warning(f"Invalid symbol format: {symbol}")
+            clean_symbol = symbol.strip().upper()
+            if clean_symbol and clean_symbol.isalpha() and len(clean_symbol) <= 5:
+                validated_symbols.append(clean_symbol)
             else:
-                logger.warning(f"Invalid symbol: {symbol}")
+                logger.warning(f"Invalid symbol skipped: {symbol}")
         
         if not validated_symbols:
             raise ValueError("No valid symbols provided")
@@ -1003,7 +997,7 @@ class StrategyEngine:
                     self._handle_market_closed()
                     continue
                 
-                # Process all symbols
+                # Process all symbols for entry opportunities
                 self._process_symbols()
                 
                 # Monitor existing positions
@@ -1014,21 +1008,18 @@ class StrategyEngine:
                 
                 # Send daily summary if needed
                 current_date = dt.date.today()
-                if current_date > last_daily_summary:
+                if current_date != last_daily_summary:
                     self._send_daily_summary()
                     last_daily_summary = current_date
                 
-                # Calculate sleep time to maintain polling interval
+                # Control loop timing
                 loop_duration = time.time() - loop_start_time
                 sleep_time = max(0, self.config.polling_interval - loop_duration)
-                
-                if sleep_time > 0:
-                    logger.debug(f"Sleeping for {sleep_time:.1f} seconds")
-                    time.sleep(sleep_time)
+                time.sleep(sleep_time)
                 
             except Exception as e:
                 logger.error(f"Error in trading loop: {e}")
-                time.sleep(10)  # Brief pause before retry
+                time.sleep(60)  # Wait 1 minute before retry
     
     def _handle_market_closed(self) -> None:
         """Handle operations when market is closed"""
@@ -1049,10 +1040,9 @@ class StrategyEngine:
                 if symbol in self.positions:
                     continue
                 
-                # Check cache first
+                # Get market data
                 df = self._get_symbol_data(symbol)
                 if df.empty:
-                    logger.warning(f"No data available for {symbol}")
                     continue
                 
                 # Evaluate for entry
@@ -1140,10 +1130,12 @@ class StrategyEngine:
             # Filter by confidence threshold
             filtered_patterns = []
             for pattern in patterns:
-                if isinstance(pattern, dict) and pattern.get('confidence', 0) >= self.config.pattern_confidence_threshold:
-                    filtered_patterns.append(pattern.get('name', 'unknown'))
-                elif isinstance(pattern, str):
-                    filtered_patterns.append(pattern)
+                if hasattr(pattern, 'confidence'):
+                    if pattern.confidence >= self.config.pattern_confidence_threshold:
+                        filtered_patterns.append(pattern.name)
+                else:
+                    # If no confidence score, assume it meets threshold
+                    filtered_patterns.append(str(pattern))
             
             return filtered_patterns
         except Exception as e:
@@ -1160,25 +1152,24 @@ class StrategyEngine:
             
             # RSI confirmation (oversold for buy signals)
             if 'rsi' in df.columns:
-                rsi_oversold = last_row['rsi'] < 35
-                rsi_recovering = last_row['rsi'] > prev_row['rsi']
-                confirmations.append(rsi_oversold and rsi_recovering)
+                rsi_oversold = last_row['rsi'] < 30
+                confirmations.append(rsi_oversold)
             
             # MACD confirmation (bullish crossover)
             if all(col in df.columns for col in ['macd', 'signal']):
                 macd_bullish = (last_row['macd'] > last_row['signal'] and 
-                              prev_row['macd'] <= prev_row['signal'])
+                               prev_row['macd'] <= prev_row['signal'])
                 confirmations.append(macd_bullish)
             
             # Volume confirmation (above average)
             if 'volume' in df.columns and len(df) >= 20:
-                avg_volume = df['volume'].tail(20).mean()
-                volume_confirmation = last_row['volume'] > avg_volume * 1.5
-                confirmations.append(volume_confirmation)
+                avg_volume = df['volume'].rolling(20).mean().iloc[-1]
+                volume_above_avg = last_row['volume'] > avg_volume * 1.2
+                confirmations.append(volume_above_avg)
             
             # At least one confirmation required
             return any(confirmations)
-            
+        
         except Exception as e:
             logger.error(f"Error checking indicator confirmation: {e}")
             return False
@@ -1235,14 +1226,10 @@ class StrategyEngine:
             logger.info(f"Entered position: {symbol} @ ${current_price} (qty: {quantity}, patterns: {patterns})")
             
             if self.notifier:
-                self.notifier.send_order_notification({
-                    'symbol': symbol,
-                    'side': 'BUY',
-                    'quantity': quantity,
-                    'filled_price': float(current_price),
-                    'patterns': patterns,
-                    'timestamp': dt.datetime.now().isoformat()
-                })
+                self.notifier.send_notification(
+                    "Position Entered",
+                    f"Entered {symbol} @ ${current_price} (qty: {quantity})"
+                )
         
         except Exception as e:
             logger.error(f"Failed to enter position for {symbol}: {e}")
@@ -1339,15 +1326,10 @@ class StrategyEngine:
             logger.info(f"Exited position: {symbol} @ ${exit_price} (P&L: ${realized_pnl:.2f}, reason: {reason})")
             
             if self.notifier:
-                self.notifier.send_order_notification({
-                    'symbol': symbol,
-                    'side': 'SELL',
-                    'quantity': position.quantity,
-                    'filled_price': float(exit_price),
-                    'pnl': float(realized_pnl),
-                    'reason': reason,
-                    'timestamp': dt.datetime.now().isoformat()
-                })
+                self.notifier.send_notification(
+                    "Position Exited",
+                    f"Exited {symbol} @ ${exit_price} (P&L: ${realized_pnl:.2f})"
+                )
         
         except Exception as e:
             logger.error(f"Failed to exit position {symbol}: {e}")
@@ -1356,17 +1338,18 @@ class StrategyEngine:
         """Close all open positions"""
         for symbol in list(self.positions.keys()):
             try:
-                self._exit_position(symbol, reason)
+                self._exit_position(symbol, f"Force close: {reason}")
             except Exception as e:
-                logger.error(f"Failed to close position {symbol}: {e}")
+                logger.error(f"Error closing position {symbol}: {e}")
     
     def _update_performance_metrics(self) -> None:
         """Update performance tracking metrics"""
         try:
-            current_account_value = self.client.get_account_value()
-            self.performance_tracker.update_account_value(current_account_value)
+            # Update account value for drawdown tracking
+            current_value = self.client.get_account_value()
+            self.performance_tracker.update_account_value(current_value)
         except Exception as e:
-            logger.error(f"Failed to update performance metrics: {e}")
+            logger.error(f"Error updating performance metrics: {e}")
     
     def _send_daily_summary(self) -> None:
         """Send daily performance summary"""
@@ -1374,60 +1357,20 @@ class StrategyEngine:
             return
         
         try:
-            metrics = self.performance_tracker.calculate_metrics()
-            daily_summary = self.performance_tracker.get_daily_summary()
-            
-            summary_message = f"""
-Daily Trading Summary - {daily_summary['date']}
-
-Trades Today: {daily_summary['trades']}
-Daily P&L: ${daily_summary['pnl']:.2f}
-Win Rate: {metrics['win_rate']:.1%}
-Total Trades: {metrics['total_trades']}
-Profit Factor: {metrics['profit_factor']:.2f}
-Max Drawdown: {metrics['max_drawdown']:.1%}
-
-Open Positions: {len(self.positions)}
-Symbols Traded: {', '.join(daily_summary['symbols_traded'])}
-            """.strip()
-            
-            self.notifier.send_order_notification({
-                'symbol': 'DAILY_SUMMARY',
-                'side': 'INFO',
-                'message': summary_message,
-                'timestamp': dt.datetime.now().isoformat()
-            })
-            
+            summary = self.performance_tracker.get_daily_summary()
+            message = f"Daily Summary: {summary['trades']} trades, P&L: ${summary['pnl']:.2f}"
+            self.notifier.send_notification("Daily Trading Summary", message)
         except Exception as e:
-            logger.error(f"Failed to send daily summary: {e}")
+            logger.error(f"Error sending daily summary: {e}")
     
     def _send_final_report(self) -> None:
         """Send final performance report on shutdown"""
         try:
             metrics = self.performance_tracker.calculate_metrics()
-            
-            final_report = f"""
-Final Trading Report
-
-Session Duration: {dt.datetime.now() - self.start_time}
-Total Trades: {metrics['total_trades']}
-Win Rate: {metrics['win_rate']:.1%}
-Total P&L: ${metrics['total_pnl']:.2f}
-Sharpe Ratio: {metrics['sharpe_ratio']:.2f}
-Max Drawdown: {metrics['max_drawdown']:.1%}
-
-The trading session has ended.
-            """.strip()
-            
-            self.notifier.send_order_notification({
-                'symbol': 'FINAL_REPORT',
-                'side': 'INFO',
-                'message': final_report,
-                'timestamp': dt.datetime.now().isoformat()
-            })
-            
+            message = f"Final Report - Total trades: {metrics['total_trades']}, Win rate: {metrics['win_rate']:.1%}, Total P&L: ${metrics['total_pnl']:.2f}"
+            self.notifier.send_notification("Trading Bot Shutdown", message)
         except Exception as e:
-            logger.error(f"Failed to send final report: {e}")
+            logger.error(f"Error sending final report: {e}")
 
 
 def create_config_from_env() -> TradeConfig:
@@ -1476,8 +1419,7 @@ def main() -> None:
         try:
             creds = get_api_credentials()
         except Exception as e:
-            logger.error(f"Failed to load API credentials: {e}")
-            logger.error("Please ensure .env file is properly configured")
+            logger.error(f"Failed to get API credentials: {e}")
             sys.exit(1)
         
         # Validate required credentials
@@ -1485,7 +1427,7 @@ def main() -> None:
         missing_creds = [cred for cred in required_creds if not creds.get(cred)]
         
         if missing_creds:
-            logger.error(f"Missing required credentials: {', '.join(missing_creds)}")
+            logger.error(f"Missing required credentials: {missing_creds}")
             sys.exit(1)
         
         # Initialize E*Trade client
@@ -1507,13 +1449,12 @@ def main() -> None:
         symbols = [s.strip() for s in symbols_str.split(',') if s.strip()]
         
         if not symbols:
-            logger.error("No symbols provided in SYMBOLS environment variable")
+            logger.error("No symbols configured for monitoring")
             sys.exit(1)
         
         # Initialize and start strategy engine
         try:
             engine = StrategyEngine(client, symbols, config)
-            logger.info(f"Monitoring symbols: {', '.join(symbols)}")
             engine.start()
             
         except KeyboardInterrupt:

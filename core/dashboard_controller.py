@@ -46,9 +46,20 @@ class StockTraderMainDashboard:
     
     def _initialize_session_state(self) -> None:
         """Initialize all session state variables with defaults."""
+        # Read initial page from query_params if available
+        query_params = st.query_params
+        initial_page = query_params.get("page", ["home"])[0]
+        # Validate that the page from query_params is a valid page, otherwise default to home
+        # This requires having access to page configurations or a list of valid page files.
+        # For simplicity, we'll assume any string is potentially valid here, but in a real app,
+        # you'd check against self.page_loader.get_valid_page_files() or similar.
+        # if initial_page not in self.page_loader.get_valid_page_identifiers():
+        #     initial_page = "home"
+        #     st.query_params["page"] = "home" # Correct query_params if invalid
+
         session_defaults = {
-            'current_page': 'home',
-            'page_history': ['home'],
+            'current_page': initial_page,
+            'page_history': [initial_page] if initial_page else ['home'], # Ensure history starts correctly
             'load_time': time.time(),
             'dashboard_initialized': True,
             'security_validated': False,

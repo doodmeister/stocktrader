@@ -33,65 +33,82 @@ class UIRenderer:
     
     def render_header(self, pages_config: List, state_manager) -> None:
         """Render dashboard header with branding and status."""
-        # Create header with home button
-        col1, col2, col3 = st.columns([1, 2, 1])
+        # Main header: Home button, Title, Current Page
+        header_cols = st.columns([1, 3, 1.5]) # Adjusted column ratios
         
-        with col1:
-            if st.button("🏠 Home", help="Return to main dashboard"):
+        with header_cols[0]:
+            if st.button("🏠 Home", help="Return to main dashboard", use_container_width=True):
                 st.session_state.current_page = 'home'
                 st.session_state.page_history = ['home']
-                # Clear execution states
+                # Clear execution states - this is a broad clear.
+                # Consider if more granular clearing is needed for specific pages
+                # if they store complex state under "executed_" prefixes.
+                # For now, assuming "executed_" is primarily for "has run" status.
                 for key in list(st.session_state.keys()):
                     if key.startswith("executed_"):
                         del st.session_state[key]
+                
+                # Update query params
+                st.query_params["page"] = "home"
                 st.rerun()
         
-        with col2:
+        with header_cols[1]:
             st.title("📊 StockTrader Dashboard")
         
-        with col3:
-            # Show current page
+        with header_cols[2]:
             if st.session_state.current_page != 'home':
                 current_page_config = next(
                     (p for p in pages_config if p.file == st.session_state.current_page),
                     None
                 )
                 if current_page_config:
-                    st.caption(f"📍 {current_page_config.name}")
-        
-        # Add status indicators
-        col1, col2, col3 = st.columns([3, 1, 1])
-        
-        with col2:
-            if state_manager:
-                st.success("🟢 System Online")
+                    st.caption(f"📍 Current Page: {current_page_config.name}")
             else:
-                st.warning("🟡 Limited Mode")
+                st.caption("📍 On Home Page")
+
+        st.markdown("---") # Visual separator
+
+        # Metrics bar
+        metric_cols = st.columns(3)
+        with metric_cols[0]:
+            if state_manager: # Assuming state_manager implies full functionality
+                st.metric("System Status", "🟢 Online")
+            else:
+                st.metric("System Status", "🟡 Limited Mode")
         
-        with col3:
+        with metric_cols[1]:
             active_pages = len([p for p in pages_config if p.is_active])
             st.metric("Pages Available", active_pages)
+
+        with metric_cols[2]:
+            # Example of another potential metric - replace with actual data if available
+            # For instance, if you have a health_checker object passed or accessible
+            # last_health_check_status = st.session_state.get('last_health_check_status', 'N/A')
+            # st.metric("Health Check", last_health_check_status)
+            st.metric("Navigation Count", st.session_state.get('navigation_count', 0))
+            
+        st.markdown("---") # Visual separator below metrics
     
     def render_description(self) -> None:
         """Render project description section."""
         description = self._load_project_description()
         
         with st.expander("📖 About StockTrader Platform", expanded=False):
-            st.markdown(description)
-            
-            # Add key features
-            st.subheader("🚀 Key Features")
-            features = [
-                "Real-time trading with E*Trade integration",
-                "Advanced ML pattern recognition",
-                "Comprehensive risk management",
-                "Backtesting & strategy validation",
-                "Multi-channel notifications",
-                "Enterprise-grade security"
-            ]
-            
-            for feature in features:
-                st.markdown(f"• {feature}")
+            with st.container(border=True): # Added border to the container within expander
+                st.markdown(description)
+                
+                st.subheader("🚀 Key Features")
+                features = [
+                    "Real-time trading with E*Trade integration",
+                    "Advanced ML pattern recognition",
+                    "Comprehensive risk management",
+                    "Backtesting & strategy validation",
+                    "Multi-channel notifications",
+                    "Enterprise-grade security"
+                ]
+                
+                for feature in features:
+                    st.markdown(f"• {feature}")
     
     def render_navigation_menu(self, pages_config: List) -> None:
         """Render categorized navigation menu with proper page navigation."""
@@ -105,10 +122,13 @@ class UIRenderer:
                     if len(st.session_state.page_history) > 1:
                         st.session_state.page_history.pop()  # Remove current page
                         st.session_state.current_page = st.session_state.page_history[-1]
-                        # Clear execution states
+                        # Clear execution states - see comment in render_header
                         for key in list(st.session_state.keys()):
                             if key.startswith("executed_"):
                                 del st.session_state[key]
+                        
+                        # Update query params
+                        st.query_params["page"] = st.session_state.current_page
                         st.rerun()
             
             with col2:
@@ -143,78 +163,77 @@ class UIRenderer:
     
     def render_page_button(self, page) -> None:
         """
-        Render individual page as a button for navigation with enhanced UI.
+        Render individual page as a button for navigation with enhanced UI using a card layout.
         
         Args:
             page: Page configuration object
         """
-        col1, col2 = st.columns([4, 1])
-        
-        with col1:
-            if page.is_active:
-                # Create a unique key for each button
-                button_key = f"nav_{page.file}_{hash(page.name)}"
-                
-                # Show different styling for current page
+        with st.container(border=True):
+            col1, col2 = st.columns([3, 1]) # Column for title/description and button
+
+            with col1:
                 is_current = st.session_state.current_page == page.file
-                button_text = f"{'📌' if is_current else '📄'} {page.name}"
+                icon = '📌' if is_current else '📄'
+                st.subheader(f"{icon} {page.name}")
                 
-                if st.button(
-                    button_text,
-                    key=button_key,
-                    help=page.description,
-                    use_container_width=True,
-                    type="primary" if is_current else "secondary"
-                ):
-                    if not is_current:  # Only navigate if not already on this page
-                        # Track navigation
-                        st.session_state.navigation_count += 1
-                        
-                        # Clear any previous page execution state
-                        for key in list(st.session_state.keys()):
-                            if key.startswith("executed_"):
-                                del st.session_state[key]
-                        
-                        # Navigate to the selected page
-                        st.session_state.current_page = page.file
-                        if page.file not in st.session_state.page_history:
-                            st.session_state.page_history.append(page.file)
-                        
-                        # Limit history size to prevent memory issues
-                        if len(st.session_state.page_history) > 10:
-                            st.session_state.page_history = st.session_state.page_history[-10:]
-                        
-                        self.logger.info(f"Navigated to page: {page.name}")
-                        st.rerun()
-                
-                # Show enhanced description with status
-                if is_current:
-                    st.success(f"🟢 Current: {page.description}")
+                if page.is_active:
+                    if is_current:
+                        st.success(f"Current: {page.description}")
+                    else:
+                        st.caption(page.description)
                 else:
-                    st.caption(page.description)
-            else:
-                st.markdown(f"**{page.name}** ⚠️ *Unavailable*")
-                st.caption(f"{page.description} (File not found)")
-        
-        with col2:
-            if page.is_active:
-                # Show page status and metadata
-                status_items = []
-                
-                if page.requires_auth:
-                    status_items.append("🔒 Auth")
-                else:
-                    status_items.append("🌐 Public")
-                
-                # Check if page has been visited
-                execution_key = f"executed_{page.file}"
-                if execution_key in st.session_state:
-                    status_items.append("✅ Loaded")
-                
-                st.caption(" | ".join(status_items))
-            else:
-                st.caption("❌ Inactive")
-    
+                    st.markdown(f"⚠️ *Unavailable*")
+                    st.caption(f"{page.description} (File not found or inactive)")
+
+            with col2:
+                if page.is_active:
+                    button_key = f"nav_button_{page.file}_{hash(page.name)}"
+                    button_type = "primary" if is_current else "secondary"
+                    
+                    if st.button(
+                        "Go to Page" if not is_current else "Current Page",
+                        key=button_key,
+                        help=f"Navigate to {page.name}",
+                        use_container_width=True,
+                        type=button_type,
+                        disabled=is_current 
+                    ):
+                        if not is_current:
+                            st.session_state.navigation_count += 1
+                            # Clear execution states - see comment in render_header
+                            for key_to_clear in list(st.session_state.keys()):
+                                if key_to_clear.startswith("executed_"):
+                                    del st.session_state[key_to_clear]
+                            
+                            st.session_state.current_page = page.file
+                            if page.file not in st.session_state.page_history:
+                                st.session_state.page_history.append(page.file)
+                            
+                            if len(st.session_state.page_history) > 10:
+                                st.session_state.page_history = st.session_state.page_history[-10:]
+                            
+                            self.logger.info(f"Navigated to page: {page.name}")
+                            # Update query params
+                            st.query_params["page"] = page.file
+                            st.rerun()
+                    
+                    # Metadata below the button or alongside
+                    status_items = []
+                    if page.requires_auth:
+                        status_items.append("🔒 Auth")
+                    else:
+                        status_items.append("🌐 Public")
+                    
+                    execution_key = f"executed_{page.file}"
+                    if execution_key in st.session_state:
+                        status_items.append("✅ Loaded")
+                    st.caption(" | ".join(status_items))
+
+                else: # Not active
+                    st.caption("❌ Inactive")
+            
+            st.markdown("<br>", unsafe_allow_html=True) # Add a little space after each card
+
     def render_footer(self, pages_config: List) -> None:
         """Render dashboard footer with additional information."""
         st.markdown("---")
