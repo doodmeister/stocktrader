@@ -24,6 +24,20 @@ class UIRenderer:
         """Initialize the UI renderer."""
         self.logger = logger or get_dashboard_logger(__name__)
     
+    def _update_query_params(self, page: str) -> None:
+        """Helper function to update query params across different Streamlit versions."""
+        try:
+            # Try new Streamlit API first
+            st.query_params["page"] = page
+        except AttributeError:
+            try:
+                # Fallback to experimental API for older versions
+                st.experimental_set_query_params(page=page)
+            except:
+                # If neither works, just continue without query params
+                self.logger.warning("Unable to update query params - Streamlit API not available")
+                pass
+    
     def render_home_page(self, pages_config: List, state_manager) -> None:
         """Render the main dashboard home page."""
         self.render_header(pages_config, state_manager)
@@ -47,9 +61,8 @@ class UIRenderer:
                 for key in list(st.session_state.keys()):
                     if key.startswith("executed_"):
                         del st.session_state[key]
-                
-                # Update query params
-                st.query_params["page"] = "home"
+                  # Update query params
+                self._update_query_params("home")
                 st.rerun()
         
         with header_cols[1]:
@@ -126,9 +139,8 @@ class UIRenderer:
                         for key in list(st.session_state.keys()):
                             if key.startswith("executed_"):
                                 del st.session_state[key]
-                        
-                        # Update query params
-                        st.query_params["page"] = st.session_state.current_page
+                          # Update query params
+                        self._update_query_params(st.session_state.current_page)
                         st.rerun()
             
             with col2:
@@ -212,9 +224,8 @@ class UIRenderer:
                             if len(st.session_state.page_history) > 10:
                                 st.session_state.page_history = st.session_state.page_history[-10:]
                             
-                            self.logger.info(f"Navigated to page: {page.name}")
-                            # Update query params
-                            st.query_params["page"] = page.file
+                            self.logger.info(f"Navigated to page: {page.name}")                            # Update query params
+                            self._update_query_params(page.file)
                             st.rerun()
                     
                     # Metadata below the button or alongside

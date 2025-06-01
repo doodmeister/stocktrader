@@ -39,7 +39,25 @@ from core.dashboard_utils import (
     handle_streamlit_error,
     cache_key_builder
 )
-from core.etrade_candlestick_bot import ETradeClient  # Direct import instead of factory
+from core.etrade_client import ETradeClient, ETradeAuthenticationError, ETradeAPIError
+from core.etrade_auth_ui import (
+    render_etrade_authentication, 
+    validate_etrade_operation,
+    get_etrade_client,
+    is_etrade_authenticated
+)
+from security.authorization import (
+    check_access_permission, 
+    Permission,
+    require_permission,
+    validate_etrade_environment_access
+)
+from security.authentication import (
+    validate_session_security, 
+    validate_credentials, 
+    get_sandbox_mode
+)
+from security.etrade_security import SecureETradeManager
 from core.risk_manager_v2 import RiskManager, RiskConfigManager
 from patterns.patterns import CandlestickPatterns, create_pattern_detector
 from patterns.patterns_nn import PatternNN
@@ -55,7 +73,6 @@ from core.data_validator import (
     ValidationResult
 )
 from utils.notifier import Notifier
-from security.authentication import get_api_credentials, validate_credentials, get_sandbox_mode  # Use security utilities
 
 # Import new centralized technical analysis modules
 from core.technical_indicators import (
@@ -314,126 +331,6 @@ class SessionStateManager:
         st.session_state[cls.RISK_PARAMS] = params.__dict__
 
 
-def render_credentials_sidebar() -> Optional[Dict[str, str]]:
-    """
-    Render credentials input using utils/security.py as primary source.
-    Returns validated credentials or None if invalid/incomplete.
-    """
-    st.sidebar.header("🔑 API Credentials")
-    
-    try:
-        # Load environment credentials from utils/security.py
-        env_creds = get_api_credentials()
-        
-        # Check if we have complete credentials from environment
-        if validate_credentials(env_creds):
-            st.sidebar.success("✅ Using credentials from environment (.env file)")
-            
-            # Show which environment is being used
-            sandbox_mode = get_sandbox_mode(env_creds)
-            env_type = "Sandbox" if sandbox_mode else "Live"
-            st.sidebar.info(f"🌐 Environment: {env_type}")
-            
-            # For live trading, still require confirmation
-            if not sandbox_mode:
-                st.sidebar.warning("⚠️ LIVE TRADING MODE")
-                live_trading_confirmed = st.sidebar.checkbox(
-                    "I understand this is LIVE trading with real money",
-                    value=False,
-                    key="env_live_confirm"
-                )
-                if not live_trading_confirmed:
-                    st.sidebar.error("Live trading requires explicit confirmation")
-                    return None
-            
-            # Return credentials - no need for key name conversion since we use utils/security.py
-            return env_creds
-        else:
-            st.sidebar.info("💡 No complete credentials in environment - enter manually")
-        
-        # Manual credential input (fallback if environment is incomplete)
-        st.sidebar.subheader("Manual Entry")
-        
-        # Credential inputs with environment defaults
-        consumer_key = st.sidebar.text_input(
-            "Consumer Key", 
-            value=env_creds.get('consumer_key', ''), 
-            type="password",
-            help="E*Trade API Consumer Key"
-        )
-        consumer_secret = st.sidebar.text_input(
-            "Consumer Secret", 
-            value=env_creds.get('consumer_secret', ''), 
-            type="password",
-            help="E*Trade API Consumer Secret"
-        )
-        oauth_token = st.sidebar.text_input(
-            "OAuth Token", 
-            value=env_creds.get('oauth_token', ''), 
-            type="password",
-            help="E*Trade OAuth Token"
-        )
-        oauth_token_secret = st.sidebar.text_input(
-            "OAuth Token Secret", 
-            value=env_creds.get('oauth_token_secret', ''), 
-            type="password",
-            help="E*Trade OAuth Token Secret"
-        )
-        account_id = st.sidebar.text_input(
-            "Account ID", 
-            value=env_creds.get('account_id', ''),
-            help="E*Trade Account ID"
-        )
-        
-        # Environment selection with environment default
-        default_env = "Sandbox" if get_sandbox_mode(env_creds) else "Live"
-        env = st.sidebar.radio(
-            "Environment", 
-            ["Sandbox", "Live"], 
-            index=0 if default_env == "Sandbox" else 1,
-            help="Sandbox for testing, Live for real trading"
-        )
-        use_sandbox = (env == "Sandbox")
-        
-        # Live trading confirmation
-        live_trading_confirmed = True
-        if not use_sandbox:
-            st.sidebar.warning("⚠️ LIVE TRADING MODE")
-            live_trading_confirmed = st.sidebar.checkbox(
-                "I understand this is LIVE trading with real money",
-                value=False
-            )
-            
-            if not live_trading_confirmed:
-                st.sidebar.error("Live trading requires explicit confirmation")
-        
-        # Build credentials dictionary
-        manual_creds = {
-            'consumer_key': consumer_key.strip(),
-            'consumer_secret': consumer_secret.strip(),
-            'oauth_token': oauth_token.strip(),
-            'oauth_token_secret': oauth_token_secret.strip(),
-            'account_id': account_id.strip(),
-            'sandbox': str(use_sandbox).lower()  # Match utils/security.py format
-        }
-        
-        # Validate credentials completeness
-        if not validate_credentials(manual_creds):
-            st.sidebar.info("💡 Enter all credentials to enable trading features")
-            return None
-        
-        if not live_trading_confirmed:
-            return None
-        
-        st.sidebar.success("✅ Credentials validated")
-        return manual_creds
-        
-    except Exception as e:
-        st.sidebar.error(f"Credential validation error: {e}")
-        logger.exception("Error in render_credentials_sidebar")
-        return None
-
-
 class AlertManager:
     """Centralized alert management with validation, persistence, and rate limiting."""
     
@@ -618,8 +515,7 @@ class TradingDashboard:
         
         # Initialize session state first using dashboard utils
         SessionStateManager.initialize()
-        
-        # Initialize core components with error handling
+          # Initialize core components with error handling
         self.validator = get_global_validator()  # Use centralized validator from core module
         self.risk_manager = self._safe_init_component(RiskManager, "RiskManager")
         self.notifier = self._safe_init_component(Notifier, "Notifier")
@@ -631,10 +527,10 @@ class TradingDashboard:
             logger.error("Failed to initialize AlertManager due to Notifier failure")
             self.alert_manager = None
         
-        # E*Trade client (initialized on credential validation)
-        self.etrade_client: Optional[ClientProtocol] = None
+        # Training manager (initialized when needed)
         self.training_manager = None
-          # Initialize risk manager with environment configuration
+        
+        # Initialize risk manager with environment configuration
         self.risk_manager = RiskManager(load_from_env=True)
         
         logger.info("Dashboard initialized successfully with centralized technical analysis")
@@ -655,21 +551,14 @@ class TradingDashboard:
             return component_class()
         except Exception as e:
             logger.error(f"Failed to initialize {component_name}: {e}")
-            return None
-
-    @handle_exceptions
+            return None    @handle_exceptions
     def run(self) -> None:
         """Main dashboard entry point with comprehensive error handling."""
         try:
             # Check for and display success messages from flags
             self._handle_session_flags()
-            
-            # Render sidebar and get credentials
-            credentials = self._render_sidebar()
-            
-            # Initialize E*Trade client if credentials provided
-            if credentials:
-                self._initialize_etrade_client(credentials)
+              # Render sidebar and get authenticated ETradeClient
+            etrade_client = self._render_sidebar()
             
             # Render main dashboard content
             self._render_main_dashboard()
@@ -709,34 +598,34 @@ class TradingDashboard:
         # Check for connection changes
         if SessionStateManager.get_flag(SessionStateManager.CONNECTION_CHANGED):
             st.info("🔄 Connection status updated")
-        
-        # Check for cache clearing
-        if SessionStateManager.get_flag(SessionStateManager.CACHE_CLEARED):
+          # Check for cache clearing        if SessionStateManager.get_flag(SessionStateManager.CACHE_CLEARED):
             st.success("✅ Cache cleared successfully!")
 
-    def _render_sidebar(self) -> Optional[Dict[str, str]]:
-        """Render sidebar controls and return credentials."""
+    def _render_sidebar(self) -> Optional[ETradeClient]:
+        """Render sidebar controls and return authenticated ETradeClient."""
         st.sidebar.title("🤖 AI Trading Dashboard")
         
-        # Get credentials using our dedicated function
-        credentials = render_credentials_sidebar()
+        # Use SecureETradeManager for consistent authentication
+        etrade_client = render_etrade_authentication()
         
-        # Only render other controls if we have credentials
-        if credentials:
+        # Only render other controls if we have an authenticated client
+        if etrade_client:
             self._render_symbol_management()
             self._render_risk_management()
             self._render_model_section()
-              # Settings section
+            # Settings section
             with st.sidebar.expander("⚙️ Settings"):
                 self._render_settings()
         
-        return credentials
-    
+        return etrade_client
+
     def _render_main_dashboard(self) -> None:
         """Render the main dashboard content with comprehensive technical analysis."""
         st.title("📈 Advanced AI Trading Dashboard")
         
-        if not self.etrade_client:
+        # Check authentication using SecureETradeManager
+        authenticated_client = SecureETradeManager.get_authenticated_client()
+        if not authenticated_client:
             st.info("🔗 Connect your E*Trade credentials in the sidebar to begin trading")
             self._render_demo_technical_analysis()
             return
@@ -790,8 +679,7 @@ class TradingDashboard:
             'close': prices,
             'volume': [np.random.randint(100000, 1000000) for _ in range(100)]
         })
-        
-        # Apply technical analysis
+          # Apply technical analysis
         self._display_technical_analysis(demo_data, "DEMO")
 
     def _render_symbol_analysis(self, symbol: str, refresh: bool = False) -> None:
@@ -812,15 +700,26 @@ class TradingDashboard:
             logger.error(f"Error rendering symbol analysis for {symbol}: {e}")
             st.error(f"❌ Failed to analyze {symbol}: {e}")
 
-    @st.cache_data(ttl=CACHE_TTL)
-    def _get_market_data(_symbol: str, _refresh: bool = False) -> Optional[pd.DataFrame]:
-        """Fetch market data with caching."""
+    def _get_market_data(self, symbol: str, refresh: bool = False) -> Optional[pd.DataFrame]:
+        """Fetch market data with caching using secure E*Trade client."""
         try:
-            # This would typically call the E*Trade API
-            # For now, return None to trigger demo mode
-            return None
+            # Use SecureETradeManager to get authenticated client
+            secure_client = SecureETradeManager.get_authenticated_client()
+            if secure_client:
+                # Validate market data access permission
+                if not SecureETradeManager.validate_operation_access('market_data'):
+                    logger.warning(f"Market data access denied for {symbol}")
+                    return None
+                
+                logger.info(f"Fetching live market data for {symbol}")
+                # Get 30 days of daily data for analysis
+                return secure_client.get_candles(symbol=symbol, interval="1day", days=30)
+            else:
+                # Fall back to demo mode
+                logger.debug(f"No authenticated E*Trade client available for {symbol}, using demo mode")
+                return None
         except Exception as e:
-            logger.error(f"Error fetching market data: {e}")
+            logger.error(f"Error fetching market data for {symbol}: {e}")
             return None
 
     def _display_technical_analysis(self, data: pd.DataFrame, symbol: str) -> None:
@@ -1347,8 +1246,7 @@ class TradingDashboard:
             for symbol in symbols[:5]:  # Limit to first 5 for demo
                 # In real implementation, fetch data for each symbol
                 # For demo, create mock data
-                scanner_data.append({
-                    'Symbol': symbol,
+                scanner_data.append({                    'Symbol': symbol,
                     'Price': f"${np.random.uniform(50, 200):.2f}",
                     'Change': f"{np.random.uniform(-5, 5):+.2f}%",
                     'RSI': f"{np.random.uniform(20, 80):.1f}",
@@ -1374,84 +1272,6 @@ class TradingDashboard:
         except Exception as e:
             logger.error(f"Error in market scanner: {e}")
             st.error(f"❌ Market scanner failed: {e}")
-
-    @handle_exceptions
-    def _initialize_etrade_client(self, credentials: Dict[str, str]) -> None:
-        """Initialize E*Trade client directly using credentials from utils/security.py."""
-        try:
-            # Check if connection status actually changed
-            current_status = st.session_state.get(SessionStateManager.CONNECTION_STATUS, False)
-            
-            # Validate credentials before creating client
-            if not validate_credentials(credentials):
-                raise DashboardError("Invalid credential format")
-            
-            # Get sandbox mode using utils/security.py
-            sandbox_mode = get_sandbox_mode(credentials)
-            
-            # Create client directly
-            self.etrade_client = ETradeClient(
-                consumer_key=credentials['consumer_key'],
-                consumer_secret=credentials['consumer_secret'],
-                oauth_token=credentials['oauth_token'],
-                oauth_token_secret=credentials['oauth_token_secret'],
-                account_id=credentials['account_id'],
-                sandbox=sandbox_mode
-            )
-            
-            if self.etrade_client:
-                # Test connection
-                try:
-                    # Simple test call to verify connection
-                    test_symbols = SessionStateManager.get_symbols()
-                    if test_symbols:
-                        test_quote = self.etrade_client.get_quote(test_symbols[0])
-                        if test_quote.empty:
-                            logger.warning("Connection test returned empty data")
-                except Exception as e:
-                    logger.warning(f"Connection test failed: {e}")
-                
-                new_status = True
-                st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
-                
-                # Only set flag if status actually changed
-                if new_status != current_status:
-                    SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
-                
-                env_type = "Sandbox" if sandbox_mode else "Live"
-                logger.info(f"E*Trade client initialized successfully ({env_type})")
-            else:
-                new_status = False
-                st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
-                
-                # Only set flag if status actually changed
-                if new_status != current_status:
-                    SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
-                
-                st.error("❌ Failed to initialize E*Trade client")
-                
-        except DashboardError as e:
-            logger.error(f"E*Trade client initialization failed: {e}")
-            new_status = False
-            st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
-            
-            # Only set flag if status actually changed
-            current_status = st.session_state.get(SessionStateManager.CONNECTION_STATUS, False)
-            if new_status != current_status:
-                SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
-            
-            st.error(f"❌ Connection failed: {e}")
-        except Exception as e:
-            logger.exception(f"Unexpected error initializing E*Trade client: {e}")
-            new_status = False
-            st.session_state[SessionStateManager.CONNECTION_STATUS] = new_status
-            
-            # Only set flag if status actually changed
-            current_status = st.session_state.get(SessionStateManager.CONNECTION_STATUS, False)
-            if new_status != current_status:
-                SessionStateManager.set_flag(SessionStateManager.CONNECTION_CHANGED)
-            
-            st.error("❌ Connection failed: Unexpected error")
 
     def _setup_conditional_auto_refresh(self) -> None:
         """Set up auto-refresh only when needed and not during user interactions."""

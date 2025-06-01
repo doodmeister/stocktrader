@@ -38,8 +38,7 @@ class StockTraderMainDashboard:
         
         # Initialize state manager
         self.state_manager = self._initialize_state_manager()
-        
-        # Cache pages configuration to avoid reloading on every run
+          # Cache pages configuration to avoid reloading on every run
         if 'pages_config_cache' not in st.session_state:
             st.session_state.pages_config_cache = self.page_loader.load_pages_configuration()
         self.pages_config = st.session_state.pages_config_cache
@@ -47,13 +46,23 @@ class StockTraderMainDashboard:
     def _initialize_session_state(self) -> None:
         """Initialize all session state variables with defaults."""
         # Read initial page from query_params if available
-        query_params = st.query_params
-        initial_page = query_params.get("page", ["home"])[0]
+        try:
+            # Try new Streamlit API first
+            query_params = st.query_params
+            initial_page = query_params.get("page", "home")
+        except AttributeError:
+            try:
+                # Fallback to experimental API for older versions
+                query_params = st.experimental_get_query_params()
+                initial_page = query_params.get("page", ["home"])[0]
+            except:
+                # Final fallback if neither API is available
+                query_params = {}
+                initial_page = "home"
         # Validate that the page from query_params is a valid page, otherwise default to home
         # This requires having access to page configurations or a list of valid page files.
         # For simplicity, we'll assume any string is potentially valid here, but in a real app,
-        # you'd check against self.page_loader.get_valid_page_files() or similar.
-        # if initial_page not in self.page_loader.get_valid_page_identifiers():
+        # you'd check against self.page_loader.get_valid_page_files() or similar.        # if initial_page not in self.page_loader.get_valid_page_identifiers():
         #     initial_page = "home"
         #     st.query_params["page"] = "home" # Correct query_params if invalid
 
@@ -63,7 +72,8 @@ class StockTraderMainDashboard:
             'load_time': time.time(),
             'dashboard_initialized': True,
             'security_validated': False,
-            'last_health_check': 0,            'navigation_count': 0
+            'last_health_check': 0,
+            'navigation_count': 0
         }
         
         for key, default_value in session_defaults.items():

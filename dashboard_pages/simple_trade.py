@@ -28,10 +28,26 @@ import streamlit as st
 from pydantic import BaseModel, Field, validator, ValidationError
 
 # Local imports
-from core.etrade_candlestick_bot import ETradeClient
+from core.etrade_client import ETradeClient, ETradeAuthenticationError, ETradeAPIError
+from core.etrade_auth_ui import (
+    render_etrade_authentication,
+    validate_etrade_operation,
+    get_etrade_client,
+    is_etrade_authenticated
+)
+from security.authentication import (
+    validate_session_security,
+    validate_credentials,
+    get_sandbox_mode
+)
+from security.etrade_security import SecureETradeManager
+from security.authorization import (
+    check_access_permission,
+    Permission,
+    validate_etrade_environment_access
+)
 from utils.technicals.analysis import add_technical_indicators
 from core.safe_requests import safe_request
-from security.authentication import get_api_credentials
 from core.dashboard_utils import (
     initialize_dashboard_session_state,
     setup_page,
@@ -39,7 +55,7 @@ from core.dashboard_utils import (
 )
 from utils.live_inference import make_trade_decision
 from patterns.pattern_utils import add_candlestick_pattern_features
-from core.data_validator import validate_dataframe, validate_ohlc_data, validate_symbols
+from core.data_validator import validate_dataframe, validate_symbols
 
 # Import SessionManager to solve button key conflicts and session state issues
 from core.session_manager import create_session_manager, show_session_debug_info
@@ -131,7 +147,6 @@ class TradingSession:
         self.last_update_time: Optional[datetime] = None
         self.error_count: int = 0
         self.client: Optional[ETradeClient] = None
-        self.credentials: Optional[Dict[str, str]] = None
         self._lock = threading.Lock()
     
     def is_cache_valid(self) -> bool:
@@ -271,140 +286,15 @@ def render_sidebar() -> Optional[DashboardConfig]:
         return None
 
 
-def render_credentials_sidebar() -> Optional[Dict[str, str]]:
+def render_credentials_sidebar() -> Optional[ETradeClient]:
     """
-    Render credentials input with enhanced security and validation.
-    Uses utils/security.py as the primary credential source.
+    Render E*Trade authentication using the secure authentication UI.
     
     Returns:
-        Dict containing validated credentials or None if invalid/incomplete
+        ETradeClient if authenticated, None if not authenticated
     """
-    st.sidebar.header("🔑 API Credentials")
-    
-    try:
-        # Load environment credentials as defaults from utils/security.py
-        env_creds = get_api_credentials()
-        
-        # Check if we have complete credentials from environment
-        required_env_fields = ['consumer_key', 'consumer_secret', 'oauth_token', 'oauth_token_secret', 'account_id']
-        env_complete = all(env_creds.get(field, '').strip() for field in required_env_fields)
-        
-        if env_complete:
-            st.sidebar.success("✅ Using credentials from environment (.env file)")
-            
-            # Show which environment is being used
-            sandbox_mode = env_creds.get('sandbox', 'true').lower() == 'true'
-            env_type = "Sandbox" if sandbox_mode else "Live"
-            st.sidebar.info(f"🌐 Environment: {env_type}")
-            
-            # For live trading, still require confirmation
-            if not sandbox_mode:
-                st.sidebar.warning("⚠️ LIVE TRADING MODE")
-                live_trading_confirmed = st.sidebar.checkbox(
-                    "I understand this is LIVE trading with real money",
-                    value=False,
-                    key="env_live_confirm"
-                )
-                if not live_trading_confirmed:
-                    st.sidebar.error("Live trading requires explicit confirmation")
-                    return None
-            
-            # Return credentials with corrected key name
-            return {
-                'consumer_key': env_creds['consumer_key'],
-                'consumer_secret': env_creds['consumer_secret'],
-                'oauth_token': env_creds['oauth_token'],
-                'oauth_token_secret': env_creds['oauth_token_secret'],
-                'account_id': env_creds['account_id'],
-                'use_sandbox': env_creds.get('sandbox', 'true')  # Keep consistent key name
-            }
-        else:
-            st.sidebar.info("💡 No complete credentials in environment - enter manually")
-        
-        # Manual credential input (fallback if environment is incomplete)
-        st.sidebar.subheader("Manual Entry")
-        
-        # Credential inputs with environment defaults
-        consumer_key = st.sidebar.text_input(
-            "Consumer Key", 
-            value=env_creds.get('consumer_key', ''), 
-            type="password",
-            help="E*Trade API Consumer Key"
-        )
-        consumer_secret = st.sidebar.text_input(
-            "Consumer Secret", 
-            value=env_creds.get('consumer_secret', ''), 
-            type="password",
-            help="E*Trade API Consumer Secret"
-        )
-        oauth_token = st.sidebar.text_input(
-            "OAuth Token", 
-            value=env_creds.get('oauth_token', ''), 
-            type="password",
-            help="E*Trade OAuth Token"
-        )
-        oauth_token_secret = st.sidebar.text_input(
-            "OAuth Token Secret", 
-            value=env_creds.get('oauth_token_secret', ''), 
-            type="password",
-            help="E*Trade OAuth Token Secret"
-        )
-        account_id = st.sidebar.text_input(
-            "Account ID", 
-            value=env_creds.get('account_id', ''),
-            help="E*Trade Account ID"
-        )
-        
-        # Environment selection with environment default
-        default_env = "Sandbox" if env_creds.get('sandbox', 'true').lower() == 'true' else "Live"
-        env = st.sidebar.radio(
-            "Environment", 
-            ["Sandbox", "Live"], 
-            index=0 if default_env == "Sandbox" else 1,
-            help="Sandbox for testing, Live for real trading"
-        )
-        use_sandbox = (env == "Sandbox")
-        
-        # Live trading confirmation
-        live_trading_confirmed = True
-        if not use_sandbox:
-            st.sidebar.warning("⚠️ LIVE TRADING MODE")
-            live_trading_confirmed = st.sidebar.checkbox(
-                "I understand this is LIVE trading with real money",
-                value=False
-            )
-            
-            if not live_trading_confirmed:
-                st.sidebar.error("Live trading requires explicit confirmation")
-        
-        # Validate credentials completeness
-        required_fields = [consumer_key, consumer_secret, oauth_token, oauth_token_secret, account_id]
-        credentials_complete = all(field.strip() for field in required_fields)
-        
-        if not credentials_complete:
-            st.sidebar.info("💡 Enter all credentials to enable trading features")
-            return None
-        
-        if not live_trading_confirmed:
-            return None
-        
-        # Build credentials dictionary with consistent key naming
-        creds = {
-            'consumer_key': consumer_key.strip(),
-            'consumer_secret': consumer_secret.strip(),
-            'oauth_token': oauth_token.strip(),
-            'oauth_token_secret': oauth_token_secret.strip(),
-            'account_id': account_id.strip(),
-            'use_sandbox': str(use_sandbox).lower()  # Consistent with utils/security.py
-        }
-        
-        st.sidebar.success("✅ Credentials validated")
-        return creds
-        
-    except Exception as e:
-        st.sidebar.error(f"Credential validation error: {e}")
-        logger.exception("Error in render_credentials_sidebar")
-        return None
+    # Use the secure E*Trade authentication UI following the same pattern as advanced_ai_trade.py
+    return render_etrade_authentication()
 
 
 def load_price_data(client: ETradeClient, symbol: str, session: TradingSession) -> Optional[pd.DataFrame]:
@@ -1001,17 +891,13 @@ class SimpleTradeDashboard:
             # Render main header
             st.title("📊 Live Trading Dashboard")
             st.markdown("Real-time market data, technical analysis, and AI-powered trading signals")
-            
-            # Get user configuration from sidebar
-            credentials = render_credentials_sidebar()
+              # Get user configuration from sidebar
+            client = render_credentials_sidebar()
             config = render_sidebar()
             
             if config is None:
                 st.error("❌ Invalid dashboard configuration")
                 return
-            
-            # Initialize E*Trade client if credentials provided
-            client = _initialize_etrade_client(credentials, session)
             
             # Handle data refresh logic
             auto_refresh_container = st.empty()
@@ -1029,33 +915,6 @@ class SimpleTradeDashboard:
             
         except Exception as e:
             _handle_critical_error(e)
-
-
-def _initialize_etrade_client(credentials: Optional[Dict[str, str]], session: TradingSession) -> Optional[ETradeClient]:
-    """Initialize E*Trade client with proper error handling."""
-    client = None
-    if credentials:
-        try:
-            # Convert 'use_sandbox' to boolean directly
-            sandbox_mode = str(credentials.get('use_sandbox', 'true')).lower() == 'true'
-            
-            client = ETradeClient(
-                consumer_key=credentials.get('consumer_key', ''),
-                consumer_secret=credentials.get('consumer_secret', ''),
-                oauth_token=credentials.get('oauth_token', ''),
-                oauth_token_secret=credentials.get('oauth_token_secret', ''),
-                account_id=credentials.get('account_id', ''),
-                sandbox=sandbox_mode
-            )
-            session.client = client
-            session.credentials = credentials
-            st.success("✅ Connected to E*Trade API")
-        except Exception as e:
-            logger.exception("Failed to create E*Trade client")
-            st.error(f"❌ Failed to connect to E*Trade: {e}")
-    else:
-        st.info("💡 Enter credentials in sidebar to enable live data and trading")
-    return client
 
 
 def _handle_critical_error(error: Exception) -> None:

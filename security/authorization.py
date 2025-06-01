@@ -26,6 +26,12 @@ class Permission(Enum):
     ADMIN_ACCESS = "admin_access"
     EXPORT_DATA = "export_data"
     IMPORT_DATA = "import_data"
+    # E*Trade specific permissions
+    ETRADE_CONNECT = "etrade_connect"
+    ETRADE_SANDBOX = "etrade_sandbox"
+    ETRADE_LIVE = "etrade_live"
+    ETRADE_ORDERS = "etrade_orders"
+    ETRADE_MARKET_DATA = "etrade_market_data"
 
 
 class Role(Enum):
@@ -54,13 +60,17 @@ class UserContext:
 ROLE_PERMISSIONS = {
     Role.GUEST: {
         Permission.READ_DASHBOARD,
-        Permission.ACCESS_SANDBOX
+        Permission.ACCESS_SANDBOX,
+        Permission.ETRADE_MARKET_DATA
     },
     Role.VIEWER: {
         Permission.READ_DASHBOARD,
         Permission.VIEW_ANALYTICS,
         Permission.ACCESS_SANDBOX,
-        Permission.EXPORT_DATA
+        Permission.EXPORT_DATA,
+        Permission.ETRADE_CONNECT,
+        Permission.ETRADE_SANDBOX,
+        Permission.ETRADE_MARKET_DATA
     },
     Role.TRADER: {
         Permission.READ_DASHBOARD,
@@ -70,7 +80,12 @@ ROLE_PERMISSIONS = {
         Permission.ACCESS_SANDBOX,
         Permission.ACCESS_LIVE,
         Permission.EXPORT_DATA,
-        Permission.IMPORT_DATA
+        Permission.IMPORT_DATA,
+        Permission.ETRADE_CONNECT,
+        Permission.ETRADE_SANDBOX,
+        Permission.ETRADE_LIVE,
+        Permission.ETRADE_ORDERS,
+        Permission.ETRADE_MARKET_DATA
     },
     Role.ANALYST: {
         Permission.READ_DASHBOARD,
@@ -79,7 +94,10 @@ ROLE_PERMISSIONS = {
         Permission.MANAGE_MODELS,
         Permission.ACCESS_SANDBOX,
         Permission.EXPORT_DATA,
-        Permission.IMPORT_DATA
+        Permission.IMPORT_DATA,
+        Permission.ETRADE_CONNECT,
+        Permission.ETRADE_SANDBOX,
+        Permission.ETRADE_MARKET_DATA
     },
     Role.ADMIN: set(Permission)  # All permissions
 }
@@ -338,4 +356,126 @@ def get_accessible_features() -> List[str]:
     if Permission.ADMIN_ACCESS in user_context.permissions:
         features.append("admin")
     
+    # E*Trade specific features
+    if Permission.ETRADE_CONNECT in user_context.permissions:
+        features.append("etrade_connect")
+    
+    if Permission.ETRADE_SANDBOX in user_context.permissions:
+        features.append("etrade_sandbox")
+    
+    if Permission.ETRADE_LIVE in user_context.permissions:
+        features.append("etrade_live")
+    
+    if Permission.ETRADE_ORDERS in user_context.permissions:
+        features.append("etrade_orders")
+    
+    if Permission.ETRADE_MARKET_DATA in user_context.permissions:
+        features.append("etrade_market_data")
+    
     return features
+
+
+def check_etrade_access(operation: str, use_live: bool = False) -> bool:
+    """
+    Check E*Trade specific access permissions.
+    
+    Args:
+        operation: E*Trade operation ('connect', 'market_data', 'orders')
+        use_live: Whether this is for live trading
+        
+    Returns:
+        bool: True if access is allowed
+    """
+    try:
+        # Basic E*Trade connection permission
+        if not check_access_permission(Permission.ETRADE_CONNECT):
+            return False
+        
+        # Environment-specific permissions
+        if use_live:
+            if not check_access_permission(Permission.ETRADE_LIVE):
+                audit_access_attempt(f"etrade_live_{operation}", False)
+                return False
+        else:
+            if not check_access_permission(Permission.ETRADE_SANDBOX):
+                audit_access_attempt(f"etrade_sandbox_{operation}", False)
+                return False
+        
+        # Operation-specific permissions
+        operation_permissions = {
+            'connect': Permission.ETRADE_CONNECT,
+            'market_data': Permission.ETRADE_MARKET_DATA,
+            'orders': Permission.ETRADE_ORDERS,
+            'quotes': Permission.ETRADE_MARKET_DATA,
+            'balance': Permission.ETRADE_MARKET_DATA
+        }
+        
+        required_permission = operation_permissions.get(operation)
+        if required_permission and not check_access_permission(required_permission):
+            audit_access_attempt(f"etrade_{operation}", False)
+            return False
+        
+        # Log successful access
+        audit_access_attempt(f"etrade_{operation}", True)
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error checking E*Trade access for {operation}: {e}")
+        return False
+
+
+def validate_etrade_environment_access(use_live: bool) -> bool:
+    """
+    Validate access to E*Trade environment with enhanced security checks.
+    
+    Args:
+        use_live: Whether requesting live trading access
+        
+    Returns:
+        bool: True if access is allowed
+    """
+    user_context = get_user_context()
+    
+    # Check session validity
+    if not user_context.session_valid:
+        logger.warning("E*Trade access denied: Invalid session")
+        return False
+    
+    # Live trading requires trader role or higher
+    if use_live:
+        if user_context.role not in [Role.TRADER, Role.ADMIN]:
+            logger.warning(f"Live E*Trade access denied: Insufficient role {user_context.role}")
+            return False
+        
+        if not check_access_permission(Permission.ETRADE_LIVE):
+            logger.warning("Live E*Trade access denied: Missing permission")
+            return False
+    else:
+        # Sandbox access - more permissive
+        if not check_access_permission(Permission.ETRADE_SANDBOX):
+            logger.warning("Sandbox E*Trade access denied: Missing permission")
+            return False
+    
+    return True
+
+
+def require_etrade_permission(operation: str, use_live: bool = False):
+    """
+    Decorator to require E*Trade specific permissions.
+    
+    Args:
+        operation: E*Trade operation type
+        use_live: Whether this is for live trading
+        
+    Returns:
+        Decorator function
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            if not check_etrade_access(operation, use_live):
+                env_type = "LIVE" if use_live else "SANDBOX"
+                st.error(f"Access denied: E*Trade {operation} permission required for {env_type} environment")
+                st.stop()
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator

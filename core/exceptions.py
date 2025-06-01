@@ -2,7 +2,11 @@
 Reusable exception classes for StockTrader core modules.
 """
 
-class ValidationError(Exception):
+class StockTraderException(Exception):
+    """Base exception for all StockTrader related errors."""
+    pass
+
+class ValidationError(StockTraderException):
     """Base validation exception."""
     pass
 
