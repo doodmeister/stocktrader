@@ -473,8 +473,21 @@ class TechnicalAnalysisDashboard:
         col1, col2 = st.columns([2, 1])
         with col1:
             st.metric("Combined Technical Signal", f"{signal_value:.3f}" if signal_value is not None else "N/A", help="Range: -1 (bearish) to 1 (bullish)")
-            # Ensure signal_value is always a float for comparison
-            signal_value_float = float(signal_value) if signal_value is not None else 0.0
+            # Defensive float cast and logging for all technical signal values
+            def safe_float(val, name):
+                try:
+                    fval = float(val)
+                    logger.debug(f"{name} value for comparison: {fval} (type={type(fval)})")
+                    return fval
+                except Exception as e:
+                    logger.error(f"Could not convert {name} to float: {val} ({e})")
+                    return 0.0
+
+            signal_value_float = safe_float(signal_value, 'signal_value')
+            rsi_score_float = safe_float(rsi_score, 'rsi_score')
+            macd_score_float = safe_float(macd_score, 'macd_score')
+            bb_score_float = safe_float(bb_score, 'bb_score')
+
             signal_status = (
                 "🟢 Bullish" if signal_value_float > 0.1 else
                 "🔴 Bearish" if signal_value_float < -0.1 else
