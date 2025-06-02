@@ -71,9 +71,18 @@ def load_df(uploaded_file) -> pd.DataFrame:
             original_cols = list(df.columns)
             df.columns = df.columns.str.lower().str.strip()
             logger.info(f"🔤 After normalization: {list(df.columns)}")
-            
-            # Show sample of first few rows
+              # Show sample of first few rows
             logger.info(f"📝 First 2 rows:\n{df.head(2).to_string()}")
+            
+            # Convert numeric columns to proper data types
+            numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+            for col in numeric_cols:
+                if col in df.columns:
+                    try:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                        logger.info(f"✅ Converted {col} to numeric")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to convert {col} to numeric: {e}")
             
             # Ensure we have the expected OHLCV columns
             expected_cols = ['open', 'high', 'low', 'close', 'volume']
@@ -227,11 +236,10 @@ def plot_technical_indicators(
         vertical_spacing=0.08,
         row_heights=[0.25, 0.25, 0.5]
     )
-    
-    # RSI subplot
+      # RSI subplot
     fig.add_trace(go.Scatter(x=rsi.index, y=rsi, mode='lines', name='RSI', line=dict(color='purple')), row=1, col=1)
-    fig.add_hline(y=70, line_dash="dash", line_color="red", row=1, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="green", row=1, col=1)
+    fig.add_hline(y=70, line_dash="dash", line_color="red", row="1", col="1")
+    fig.add_hline(y=30, line_dash="dash", line_color="green", row="1", col="1")
     
     # MACD subplot  
     fig.add_trace(go.Scatter(x=macd_line.index, y=macd_line, mode='lines', name='MACD', line=dict(color='blue')), row=2, col=1)
@@ -243,21 +251,26 @@ def plot_technical_indicators(
     fig.add_trace(go.Scatter(x=lower_band.index, y=lower_band, mode='lines', name='Lower BB', line=dict(color='green', dash='dot')), row=3, col=1)
     
     fig.update_layout(height=height*2, width=width, showlegend=True, title_text="Technical Indicators Overview")
-    st.plotly_chart(fig, use_container_width=True)
-      # Quick stats with status indicators
+    st.plotly_chart(fig, use_container_width=True)    # Quick stats with status indicators
     col1, col2, col3 = st.columns(3)
     with col1:
-        rsi_last = rsi.iloc[-1] if not rsi.isna().all() else 0
+        rsi_last = float(rsi.iloc[-1]) if not rsi.isna().all() and pd.notna(rsi.iloc[-1]) else 0.0
         rsi_status = "🔴 Overbought" if rsi_last > 70 else "🟢 Oversold" if rsi_last < 30 else "🟡 Neutral"
         st.metric("RSI", f"{rsi_last:.1f}", help="70+ overbought, 30- oversold")
         st.caption(rsi_status)
     with col2:
-        macd_diff = (macd_line.iloc[-1] - signal_line.iloc[-1]) if not macd_line.isna().all() else 0
+        macd_diff = float(macd_line.iloc[-1] - signal_line.iloc[-1]) if not macd_line.isna().all() and pd.notna(macd_line.iloc[-1]) and pd.notna(signal_line.iloc[-1]) else 0.0
         macd_status = "🟢 Bullish" if macd_diff > 0 else "🔴 Bearish"
         st.metric("MACD Signal", f"{macd_diff:.3f}", help="Positive = bullish, Negative = bearish")
         st.caption(macd_status)
     with col3:
-        bb_position = (df['close'].iloc[-1] - lower_band.iloc[-1]) / (upper_band.iloc[-1] - lower_band.iloc[-1]) * 100 if not upper_band.isna().all() else 50
+        try:
+            close_val = float(df['close'].iloc[-1])
+            upper_val = float(upper_band.iloc[-1])
+            lower_val = float(lower_band.iloc[-1])
+            bb_position = (close_val - lower_val) / (upper_val - lower_val) * 100 if not upper_band.isna().all() and upper_val != lower_val else 50.0
+        except (ValueError, TypeError, IndexError):
+            bb_position = 50.0
         bb_status = "🔴 Near Upper" if bb_position > 80 else "🟢 Near Lower" if bb_position < 20 else "🟡 Middle"
         st.metric("BB Position", f"{bb_position:.1f}%", help="Position within Bollinger Bands")
         st.caption(bb_status)
@@ -354,11 +367,7 @@ class TechnicalAnalysisDashboard:
             logger.info(f"💾 Stored in session: {len(df)} rows")
         else:
             df = cached_df
-            logger.info(f"♻️ Using cached DataFrame: {len(df)} rows")
-            
-        if df is None or not validate_dataframe_for_analysis(df):
-            return
-            logger.info(f"Using cached DataFrame: {len(df)} rows")
+            logger.info(f"♻️ Using cached DataFrame: {len(df) if df is not None else 0} rows")
             
         if df is None or not validate_dataframe_for_analysis(df):
             return
@@ -409,20 +418,29 @@ class TechnicalAnalysisDashboard:
             with col2:
                 st.markdown("**Trend**") 
                 macd_fast = session_manager.create_number_input("MACD Fast", min_value=2, max_value=30, value=12, number_input_name="macd_fast")
-                macd_slow = session_manager.create_number_input("MACD Slow", min_value=macd_fast+1, max_value=60, value=26, number_input_name="macd_slow")
+                macd_slow = session_manager.create_number_input("MACD Slow", min_value=(macd_fast or 12)+1, max_value=60, value=26, number_input_name="macd_slow")
             with col3:
                 st.markdown("**Volatility**")
                 bb_period = session_manager.create_number_input("BB Period", min_value=2, max_value=30, value=20, number_input_name="bb_period")
                 bb_std = session_manager.create_number_input("BB Std Dev", min_value=1, max_value=4, value=2, number_input_name="bb_std")
-                
-            # Additional settings
+                  # Additional settings
             col1, col2 = st.columns(2)
             with col1:
                 fib_lookback = session_manager.create_number_input("Fib Lookback", min_value=5, max_value=100, value=30, number_input_name="fib_lookback")
             with col2:
                 fib_ext = session_manager.create_number_input("Fib Extension", min_value=0.1, max_value=2.0, value=0.618, step=0.001, number_input_name="fib_ext")
 
-        # Educational content in collapsible section  
+        # Type conversions for function calls
+        rsi_period_int = int(rsi_period) if rsi_period is not None else 14
+        macd_fast_int = int(macd_fast) if macd_fast is not None else 12
+        macd_slow_int = int(macd_slow) if macd_slow is not None else 26
+        bb_period_int = int(bb_period) if bb_period is not None else 20
+        bb_std_int = int(bb_std) if bb_std is not None else 2
+        bb_std_float = float(bb_std) if bb_std is not None else 2.0
+        fib_lookback_int = int(fib_lookback) if fib_lookback is not None else 30
+        fib_ext_float = float(fib_ext) if fib_ext is not None else 0.618
+
+        # Educational content in collapsible section
         with st.expander("📚 Understanding Technical Indicators"):
             st.markdown("""
             **RSI:** Momentum oscillator (0-100). Values >70 suggest overbought, <30 oversold conditions.
@@ -430,33 +448,38 @@ class TechnicalAnalysisDashboard:
             **MACD:** Shows relationship between moving averages. Crossovers indicate potential trend changes.
             
             **Bollinger Bands:** Price volatility bands. Price touching upper/lower bands may signal reversal points.
-            
-            **ATR:** Measures volatility without indicating direction. Higher values = more volatile price action.
-            """)        # Calculate and display indicators (single calculation)
+              **ATR:** Measures volatility without indicating direction. Higher values = more volatile price action.
+            """)
+        # Calculate and display indicators (single calculation)
         with st.spinner("Calculating technical indicators..."):
             rsi, macd_line, signal_line, upper_band, lower_band = get_indicator_series(
-                df, rsi_period, macd_fast, macd_slow, bb_period, bb_std
+                df, rsi_period_int, macd_fast_int, macd_slow_int, bb_period_int, bb_std_int
             )
             plot_technical_indicators(rsi, macd_line, signal_line, df, upper_band, lower_band)
             
         # Combined Technical Signal
         st.markdown("### 🧮 Combined Technical Signal")
-        
-        # Use centralized TechnicalAnalysis class for high-level evaluation
+          # Use centralized TechnicalAnalysis class for high-level evaluation
         ta = TechnicalAnalysis(df)
         signal_value, rsi_score, macd_score, bb_score = ta.evaluate(
             market_data=df,
-            rsi_period=rsi_period,
-            macd_fast=macd_fast,
-            macd_slow=macd_slow,
+            rsi_period=rsi_period_int,
+            macd_fast=macd_fast_int,
+            macd_slow=macd_slow_int,
             macd_signal=9,
-            bb_period=bb_period,
-            bb_std=bb_std,
+            bb_period=bb_period_int,
+            bb_std=bb_std_float,
         )
         col1, col2 = st.columns([2, 1])
         with col1:
             st.metric("Combined Technical Signal", f"{signal_value:.3f}" if signal_value is not None else "N/A", help="Range: -1 (bearish) to 1 (bullish)")
-            signal_status = "🟢 Bullish" if signal_value and signal_value > 0.1 else "🔴 Bearish" if signal_value and signal_value < -0.1 else "🟡 Neutral"
+            # Ensure signal_value is always a float for comparison
+            signal_value_float = float(signal_value) if signal_value is not None else 0.0
+            signal_status = (
+                "🟢 Bullish" if signal_value_float > 0.1 else
+                "🔴 Bearish" if signal_value_float < -0.1 else
+                "🟡 Neutral"
+            )
             st.caption(signal_status)
         with col2:
             with st.expander("Component Scores"):
@@ -486,7 +509,7 @@ class TechnicalAnalysisDashboard:
         with col3:
             # Use centralized TechnicalAnalysis class for Fibonacci price target
             ta = TechnicalAnalysis(df)
-            pt_fib = ta.calculate_price_target_fib(lookback=fib_lookback, extension=fib_ext)
+            pt_fib = ta.calculate_price_target_fib(lookback=fib_lookback_int, extension=fib_ext_float)
             st.metric("Fib Price Target", f"{pt_fib:.3f}" if pt_fib is not None else "N/A", help="Fibonacci-based projection")
 
         # Pattern detection
@@ -543,15 +566,13 @@ class TechnicalAnalysisDashboard:
             summary_lines.append("None detected.")
         summary_text = "\n".join(summary_lines)
         
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.text_area("Copyable Analysis Summary", summary_text, height=300)
-        with col2:
-            if session_manager.create_button("Get ChatGPT Insight", "get_chatgpt_insight"):
-                with st.spinner("Contacting ChatGPT..."):
-                    chatgpt_insight = get_chatgpt_insight(summary_text)
-                st.markdown("**ChatGPT Insight:**")
-                st.write(chatgpt_insight)
+        st.text_area("Copyable Analysis Summary", summary_text, height=300)
+        
+        if session_manager.create_button("Get ChatGPT Insight", "get_chatgpt_insight"):
+            with st.spinner("Contacting ChatGPT..."):
+                chatgpt_insight = get_chatgpt_insight(summary_text)
+            st.markdown("**ChatGPT Insight:**")
+            st.write(chatgpt_insight)
 
         # Download processed data
         st.markdown("---")
