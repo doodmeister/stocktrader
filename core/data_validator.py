@@ -502,11 +502,11 @@ class DataValidator:
             return ValidationResult(
                 is_valid=False,
                 errors=[f"Validation error: {str(e)}"],
-                metadata={'validation_time': time.time() - start_time}
-            )
+                metadata={'validation_time': time.time() - start_time}            )
     
     def validate_dataframe(self, df: pd.DataFrame, required_cols: List[str] = None, 
-                          validate_ohlc: bool = True, check_statistical_anomalies: bool = True) -> DataFrameValidationResult:
+                         validate_ohlc: bool = True, check_statistical_anomalies: bool = True, 
+                         min_rows: int = None) -> DataFrameValidationResult:
         """
         Comprehensive DataFrame validation for financial data.
         
@@ -536,14 +536,14 @@ class DataValidator:
             if df.empty:
                 return DataFrameValidationResult(
                     is_valid=False,
-                    errors=["DataFrame is empty"]
-                )
+                    errors=["DataFrame is empty"]                )
             
             row_count, col_count = df.shape
             
-            # Minimum size check
-            if row_count < ValidationConfig.MIN_DATASET_SIZE:
-                errors.append(f"Insufficient data: {row_count} rows (minimum {ValidationConfig.MIN_DATASET_SIZE})")
+            # Minimum size check - use custom min_rows if provided
+            minimum_rows = min_rows if min_rows is not None else ValidationConfig.MIN_DATASET_SIZE
+            if row_count < minimum_rows:
+                errors.append(f"Insufficient data: {row_count} rows (minimum {minimum_rows})")
             
             # Required columns check
             if required_cols:
@@ -1412,17 +1412,22 @@ def centralized_validate_dataframe(
     df: pd.DataFrame,
     required_cols: list = None,
     validate_ohlc: bool = True,
-    check_statistical_anomalies: bool = True
+    check_statistical_anomalies: bool = True,
+    min_rows: int = None
 ):
     """
     Flexible DataFrame validation for advanced use cases (patterns, etc).
+    
+    Args:
+        min_rows: Custom minimum row requirement. If None, uses default ValidationConfig.MIN_DATASET_SIZE
     """
     validator = get_global_validator()
     return validator.validate_dataframe(
         df,
         required_cols=required_cols,
         validate_ohlc=validate_ohlc,
-        check_statistical_anomalies=check_statistical_anomalies
+        check_statistical_anomalies=check_statistical_anomalies,
+        min_rows=min_rows
     )
 
 from typing import List, Tuple, Dict, Any, Type, Union, Optional

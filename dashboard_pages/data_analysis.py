@@ -49,8 +49,56 @@ session_manager = create_session_manager("data_analysis_v3")
 
 @st.cache_data(show_spinner=False)
 def load_df(uploaded_file) -> pd.DataFrame:
-    """Load and return CSV as DataFrame."""
-    return pd.read_csv(uploaded_file)
+    """Load and return CSV as DataFrame with enhanced error handling and column mapping."""
+    try:
+        # Always reset file pointer to start
+        uploaded_file.seek(0)
+        
+        # Log start of function
+        logger.info(f"🔧 load_df called with file: {getattr(uploaded_file, 'name', 'unknown')}")
+        
+        # Simple, direct read - no complex parsing logic yet
+        df = pd.read_csv(uploaded_file)
+        
+        # Log what we got immediately
+        logger.info(f"📊 CSV loaded successfully: {len(df)} rows, {len(df.columns)} columns")
+        logger.info(f"📋 Original columns: {list(df.columns)}")
+        logger.info(f"📏 DataFrame shape: {df.shape}")
+        
+        # If we have data, process it
+        if len(df) > 0:
+            # Normalize column names (case-insensitive)
+            original_cols = list(df.columns)
+            df.columns = df.columns.str.lower().str.strip()
+            logger.info(f"🔤 After normalization: {list(df.columns)}")
+            
+            # Show sample of first few rows
+            logger.info(f"📝 First 2 rows:\n{df.head(2).to_string()}")
+            
+            # Ensure we have the expected OHLCV columns
+            expected_cols = ['open', 'high', 'low', 'close', 'volume']
+            missing_cols = [col for col in expected_cols if col not in df.columns]
+            
+            if missing_cols:
+                logger.warning(f"⚠️ Missing expected columns: {missing_cols}")
+                st.warning(f"⚠️ CSV is missing expected columns: {missing_cols}")
+                st.info("💡 Expected columns: Open, High, Low, Close, Volume")
+            else:
+                logger.info(f"✅ All required OHLCV columns present")
+            
+            logger.info(f"🎯 Final result: {len(df)} rows, {list(df.columns)}")
+            return df
+        else:
+            logger.error("❌ DataFrame is empty after loading")
+            st.error("❌ CSV file appears to be empty")
+            return pd.DataFrame()
+        
+    except Exception as e:
+        logger.error(f"💥 Failed to load CSV file: {e}")
+        import traceback
+        logger.error(f"💥 Traceback: {traceback.format_exc()}")
+        st.error(f"❌ Failed to load CSV file: {e}")
+        return pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
 def get_chatgpt_insight(summary: str) -> str:
@@ -114,14 +162,49 @@ def get_pattern_results(df: pd.DataFrame, patterns: Tuple[str, ...]) -> List[Dic
     return results
 
 def validate_dataframe_for_analysis(df: pd.DataFrame) -> bool:
-    """Ensure required columns are present using core validation."""
+    """Ensure required columns are present using core validation with enhanced feedback."""
+    if df.empty:
+        st.error("⚠️ The uploaded CSV file appears to be empty or could not be parsed correctly.")
+        st.info("💡 **Tips for CSV files:**")
+        st.info("- Ensure your CSV has column headers: Date/Timestamp, Open, High, Low, Close, Volume")
+        st.info("- Check that data is comma-separated (not semicolon or tab)")
+        st.info("- Verify the file has actual data rows, not just headers")
+        logger.error("Empty DataFrame provided for validation")
+        return False
+    
+    # Show current DataFrame info for debugging
+    st.info(f"📊 **Loaded Data Info:**")
+    st.info(f"- **Rows:** {len(df)}")
+    st.info(f"- **Columns:** {list(df.columns)}")
+    
+    # Check row count first
+    if len(df) < 10:
+        st.error(f"⚠️ Insufficient data: {len(df)} rows found, minimum 10 required for analysis.")
+        st.info("💡 Please upload a CSV file with at least 10 rows of historical data.")
+        logger.error(f"Insufficient data: {len(df)} rows (minimum 10 required)")
+        return False
+    
     required = ['open', 'high', 'low', 'close', 'volume']
     validation_result = validate_dataframe(df, required_cols=required)
+    
     if not validation_result.is_valid:
+        st.error("⚠️ **Data Validation Failed:**")
         for error in validation_result.errors:
-            st.error(f"Validation error: {error}")
+            st.error(f"• {error}")
             logger.error(f"Validation error: {error}")
+        
+        # Provide helpful suggestions
+        st.info("💡 **Expected CSV format:**")
+        st.code("""
+Date,Open,High,Low,Close,Volume
+2024-01-01,100.00,105.00,99.00,104.00,1000000
+2024-01-02,104.00,106.00,103.00,105.50,1100000
+...
+        """)
         return False
+    
+    # Success feedback
+    logger.info(f"Data validation passed: {len(df)} rows, columns: {list(df.columns)}")
     return True
 
 def plot_technical_indicators(
@@ -241,13 +324,41 @@ class TechnicalAnalysisDashboard:
         filename = uploaded_file.name
         stock_ticker = filename.split('_')[0].upper() if '_' in filename else os.path.splitext(filename)[0].upper()
         st.markdown(f"### Stock Ticker: {stock_ticker}")
+          # Clear cached DataFrame if filename changes OR if cached df is invalid
+        cached_filename = st.session_state.get('filename')
+        cached_df = st.session_state.get('df')
         
-        if st.session_state.get('filename') != filename:
+        logger.info(f"🔍 Session state check:")
+        logger.info(f"   - Current filename: {filename}")
+        logger.info(f"   - Cached filename: {cached_filename}")
+        logger.info(f"   - Cached df rows: {len(cached_df) if cached_df is not None else 'None'}")
+        
+        needs_reload = (
+            cached_filename != filename or 
+            cached_df is None or 
+            len(cached_df) == 0 or 
+            len(cached_df) < 10
+        )
+        
+        logger.info(f"🔄 Needs reload: {needs_reload}")
+        
+        if needs_reload:
+            logger.info(f"🔄 Reloading CSV: filename_changed={cached_filename != filename}, cached_df_rows={len(cached_df) if cached_df is not None else 0}")
+            # Clear the cache to force fresh load
+            if hasattr(load_df, 'clear'):
+                load_df.clear()
+                logger.info(f"🧹 Cleared load_df cache")
             df = load_df(uploaded_file)
             st.session_state.df = df
             st.session_state.filename = filename
+            logger.info(f"💾 Stored in session: {len(df)} rows")
         else:
-            df = st.session_state.df
+            df = cached_df
+            logger.info(f"♻️ Using cached DataFrame: {len(df)} rows")
+            
+        if df is None or not validate_dataframe_for_analysis(df):
+            return
+            logger.info(f"Using cached DataFrame: {len(df)} rows")
             
         if df is None or not validate_dataframe_for_analysis(df):
             return

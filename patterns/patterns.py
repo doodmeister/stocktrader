@@ -105,15 +105,23 @@ def validate_dataframe(func: Callable) -> Callable:
                 "No DataFrame parameter found",
                 error_code="MISSING_DATAFRAME_PARAM"
             )
-        
-        # Use centralized validation system for comprehensive validation
+          # Use centralized validation system for comprehensive validation
         try:
-            logger.debug("Running centralized validation for pattern detection")
+            # Determine minimum rows required for this pattern
+            # For instance methods, get the pattern's min_rows requirement
+            min_rows_required = 1  # Default minimum for patterns
+            if hasattr(args[0], '__class__') and hasattr(args[0], 'min_rows'):
+                min_rows_required = args[0].min_rows
+            elif len(args) >= 1 and hasattr(args[0], 'min_rows'):
+                min_rows_required = args[0].min_rows
+            
+            logger.debug(f"Running pattern validation with min_rows={min_rows_required}")
             validation_result = centralized_validate_dataframe(
                 df, 
                 required_cols=['open', 'high', 'low', 'close'],
                 validate_ohlc=True,
-                check_statistical_anomalies=True  # Enhanced validation for better pattern reliability
+                check_statistical_anomalies=True,  # Enhanced validation for better pattern reliability
+                min_rows=min_rows_required  # Use pattern-specific minimum rows
             )
             
             if not validation_result.is_valid:
