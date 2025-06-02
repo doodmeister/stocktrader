@@ -139,7 +139,7 @@ class ETradeClient:
         
         try:
             # Make request following accounts.py pattern
-            response = self.session.get(url, header_auth=True)
+            response = self.session.get(url)
             logger.debug(f"Request Header: {response.request.headers}")
             
             # Handle response following accounts.py pattern
@@ -265,7 +265,7 @@ class ETradeClient:
         url = f"{self.base_url}/v1/accounts/{account_id}/balance.json"
         
         try:
-            response = self.session.get(url, header_auth=True)
+            response = self.session.get(url)
             
             if response is not None and response.status_code == 200:
                 return response.json()
@@ -333,7 +333,7 @@ class ETradeClient:
         
         try:
             # Make request following order.py pattern
-            response = self.session.post(url, header_auth=True, headers=headers, data=payload)
+            response = self.session.post(url, headers=headers, data=payload)
             logger.debug(f"Request Header: {response.request.headers}")
             logger.debug(f"Request payload: {payload}")
             

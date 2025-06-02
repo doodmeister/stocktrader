@@ -12,7 +12,7 @@ applyTo: '**'
 - **All terminal commands MUST be bash-compatible**
 
 ### Terminal Command Standards
-
+Do not use emojis in any terminal commands or code snippets. Use clear, concise bash commands that are compatible with the Windows environment.
 #### ✅ Use Bash Syntax
 ```bash
 # Correct: Bash commands

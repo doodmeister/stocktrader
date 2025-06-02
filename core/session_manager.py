@@ -53,7 +53,7 @@ class SessionManager:
     to solve recurring button and form key issues in the modular architecture.
     """
     
-    def __init__(self, page_name: str = None):
+    def __init__(self, page_name: str = "main"):
         """
         Initialize the session manager for a specific dashboard page.
         
@@ -167,7 +167,7 @@ class SessionManager:
         namespaced_key = f"{self.namespace}_{key}"
         return st.session_state.get(namespaced_key, default)
     
-    def clear_page_state(self, key: str = None) -> None:
+    def clear_page_state(self, key: Optional[str] = None) -> None:
         """
         Clear page-specific session state.
         
@@ -181,7 +181,7 @@ class SessionManager:
                 logger.debug(f"Cleared page state key: {namespaced_key}")
         else:
             # Clear all keys for this namespace
-            keys_to_remove = [k for k in st.session_state.keys() if k.startswith(f"{self.namespace}_")]
+            keys_to_remove = [k for k in st.session_state.keys() if isinstance(k, str) and k.startswith(f"{self.namespace}_")]
             for k in keys_to_remove:
                 del st.session_state[k]
             logger.debug(f"Cleared all page state for namespace: {self.namespace}")
@@ -198,7 +198,7 @@ class SessionManager:
         logger.info(f"Cleaned up session state for page: {self.page_name}")
     
     @contextmanager
-    def form_container(self, form_name: str = "main", location: str = None, **form_kwargs):
+    def form_container(self, form_name: str = "main", location: Optional[str] = None, **form_kwargs):
         """
         Context manager for creating forms with automatic key management and location support.
         
@@ -217,19 +217,18 @@ class SessionManager:
         try:
             # Handle location parameter - sidebar vs main area
             if location == "sidebar":
-                with st.sidebar:
-                    with st.form(form_key, **form_kwargs) as form:
-                        logger.debug(f"Created sidebar form with key: {form_key}")
-                        yield form
+                with st.sidebar.form(key=form_key, **form_kwargs) as form:
+                    logger.debug(f"Created sidebar form with key: {form_key}")
+                    yield form
             else:
-                with st.form(form_key, **form_kwargs) as form:
+                with st.form(key=form_key, **form_kwargs) as form:
                     logger.debug(f"Created main area form with key: {form_key}")
                     yield form
         except Exception as e:
             logger.error(f"Error in form container {form_key}: {e}")
             raise
     
-    def create_button(self, label: str, button_name: str = None, **button_kwargs) -> bool:
+    def create_button(self, label: str, button_name: Optional[str] = None, **button_kwargs) -> bool:
         """
         Create a button with automatic key management.
         
@@ -255,7 +254,7 @@ class SessionManager:
             logger.error(f"Error creating button {button_key}: {e}")
             return False
     
-    def create_checkbox(self, label: str, checkbox_name: str = None, **checkbox_kwargs) -> bool:
+    def create_checkbox(self, label: str, checkbox_name: Optional[str] = None, **checkbox_kwargs) -> bool:
         """
         Create a checkbox with automatic key management.
         
@@ -280,7 +279,7 @@ class SessionManager:
             logger.error(f"Error creating checkbox {checkbox_key}: {e}")
             return False
     
-    def create_selectbox(self, label: str, options, selectbox_name: str = None, **selectbox_kwargs):
+    def create_selectbox(self, label: str, options, selectbox_name: Optional[str] = None, **selectbox_kwargs):
         """
         Create a selectbox with automatic key management.
         
@@ -306,7 +305,7 @@ class SessionManager:
             logger.error(f"Error creating selectbox {selectbox_key}: {e}")
             return options[0] if options else None
 
-    def create_multiselect(self, label: str, options, multiselect_name: str = None, **multiselect_kwargs):
+    def create_multiselect(self, label: str, options, multiselect_name: Optional[str] = None, **multiselect_kwargs):
         """
         Create a multiselect with automatic key management.
         
@@ -332,7 +331,7 @@ class SessionManager:
             logger.error(f"Error creating multiselect {multiselect_key}: {e}")
             return []
 
-    def create_slider(self, label: str, min_value, max_value, value=None, slider_name: str = None, **slider_kwargs):
+    def create_slider(self, label: str, min_value, max_value, value=None, slider_name: Optional[str] = None, **slider_kwargs):
         """
         Create a slider with automatic key management.
         
@@ -360,7 +359,7 @@ class SessionManager:
             logger.error(f"Error creating slider {slider_key}: {e}")
             return value if value is not None else min_value
 
-    def create_text_input(self, label: str, value="", text_input_name: str = None, **text_input_kwargs):
+    def create_text_input(self, label: str, value="", text_input_name: Optional[str] = None, **text_input_kwargs):
         """
         Create a text input with automatic key management.
         
@@ -386,7 +385,7 @@ class SessionManager:
             logger.error(f"Error creating text input {text_input_key}: {e}")
             return value
 
-    def create_number_input(self, label: str, min_value=None, max_value=None, value=None, number_input_name: str = None, **number_input_kwargs):
+    def create_number_input(self, label: str, min_value=None, max_value=None, value=None, number_input_name: Optional[str] = None, **number_input_kwargs):
         """
         Create a number input with automatic key management.
         
@@ -397,15 +396,13 @@ class SessionManager:
             value: Initial value
             number_input_name: Internal name for the number input (defaults to label)
             **number_input_kwargs: Additional arguments for st.number_input()
-            
+        
         Returns:
             Input number value
         """
         if number_input_name is None:
             number_input_name = label.lower().replace(" ", "_")
-        
         number_input_key = self.get_unique_key(number_input_name, "number_input")
-        
         try:
             number_value = st.number_input(label, min_value, max_value, value, key=number_input_key, **number_input_kwargs)
             logger.debug(f"Number input {number_input_key}: {number_value}")
@@ -414,7 +411,7 @@ class SessionManager:
             logger.error(f"Error creating number input {number_input_key}: {e}")
             return value if value is not None else 0
 
-    def create_date_input(self, label: str, value=None, date_input_name: str = None, **date_input_kwargs):
+    def create_date_input(self, label: str, value=None, date_input_name: Optional[str] = None, **date_input_kwargs):
         """
         Create a date input with automatic key management.
         
@@ -440,7 +437,7 @@ class SessionManager:
             logger.error(f"Error creating date input {date_input_key}: {e}")
             return value
 
-    def create_file_uploader(self, label: str, type=None, file_uploader_name: str = None, **file_uploader_kwargs):
+    def create_file_uploader(self, label: str, type=None, file_uploader_name: Optional[str] = None, **file_uploader_kwargs):
         """
         Create a file uploader with automatic key management.
         
@@ -466,7 +463,7 @@ class SessionManager:
             logger.error(f"Error creating file uploader {file_uploader_key}: {e}")
             return None
 
-    def create_radio(self, label: str, options, radio_name: str = None, **radio_kwargs):
+    def create_radio(self, label: str, options, radio_name: Optional[str] = None, **radio_kwargs):
         """
         Create a radio button group with automatic key management.
         
@@ -492,7 +489,7 @@ class SessionManager:
             logger.error(f"Error creating radio {radio_key}: {e}")
             return options[0] if options else None
 
-    def create_time_input(self, label: str, value=None, time_input_name: str = None, **time_input_kwargs):
+    def create_time_input(self, label: str, value=None, time_input_name: Optional[str] = None, **time_input_kwargs):
         """
         Create a time input with automatic key management.
         
@@ -518,7 +515,7 @@ class SessionManager:
             logger.error(f"Error creating time input {time_input_key}: {e}")
             return value
 
-    def create_color_picker(self, label: str, value="#000000", color_picker_name: str = None, **color_picker_kwargs):
+    def create_color_picker(self, label: str, value="#000000", color_picker_name: Optional[str] = None, **color_picker_kwargs):
         """
         Create a color picker with automatic key management.
         
@@ -558,7 +555,7 @@ class SessionManager:
             "form_count": context.form_count if context else 0,
             "cleanup_keys": len(context.cleanup_keys) if context else 0,
             "total_session_keys": len(st.session_state),
-            "page_specific_keys": len([k for k in st.session_state.keys() if k.startswith(self.namespace)])
+            "page_specific_keys": len([k for k in st.session_state.keys() if isinstance(k, str) and k.startswith(self.namespace)])
         }
 
 
@@ -609,16 +606,13 @@ class GlobalSessionManager:
             age_minutes = (current_time - info['last_accessed']).total_seconds() / 60
             if age_minutes > max_age_minutes:
                 inactive_pages.append((page_name, info['namespace']))
-        
         # Clean up inactive pages
         for page_name, namespace in inactive_pages:
-            keys_to_remove = [k for k in st.session_state.keys() if k.startswith(f"{namespace}_")]
+            keys_to_remove = [k for k in st.session_state.keys() if isinstance(k, str) and k.startswith(f"{namespace}_")]
             for k in keys_to_remove:
                 del st.session_state[k]
-            
             del st.session_state.active_pages[page_name]
             logger.info(f"Cleaned up inactive page: {page_name}")
-        
         st.session_state.last_cleanup = time.time()
     
     @staticmethod
@@ -637,9 +631,9 @@ class GlobalSessionManager:
 
 
 # Convenience functions for common usage patterns
-def create_session_manager(page_name: str = None) -> SessionManager:
+def create_session_manager(page_name: Optional[str] = None) -> SessionManager:
     """Create a session manager for the current page."""
-    manager = SessionManager(page_name)
+    manager = SessionManager(page_name if page_name is not None else "main")
     GlobalSessionManager.register_page(manager.page_name, manager.namespace)
     return manager
 
@@ -652,7 +646,7 @@ def auto_cleanup_session(max_age_minutes: int = 30) -> None:
 
 
 # Debug utilities
-def show_session_debug_info(manager: SessionManager = None) -> None:
+def show_session_debug_info(manager: Optional[SessionManager] = None) -> None:
     """Show debug information in the sidebar."""
     if not st.sidebar.checkbox("Show Session Debug", value=False):
         return

@@ -825,9 +825,6 @@ stocktrader/
 ```powershell
 # Recommended: Use the new modular entry point
 streamlit run main.py
-
-# Alternative: Legacy entry point (shows migration notice)
-streamlit run streamlit_dashboard.py
 ```
 
 The modular dashboard provides the same functionality as before but with improved:

@@ -90,6 +90,19 @@ class TechnicalAnalysis:
             logger.error(f"ATR calculation failed: {e}")
             raise
 
+    def _safe_float(self, value, label=None):
+        """
+        Safely convert a value to float. Logs a warning if conversion fails.
+        """
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            if label:
+                logger.warning(f"Could not convert {label} value '{value}' to float in TechnicalAnalysis.")
+            else:
+                logger.warning(f"Could not convert value '{value}' to float in TechnicalAnalysis.")
+            return 0.0
+
     def evaluate(self, market_data: Optional[pd.DataFrame] = None, rsi_period: int = 14,
                 macd_fast: int = 12, macd_slow: int = 26, macd_signal: int = 9,
                 bb_period: int = 20, bb_std: Union[int, float] = 2) -> Tuple[Optional[float], ...]:
@@ -118,19 +131,26 @@ class TechnicalAnalysis:
             close = df['close']
 
             # RSI Score
-            rsi_score = ((rsi.iloc[-1] - 50) / 50) if not pd.isna(rsi.iloc[-1]) else 0
+            rsi_val = self._safe_float(rsi.iloc[-1], label='RSI') if not pd.isna(rsi.iloc[-1]) else 0.0
+            rsi_score = ((rsi_val - 50) / 50)
 
             # MACD Score (normalized and clamped)
-            macd_diff = macd_line.iloc[-1] - macd_sig.iloc[-1]
-            macd_range = max(abs(macd_line.max()), abs(macd_line.min()), 1e-6)
+            macd_val = self._safe_float(macd_line.iloc[-1], label='MACD')
+            macd_sig_val = self._safe_float(macd_sig.iloc[-1], label='MACD_signal')
+            macd_diff = macd_val - macd_sig_val
+            macd_max = self._safe_float(macd_line.max(), label='MACD_max')
+            macd_min = self._safe_float(macd_line.min(), label='MACD_min')
+            macd_range = max(abs(macd_max), abs(macd_min), 1e-6)
             macd_score = np.clip(macd_diff / macd_range, -1, 1)
 
             # Bollinger Bands Score (scaled)
-            price = close.iloc[-1]
-            if bb_upper.iloc[-1] != bb_lower.iloc[-1]:
-                bb_score = np.clip((2 * (price - bb_lower.iloc[-1]) / (bb_upper.iloc[-1] - bb_lower.iloc[-1]) - 1), -1, 1)
+            price = self._safe_float(close.iloc[-1], label='close')
+            bb_upper_val = self._safe_float(bb_upper.iloc[-1], label='BB_upper')
+            bb_lower_val = self._safe_float(bb_lower.iloc[-1], label='BB_lower')
+            if bb_upper_val != bb_lower_val:
+                bb_score = np.clip((2 * (price - bb_lower_val) / (bb_upper_val - bb_lower_val) - 1), -1, 1)
             else:
-                bb_score = 0
+                bb_score = 0.0
 
             composite = np.mean([rsi_score, macd_score, bb_score])
             composite = np.clip(composite, -1, 1)

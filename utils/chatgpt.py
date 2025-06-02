@@ -49,6 +49,6 @@ def get_chatgpt_insight(summary: str) -> str:
             ],
             temperature=0.4
         )
-        return response.choices[0].message.content.strip()
+        return (response.choices[0].message.content or "").strip()
     except Exception as e:
         return f"Error fetching GPT insight: {str(e)}"

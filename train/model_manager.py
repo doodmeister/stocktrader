@@ -6,7 +6,7 @@ and maintainability while maintaining backward compatibility.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 from typing import List, Type, Dict, Any, Optional, Tuple, Protocol, Union
 from datetime import datetime
@@ -105,13 +105,13 @@ class ModelMetadata:
     version: str
     saved_at: str
     accuracy: Optional[float] = None
-    parameters: Dict[str, Any] = None
+    parameters: Dict[str, Any] = field(default_factory=dict)
     framework_version: str = torch.__version__
     backend: Optional[str] = None
     file_checksum: Optional[str] = None
     file_size_bytes: Optional[int] = None
     created_by: Optional[str] = None
-    tags: List[str] = None
+    tags: List[str] = field(default_factory=list)
     
     def __post_init__(self):
         """Validate and normalize metadata fields."""
@@ -302,11 +302,14 @@ class ModelCache:
         with self._lock:
             # Evict least recently used if at capacity
             if len(self._cache) >= self.max_entries and key not in self._cache:
-                lru_key = min(self._access_times.keys(), key=self._access_times.get)
-                del self._cache[lru_key]
-                del self._access_times[lru_key]
-                logger.debug(f"Evicted cached model: {lru_key}")
-            
+                # Check if access times dictionary is not empty
+                if self._access_times:  # Add this check
+                    # use lambda to ensure key returns a comparable numeric value
+                    lru_key = min(self._access_times.keys(), key=lambda k: self._access_times[k])
+                    del self._cache[lru_key]
+                    del self._access_times[lru_key]
+                    logger.debug(f"Evicted cached model: {lru_key}")
+        
             self._cache[key] = {
                 'model': model,
                 'metadata': metadata,
@@ -727,7 +730,7 @@ class ModelManager:
             logger.error(f"Failed to get model history: {e}")
             return []
     
-    def cleanup_old_models(self, keep_versions: int = None, keep_latest: bool = True) -> int:
+    def cleanup_old_models(self, keep_versions: Optional[int] = None, keep_latest: bool = True) -> int:
         """
         Enhanced cleanup with better selection criteria.
         
@@ -884,7 +887,7 @@ class ModelManager:
         return datetime.utcnow().strftime("v%Y%m%d_%H%M%S")
     
     def _enrich_metadata(self, model: Any, metadata: ModelMetadata, backend: str, 
-                        csv_filename: str = None, df: pd.DataFrame = None) -> None:
+                        csv_filename: Optional[str] = None, df: Optional[pd.DataFrame] = None) -> None:
         """Enrich metadata with additional information."""
         # Add system information
         metadata.created_by = os.getenv('USER', 'unknown')
@@ -959,9 +962,13 @@ class ModelManager:
             self.cleanup_old_models()
     
     def _is_valid_metadata(self, metadata: Dict[str, Any]) -> bool:
-        """Validate metadata structure."""
-        required_fields = ['version', 'saved_at', 'framework_version']
-        return all(field in metadata for field in required_fields)
+        """Validate metadata structure using JSON schema."""
+        try:
+            jsonschema.validate(instance=metadata, schema=MODEL_METADATA_SCHEMA)
+            return True
+        except jsonschema.exceptions.ValidationError:
+            logger.warning("Metadata validation failed")
+            return False
     
     def _calculate_age_days(self, saved_at: str) -> int:
         """Calculate age in days from saved_at timestamp."""
@@ -1032,12 +1039,6 @@ class ModelError(Exception):
         super().__init__(message)
         self.context = context or {}
         self.timestamp = datetime.now().isoformat()
-
-
-class ModelNotFoundError(ModelError):
-    """Raised when model file cannot be found."""
-    pass
-
 
 class ModelVersionError(ModelError):
     """Raised when version handling fails."""

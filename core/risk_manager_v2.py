@@ -881,7 +881,7 @@ class RiskManager:
         current_positions: Optional[Union[Portfolio, List[Position], Dict[str, DollarAmount]]] = None,
         market_data: Optional[MarketDataDict] = None,
         current_daily_loss: DollarAmount = DollarAmount(0.0)
-    ) -> Dict[str, Union[bool, str, float]]:
+    ) -> Dict[str, Any]:
         """Comprehensive order validation with structured position data."""
         result = {
             'valid': True,
@@ -1018,7 +1018,7 @@ class RiskManager:
                 'warnings': [],
                 'risk_metrics': {}
             }
-
+    
     def get_portfolio_risk_summary(
         self, 
         portfolio: Union[Portfolio, Dict[str, Dict[str, float]]],

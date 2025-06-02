@@ -80,6 +80,19 @@ def validate_indicator_data(df: DataFrame, required_columns: List[str]) -> None:
     
     logger.debug(f"Validation passed for indicator data: {len(df)} rows, {len(df.columns)} columns")
 
+def validate_input(required_cols):
+    """
+    Decorator to validate DataFrame input for indicator functions.
+    Usage: @validate_input(['close'])
+    """
+    def decorator(func):
+        def wrapper(df, *args, **kwargs):
+            validate_indicator_data(df, required_cols)
+            return func(df, *args, **kwargs)
+        return wrapper
+    return decorator
+
+@validate_input(['close'])
 def calculate_rsi(df: DataFrame, length: int = 14, close_col: str = 'close') -> pd.Series:
     """
     Calculate Relative Strength Index (RSI).
@@ -93,24 +106,31 @@ def calculate_rsi(df: DataFrame, length: int = 14, close_col: str = 'close') -> 
         pd.Series: RSI values (0-100)
     """
     try:
-        validate_indicator_data(df, [close_col])
         if length < 1:
             raise ValueError("Length must be positive")
             
         if TA_AVAILABLE:
             rsi = ta.rsi(df[close_col], length=length)
+            if rsi is None:
+                raise ValueError("pandas_ta.rsi returned None")
+            # If rsi is a DataFrame, extract the first column as Series
+            if isinstance(rsi, pd.DataFrame):
+                if rsi.shape[1] == 0:
+                    raise ValueError("pandas_ta.rsi returned empty DataFrame")
+                rsi = rsi.iloc[:, 0]
         else:
             delta = df[close_col].diff()
             gain = delta.clip(lower=0).rolling(window=length, min_periods=1).mean()
             loss = -delta.clip(upper=0).rolling(window=length, min_periods=1).mean()
             rs = gain / np.where(loss == 0, np.inf, loss)
             rsi = 100 - (100 / (1 + rs))
-            
-        return rsi.clip(0, 100)
+        
+        return pd.Series(rsi, index=df.index).clip(0, 100)
     except Exception as e:
         logger.error(f"RSI calculation failed: {e}")
         raise IndicatorError(f"Failed to calculate RSI: {e}") from e
 
+@validate_input(['close'])
 def calculate_macd(df: DataFrame, fast: int = 12, slow: int = 26, signal: int = 9, 
                    close_col: str = 'close') -> tuple[pd.Series, pd.Series, pd.Series]:
     """
@@ -127,8 +147,6 @@ def calculate_macd(df: DataFrame, fast: int = 12, slow: int = 26, signal: int = 
         tuple: (macd_line, signal_line, histogram)
     """
     try:
-        validate_indicator_data(df, [close_col])
-        
         # Ensure all periods are valid
         if any(p < 1 for p in (fast, slow, signal)):
             raise ValueError("All periods must be positive integers.")
@@ -173,6 +191,7 @@ def calculate_macd(df: DataFrame, fast: int = 12, slow: int = 26, signal: int = 
         logger.error(f"MACD calculation failed: {e}")
         raise IndicatorError(f"Failed to calculate MACD: {e}") from e
 
+@validate_input(['close'])
 def calculate_bollinger_bands(df: DataFrame, length: int = 20, std: Union[int, float] = 2, 
                             close_col: str = 'close') -> tuple[pd.Series, pd.Series, pd.Series]:
     """
@@ -188,7 +207,6 @@ def calculate_bollinger_bands(df: DataFrame, length: int = 20, std: Union[int, f
         tuple: (upper_band, middle_band, lower_band)
     """
     try:
-        validate_indicator_data(df, [close_col])
         if length < 1:
             raise ValueError("Length must be positive")
         if std <= 0:
@@ -197,7 +215,7 @@ def calculate_bollinger_bands(df: DataFrame, length: int = 20, std: Union[int, f
         if TA_AVAILABLE:
             bb = ta.bbands(df[close_col], length=length, std=std)
             if bb is None or not hasattr(bb, "columns"):
-                raise ValueError("pandas_ta.bbands returned None. Check your input data for sufficient rows and NaNs.")
+                raise ValueError("pandas_ta.bbands returned None. Check your input data for sufficient rows and NaNs")
             
             # Try all reasonable column name variants for each band
             std_variants = [str(std), f"{float(std):.1f}", f"{float(std)}"]
@@ -228,6 +246,7 @@ def calculate_bollinger_bands(df: DataFrame, length: int = 20, std: Union[int, f
         logger.error(f"Bollinger Bands calculation failed: {e}")
         raise IndicatorError(f"Failed to calculate Bollinger Bands: {e}") from e
 
+@validate_input(['high', 'low', 'close'])
 def calculate_atr(df: DataFrame, length: int = 14) -> pd.Series:
     """
     Calculate Average True Range (ATR).
@@ -240,17 +259,23 @@ def calculate_atr(df: DataFrame, length: int = 14) -> pd.Series:
         pd.Series: ATR values
     """
     try:
-        validate_indicator_data(df, ['high', 'low', 'close'])
         if length < 1:
             raise ValueError("Length must be positive")
             
         if TA_AVAILABLE:
             atr = ta.atr(df['high'], df['low'], df['close'], length=length)
+            if atr is None:
+                atr = pd.Series([np.nan] * len(df), index=df.index)
         else:
             high_low = df['high'] - df['low']
-            high_close = np.abs(df['high'] - df['close'].shift())
-            low_close = np.abs(df['low'] - df['close'].shift())
-            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            high_close = (df['high'] - df['close'].shift()).abs()
+            low_close = (df['low'] - df['close'].shift()).abs()
+            # Ensure all are pandas Series before concat
+            tr = pd.concat([
+                high_low.rename("high_low"),
+                high_close.rename("high_close"),
+                low_close.rename("low_close")
+            ], axis=1).max(axis=1)
             atr = tr.rolling(window=length, min_periods=1).mean()
             
         return atr
@@ -258,6 +283,7 @@ def calculate_atr(df: DataFrame, length: int = 14) -> pd.Series:
         logger.error(f"ATR calculation failed: {e}")
         raise IndicatorError(f"Failed to calculate ATR: {e}") from e
 
+@validate_input(['close'])
 def calculate_sma(df: DataFrame, length: int = 20, close_col: str = 'close') -> pd.Series:
     """
     Calculate Simple Moving Average (SMA).
@@ -271,7 +297,6 @@ def calculate_sma(df: DataFrame, length: int = 20, close_col: str = 'close') -> 
         pd.Series: SMA values
     """
     try:
-        validate_indicator_data(df, [close_col])
         if length < 1:
             raise ValueError("Length must be positive")
             
@@ -280,6 +305,7 @@ def calculate_sma(df: DataFrame, length: int = 20, close_col: str = 'close') -> 
         logger.error(f"SMA calculation failed: {e}")
         raise IndicatorError(f"Failed to calculate SMA: {e}") from e
 
+@validate_input(['close'])
 def calculate_ema(df: DataFrame, length: int = 20, close_col: str = 'close') -> pd.Series:
     """
     Calculate Exponential Moving Average (EMA).
@@ -293,7 +319,6 @@ def calculate_ema(df: DataFrame, length: int = 20, close_col: str = 'close') -> 
         pd.Series: EMA values
     """
     try:
-        validate_indicator_data(df, [close_col])
         if length < 1:
             raise ValueError("Length must be positive")
             

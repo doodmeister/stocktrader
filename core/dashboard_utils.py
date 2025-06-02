@@ -26,9 +26,10 @@ import secrets
 from urllib.parse import quote, unquote
 import mimetypes
 
-# Optional performance monitoring
+import psutil
+
+# Check if psutil is available
 try:
-    import psutil
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
@@ -131,13 +132,21 @@ def setup_page(
     """
     from utils.logger import setup_logger
     
+    # Check if we're running within the modular dashboard system
+    is_modular_mode = st.session_state.get('dashboard_initialized', False)
+    
     # Enhanced page title with debug info
     title_display = title
     if enable_debug and HAS_PSUTIL:
         memory_usage = _get_memory_usage()
         title_display += f" (Memory: {memory_usage:.1f}MB)"
     
-    st.title(title_display)
+    # Only set page title if NOT in modular mode (to avoid overriding main dashboard header)
+    if not is_modular_mode:
+        st.title(title_display)
+    else:
+        # In modular mode, just add a subheader for the specific page
+        st.subheader(title_display)
     
     # Setup logger
     logger = setup_logger(logger_name)
@@ -182,7 +191,7 @@ def _render_debug_controls():
             memory_usage = _get_memory_usage()
             st.metric("Memory Usage", f"{memory_usage:.1f} MB")
 
-def safe_streamlit_metric(label: str, value: str, delta: str = None) -> None:
+def safe_streamlit_metric(label: str, value: str, delta: Optional[str] = None) -> None:
     """
     Safely display a Streamlit metric with error handling.
     
@@ -352,7 +361,7 @@ def create_candlestick_chart(
     df: pd.DataFrame, 
     title: str = "Price Chart",
     detections: Optional[List[Dict[str, Any]]] = None,  # Enhanced to use pattern analysis results
-    pattern_name: str = None,
+    pattern_name: Optional[str] = None,
     height: int = 500,
     debug: bool = False,
     show_patterns: bool = True,
@@ -769,7 +778,7 @@ def render_file_upload_section(
 
 def show_success_with_actions(
     message: str,
-    actions: List[Tuple[str, callable]] = None
+    actions: Optional[List[Tuple[str, Callable]]] = None
 ) -> None:
     """Show success message with optional action buttons."""
     st.success(message)
@@ -955,12 +964,15 @@ def safe_csv_operations(df: pd.DataFrame, file_path: Union[str, Path], operation
             df = pd.read_csv(path)
             logger.info(f"Successfully loaded CSV from {file_path}")
             return df
+        else:
+            logger.warning(f"Invalid operation: {operation}")
+            return False if operation == 'save' else pd.DataFrame()
             
     except Exception as e:
         logger.error(f"Error in CSV {operation} operation for {file_path}: {e}")
         if operation == 'save':
             return False
-        else:
+        else:  # load operation
             return pd.DataFrame()
 
 
@@ -1076,13 +1088,12 @@ def create_advanced_candlestick_chart(
         volume_subplot: Whether to include volume subplot
         technical_indicators: Dictionary of technical indicators to add
         custom_styling: Custom styling options
-    
-    Returns:
+      Returns:
         Plotly figure object
     """
     try:
-        if not validate_ohlc_dataframe(df):
-            return _create_error_chart("Invalid OHLC data provided")
+        if not validate_ohlc_dataframe(df)[0]:  # validate_ohlc_dataframe returns (bool, str)
+            return _create_error_chart(title, height, "Invalid OHLC data provided")
         
         # Default styling
         default_styling = {
@@ -1152,8 +1163,7 @@ def create_advanced_candlestick_chart(
                 row=current_row, col=1
             )
             current_row += 1
-        
-        # Add technical indicators
+          # Add technical indicators
         if technical_indicators:
             for indicator_name, indicator_data in technical_indicators.items():
                 if isinstance(indicator_data, pd.Series):
@@ -1200,7 +1210,7 @@ def create_advanced_candlestick_chart(
         
     except Exception as e:
         logger.error(f"Error creating advanced candlestick chart: {e}")
-        return _create_error_chart(f"Error creating chart: {str(e)}")
+        return _create_error_chart(title, height, f"Error creating chart: {str(e)}")
 
 
 # =============================================================================
@@ -1255,18 +1265,6 @@ def cache_context(cache_key: str, ttl: Optional[int] = None):
 # =============================================================================
 # Backward Compatibility Wrapper
 # =============================================================================
-
-# Ensure all original functions remain available with their original signatures
-def show_success_with_actions(message: str, actions: Optional[List[str]] = None) -> None:
-    """
-    Backward compatible wrapper for success notifications.
-    Enhanced version now supports advanced notifications.
-    """
-    if actions:
-        action_list = [{'label': action, 'callback': lambda: None} for action in actions]
-        create_advanced_notification(message, "success", actions=action_list)
-    else:
-        create_advanced_notification(message, "success")
 
 # Pattern Detection Integration Functions
 @monitor_performance("pattern_detection")

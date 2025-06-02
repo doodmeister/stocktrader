@@ -33,34 +33,24 @@ class EmailNotifier:
         self.username = username
         self.password = password
 
-    def send_email(self, to: str, subject: str, body: str) -> None:
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = self.username
-        msg['To'] = to
-        with smtplib.SMTP(self.server, self.port) as client:
-            client.starttls()
-            client.login(self.username, self.password)
-            client.send_message(msg)
-
     def send_email(self, recipient, subject, message):
         """Send an email notification."""
-        sender = "your-app@example.com"
-        password = "your-app-password" 
-        
+        sender = self.username
+        password = self.password
+        from email.mime.text import MIMEText
+        import smtplib
         msg = MIMEText(message)
         msg['Subject'] = subject
         msg['From'] = sender
         msg['To'] = recipient
-        
         try:
-            server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+            server = smtplib.SMTP_SSL(self.server, self.port)
             server.login(sender, password)
             server.sendmail(sender, recipient, msg.as_string())
             server.quit()
             return True
         except Exception as e:
-            logger.error(f"Email sending error: {e}")
+            print(f"Email sending error: {e}")
             return False
 
 
@@ -72,34 +62,14 @@ class SMSNotifier:
         self.from_number = from_number
 
     def send_sms(self, to: str, message: str) -> None:
-        self.client.messages.create(
-            to=to,
-            from_=self.from_number,
-            body=message
-        )
-
-    def send_sms(self, phone_number, message):
-        """Send an SMS notification."""
         try:
-            from twilio.rest import Client
-            
-            account_sid = 'your_account_sid'
-            auth_token = 'your_auth_token'
-            from_number = 'your_twilio_number'
-            
-            client = Client(account_sid, auth_token)
-            client.messages.create(
-                body=message,
-                from_=from_number,
-                to=phone_number
+            self.client.messages.create(
+                to=to,
+                from_=self.from_number,
+                body=message
             )
-            return True
-        except ImportError:
-            logger.error("Twilio package not installed")
-            return False
         except Exception as e:
-            logger.error(f"SMS sending error: {e}")
-            return False
+            print(f"SMS sending error: {e}")
 
 
 class SlackNotifier:
@@ -179,9 +149,9 @@ class Notifier:
         if self.email_notifier:
             try:
                 self.email_notifier.send_email(
-                    to=self.email_notifier.username,
-                    subject="StockTrader Notification",
-                    body=message
+                    self.email_notifier.username,
+                    "StockTrader Notification",
+                    message
                 )
             except Exception as e:
                 # Log or ignore
@@ -198,5 +168,32 @@ class Notifier:
         if self.slack_notifier:
             try:
                 self.slack_notifier.send_slack(message)
+            except Exception:
+                pass
+
+    def send_notification(self, subject: str, message: str) -> None:
+        """
+        Send a general notification to all configured channels (Email, SMS, Slack).
+        """
+        # Email
+        if self.email_notifier:
+            try:
+                self.email_notifier.send_email(
+                    self.email_notifier.username,
+                    subject,
+                    message
+                )
+            except Exception:
+                pass
+        # SMS
+        if self.sms_notifier and self.sms_to_number:
+            try:
+                self.sms_notifier.send_sms(self.sms_to_number, f"{subject}: {message}")
+            except Exception:
+                pass
+        # Slack
+        if self.slack_notifier:
+            try:
+                self.slack_notifier.send_slack(f"{subject}: {message}")
             except Exception:
                 pass

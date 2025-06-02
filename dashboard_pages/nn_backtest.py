@@ -4,8 +4,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
 import torch
+import joblib
 from datetime import date, timedelta
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 
 from train.model_manager import ModelManager, load_latest_model
 from patterns.patterns_nn import PatternNN
@@ -34,7 +35,7 @@ session_manager = create_session_manager("nn_backtest")
 # --- Model Loading Utilities ---
 
 @st.cache_resource(show_spinner=False)
-def load_pattern_nn(model_path: Optional[str] = None) -> PatternNN:
+def load_pattern_nn(model_path: Optional[str] = None) -> Optional[PatternNN]:
     """
     Loads a PatternNN model from the specified path or loads the latest model.
     """
@@ -53,12 +54,11 @@ def load_pattern_nn(model_path: Optional[str] = None) -> PatternNN:
         return None
 
 @st.cache_resource(show_spinner=False)
-def load_classic_model(model_path: str):
+def load_classic_model(model_path: str) -> Optional[Any]:
     """
     Loads a classic ML model from the specified path.
     """
     try:
-        import joblib
         return joblib.load(model_path)
     except Exception as e:
         logger.error(f"Failed to load classic ML model: {e}")
@@ -126,14 +126,18 @@ def run_custom_strategy(
     signal_fn: Callable[[pd.DataFrame], pd.Series],
     initial_capital: float,
     risk_per_trade: float,
-    model_type: str = None
+    model_type: Optional[str] = None
 ) -> Optional[dict]:
     """
-    Runs a custom backtest using the provided signal function.
-    """
+    Runs a custom backtest using the provided signal function.    """
     from utils.backtester import BacktestConfig, Backtest, load_ohlcv
+    from datetime import datetime
     try:
-        df = load_ohlcv(symbol, start_date, end_date)
+        # Convert date to datetime for load_ohlcv compatibility
+        start_datetime = datetime.combine(start_date, datetime.min.time())
+        end_datetime = datetime.combine(end_date, datetime.min.time())
+        
+        df = load_ohlcv(symbol, start_datetime, end_datetime)
         if df.empty:
             st.error(f"No data found for {symbol} between {start_date} and {end_date}.")
             logger.warning(f"No data found for {symbol} between {start_date} and {end_date}.")
@@ -183,9 +187,7 @@ class NeuralNetworkBacktester:
         main()
 
 def main():
-    st.title("🧪 Strategy Backtesting")
-
-    # Model selection
+    st.title("🧪 Strategy Backtesting")    # Model selection
     model_manager = ModelManager()
     try:
         model_files = model_manager.list_models()
@@ -194,8 +196,9 @@ def main():
         st.error("Could not list models. Please check model directory and permissions.")
         return
 
-    classic_models = [f for f in model_files if f.endswith(".joblib")]
-    patternnn_models = [f for f in model_files if f.endswith(".pth")]
+    # Extract filenames from model info dictionaries
+    classic_models = [f['name'] for f in model_files if f['name'].endswith(".joblib")]
+    patternnn_models = [f['name'] for f in model_files if f['name'].endswith(".pth")]
 
     st.subheader("Backtest Configuration")    # Set default dates: 1 year ago to today
     default_start = date.today() - timedelta(days=365)
@@ -225,18 +228,29 @@ def main():
         st.session_state["end_date"] = end_date
         st.session_state["strategy"] = strategy
         st.session_state["selected_classic_model"] = selected_classic_model
-        st.session_state["selected_patternnn_model"] = selected_patternnn_model
-
-        # Validate dates
+        st.session_state["selected_patternnn_model"] = selected_patternnn_model        # Validate dates
         if not start_date or not end_date:
             st.error("Please select both a start and end date.")
             return
         if start_date > end_date:
             st.error("Start date must be before end date.")
             return
+        
+        # Validate numeric parameters
+        if initial_capital is None or initial_capital <= 0:
+            st.error("Initial capital must be a positive number.")
+            return
+        if risk_per_trade is None or risk_per_trade <= 0:
+            st.error("Risk per trade must be a positive number.")
+            return
 
         st.info(f"Running {strategy} backtest for {symbol}...")
         with st.spinner("Running backtest, please wait..."):
+            # Convert date to datetime for compatibility
+            from datetime import datetime
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date, datetime.min.time())
+            
             if strategy == "Pattern NN" and selected_patternnn_model:
                 fn = lambda df: pattern_nn_predict(df, selected_patternnn_model)
                 st.session_state["results"] = run_custom_strategy(
@@ -249,7 +263,7 @@ def main():
                 )
             else:
                 st.session_state["results"] = run_backtest_wrapper(
-                    symbol, start_date, end_date, "SMA Crossover", initial_capital, risk_per_trade / 100
+                    symbol, start_datetime, end_datetime, "SMA Crossover", initial_capital, risk_per_trade / 100
                 )
                 if st.session_state["results"] is not None:
                     st.session_state["results"]["model_type"] = "SMA Crossover"

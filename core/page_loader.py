@@ -302,7 +302,7 @@ class PageLoader:
             if st.button("🔄 Refresh Dashboard", key=f"refresh_{page_file}"):
                 # Clear all cache and restart
                 for key in list(st.session_state.keys()):
-                    if key.startswith("page_"):
+                    if isinstance(key, str) and key.startswith("page_"):
                         del st.session_state[key]
                 st.rerun()
     

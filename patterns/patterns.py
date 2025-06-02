@@ -19,6 +19,7 @@ import pandas as pd
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 import threading
+from typing import Any
 
 from utils.logger import setup_logger
 from core.data_validator import centralized_validate_dataframe
@@ -110,7 +111,7 @@ def validate_dataframe(func: Callable) -> Callable:
             # Determine minimum rows required for this pattern
             # For instance methods, get the pattern's min_rows requirement
             min_rows_required = 1  # Default minimum for patterns
-            if hasattr(args[0], '__class__') and hasattr(args[0], 'min_rows'):
+            if len(args) >= 1 and hasattr(args[0], '__class__') and hasattr(args[0], 'min_rows'):
                 min_rows_required = args[0].min_rows
             elif len(args) >= 1 and hasattr(args[0], 'min_rows'):
                 min_rows_required = args[0].min_rows
@@ -180,7 +181,7 @@ def performance_monitor(func: Callable) -> Callable:
             raise
     return wrapper
 
-def validate_pattern_data(df: pd.DataFrame, enable_statistical_analysis: bool = True) -> Dict[str, any]:
+def validate_pattern_data(df: pd.DataFrame, enable_statistical_analysis: bool = True) -> Dict[str, Any]:
     """
     Convenience function for direct centralized validation of pattern data.
     
@@ -362,7 +363,7 @@ class CandlestickPatterns:
         with self._lock:
             return list(self._patterns.keys())
     
-    def get_pattern_info(self, pattern_name: str) -> Dict[str, any]:
+    def get_pattern_info(self, pattern_name: str) -> Dict[str, Any]:
         """Get detailed information about a specific pattern."""
         with self._lock:
             if pattern_name not in self._patterns:
@@ -1250,24 +1251,6 @@ def create_pattern_detector(confidence_threshold: float = 0.7, enable_caching: b
         Configured CandlestickPatterns instance
     """
     return CandlestickPatterns(confidence_threshold=confidence_threshold, enable_caching=enable_caching)
-
-# Backward compatibility functions
-def detect_patterns(df: pd.DataFrame) -> List[str]:
-    """
-    Backward compatibility function for simple pattern detection.
-    
-    Returns:
-        List of detected pattern names (for backward compatibility)
-    """
-    warnings.warn(
-        "detect_patterns is deprecated. Use CandlestickPatterns.detect_patterns() instead.",
-        DeprecationWarning,
-        stacklevel=2
-    )
-    
-    detector = create_pattern_detector()
-    results = detector.detect_patterns(df)
-    return [result.name for result in results if result.detected]
 
 def get_pattern_names() -> List[str]:
     """

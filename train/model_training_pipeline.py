@@ -21,18 +21,10 @@ Project Status:
 - ✅ Modular architecture is 100% complete and functional
 - ✅ All core modules are implemented and tested
 - ✅ Use bash commands for all operations (see below)
-
-Usage Example (Bash):
-    # Activate environment and run pipeline
-    source venv/Scripts/activate
-    python -m train.model_training_pipeline
-
-    # Or run with Streamlit dashboard (recommended)
-    streamlit run main.py
-
 """
 
 import os
+import sys
 import json
 from pathlib import Path
 from datetime import datetime
@@ -102,7 +94,9 @@ class MLPipeline:
         self.device = torch.device(
             config.device if torch.cuda.is_available() and config.device == "cuda" else "cpu"
         )
-        self.model_manager = model_manager or ModelManager(base_directory=str(self.config.model_dir))
+        # Create a ModelManagerConfig with your model_dir, then pass it in
+        mgr_cfg = ModelManagerConfig(base_directory=Path(self.config.model_dir))
+        self.model_manager = ModelManager(config=mgr_cfg)
         logger.info(f"MLPipeline initialized. Using device: {self.device}")
 
     def prepare_dataset(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -135,9 +129,10 @@ class MLPipeline:
             df = add_candlestick_pattern_features(df)
             self._last_df = df.copy()  # Save for preprocessing config
             # Select feature columns (exclude non-numeric, symbol, timestamp)
+            from pandas.api.types import is_numeric_dtype
             feature_cols = [
                 col for col in df.columns
-                if col not in ('symbol', 'timestamp') and np.issubdtype(df[col].dtype, np.number)
+                if col not in ('symbol', 'timestamp') and is_numeric_dtype(df[col])
             ]
             if not feature_cols:
                 raise DatasetPreparationError("No valid feature columns found after engineering.")
@@ -333,7 +328,6 @@ class MLPipeline:
             parameters={
                 "epochs": self.config.epochs,
                 "seq_len": self.config.seq_len,
-                "input_size": getattr(model, "input_size", None),
                 "hidden_size": getattr(model, "hidden_size", None),
                 "num_layers": getattr(model, "num_layers", None),
                 "output_size": getattr(model, "output_size", None),
@@ -366,18 +360,14 @@ class MLPipeline:
                 json.dump(preprocessing, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save artifacts: {e}")
-
 if __name__ == '__main__':
     # Securely load credentials (never hard-code or print)
     creds = get_api_credentials()
-    client = ETradeClient(
-        consumer_key=creds['consumer_key'],
-        consumer_secret=creds['consumer_secret'],
-        oauth_token=creds['oauth_token'],
-        oauth_token_secret=creds['oauth_token_secret'],
-        account_id=creds['account_id'],
-        sandbox=creds.get('use_sandbox', 'true').lower() == 'true'
-    )
+    if not creds or not isinstance(creds, dict):
+        logger.error("API credentials not found or invalid. Exiting.")
+        sys.exit(1)
+    
+    # Create config first
     config = MLConfig(
         seq_len=10,
         epochs=5,
@@ -389,27 +379,19 @@ if __name__ == '__main__':
         model_dir=Path("models"),
         symbols=os.getenv('SYMBOLS', 'AAPL,MSFT').split(',')
     )
-    notifier = Notifier()
-    pipeline = MLPipeline(client, config, notifier)
-    # Dynamically calculate input size based on feature columns
-    try:
-        df_sample = pd.concat([
-            client.get_candles(symbol, interval="5min", days=5) for symbol in config.symbols
-        ], ignore_index=True)
-        df_sample = compute_technical_features(df_sample)
-        df_sample = add_candlestick_pattern_features(df_sample)
-        feature_cols = [col for col in df_sample.columns if col not in ('symbol', 'timestamp') and np.issubdtype(df_sample[col].dtype, np.number)]
-        feature_count = df_sample[feature_cols].shape[1]
-        model = PatternNN(
-            input_size=feature_count,
-            hidden_size=64,
-            num_layers=2,
-            output_size=3,
-            dropout=0.2
-        )
-        metrics = pipeline.train_and_evaluate(model)
-        print("Training complete. Metrics:", metrics)
-    except Exception as e:
-        logger.error(f"Pipeline execution failed: {e}")
-        if notifier:
-            notifier.send_message(f"Pipeline execution failed: {e}", level="error")
+    
+    # Convert MLConfig to TradeConfig for the client
+    trade_config = TradeConfig(
+        # Pass relevant parameters from your ML config
+        polling_interval=300,
+        # Other required parameters use defaults
+    )
+    
+    client = ETradeClient(
+        consumer_key=creds['consumer_key'],
+        consumer_secret=creds['consumer_secret'],
+        oauth_token=creds['oauth_token'],
+        oauth_token_secret=creds['oauth_token_secret'],
+        account_id=creds['account_id'],
+        config=trade_config
+    )

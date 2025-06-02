@@ -19,8 +19,7 @@ warnings.warn(
     stacklevel=2
 )
 
-# Re-export everything from the new modules for backward compatibility
-from utils.technicals.analysis import *
+# Re-export everything from new modules for backward compatibility (deprecated, functions defined locally)
 from core.technical_indicators import IndicatorError
 
 from utils.logger import setup_logger
@@ -40,10 +39,6 @@ try:
 except ImportError:
     TA_AVAILABLE = False
     logger.warning("pandas_ta not found - using fallback implementations for indicators")
-
-class IndicatorError(Exception):
-    """Custom exception for indicator calculation errors."""
-    pass
 
 def validate_indicator_data(df: DataFrame, required_columns: List[str]) -> None:
     """
@@ -204,9 +199,10 @@ def add_atr(df: DataFrame, length: int = 14) -> DataFrame:
             df['atr'] = ta.atr(df['high'], df['low'], df['close'], length=length)
         else:
             high_low = df['high'] - df['low']
-            high_close = np.abs(df['high'] - df['close'].shift())
-            low_close = np.abs(df['low'] - df['close'].shift())
-            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            high_close = (df['high'] - df['close'].shift()).abs()
+            low_close = (df['low'] - df['close'].shift()).abs()
+            tr_df = pd.DataFrame({'high_low': high_low, 'high_close': high_close, 'low_close': low_close})
+            tr = tr_df.max(axis=1)
             df['atr'] = tr.rolling(window=length, min_periods=1).mean()
         return df
     except Exception as e:

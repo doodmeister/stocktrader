@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import streamlit as st
+from typing import Any
 
 from utils.logger import get_logger
 from utils.config import get_project_root
@@ -183,7 +184,7 @@ class HealthChecker:
                         st.success(f"✅ {check_name}")
     
     def get_health_summary(self, pages_config: Optional[List] = None, 
-                          state_manager=None) -> Dict[str, any]:
+                          state_manager=None) -> Dict[str, Any]:
         """
         Get a comprehensive health summary for monitoring.
         
@@ -209,7 +210,7 @@ class HealthChecker:
             "details": health_checks
         }
     
-    def get_performance_metrics(self) -> Dict[str, any]:
+    def get_performance_metrics(self) -> Dict[str, Any]:
         """
         Get current performance metrics.
         
@@ -303,7 +304,7 @@ def render_health_status() -> None:
 
 
 def get_health_summary(pages_config: Optional[List] = None, 
-                      state_manager=None) -> Dict[str, any]:
+                      state_manager=None) -> Dict[str, Any]:
     """
     Convenience function to get health summary.
     

@@ -28,7 +28,7 @@ kaleido
 
 # Development & Utilities
 python-dotenv==1.0.0
-psutil>=5.0.0  # For performance monitoring and system metrics
+psutil>=7.0.0  # For performance monitoring and system metrics
 
 # Testing
 pytest>=7.4.0
@@ -50,6 +50,7 @@ pydantic>=2.0.0  # For enhanced data validation
 
 python-dotenv
 openpyxl
+ twilio>=6.0.0  # For SMS notifications
 
 # For older Python versions
 concurrent-futures>=3.0.0  # Enhanced hashing capabilities

@@ -137,7 +137,8 @@ def download_stock_data(
             actions=False,
             timeout=timeout
         )
-        if hasattr(df.index, "tz") and df.index.tz is not None:
+        tzinfo = getattr(df.index, "tz", None)
+        if tzinfo is not None and isinstance(df.index, pd.DatetimeIndex):
             df.index = df.index.tz_localize(None)
         df = df.loc[pd.to_datetime(start_date):pd.to_datetime(end_date)]
 
@@ -166,7 +167,8 @@ def download_stock_data(
                     actions=False,
                     timeout=timeout
                 )
-                if hasattr(hist.index, "tz") and hist.index.tz is not None:
+                tzinfo = getattr(hist.index, "tz", None)
+                if tzinfo is not None and isinstance(hist.index, pd.DatetimeIndex):
                     hist.index = hist.index.tz_localize(None)
                 hist = hist.loc[pd.to_datetime(start_date):pd.to_datetime(end_date)]
                 if hist.empty:
@@ -200,7 +202,7 @@ def download_stock_data(
         return None
 
 
-def process_downloaded_data(df: pd.DataFrame, symbols: List[str]) -> Dict[str, pd.DataFrame]:
+def process_downloaded_data(df: pd.DataFrame, symbols: List[str]) -> Optional[Dict[str, pd.DataFrame]]:
     """
     Process a downloaded DataFrame into individual symbol DataFrames.
     DataFrames are NOT assumed valid—validate with validate_dataframe after!
