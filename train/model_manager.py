@@ -556,7 +556,7 @@ class ModelManager:
         
         logger.info(f"ModelManager initialized with config: {self.config}")
     
-    def save_model(self, model: Any, metadata: ModelMetadata, backend: str = None,
+    def save_model(self, model: Any, metadata: ModelMetadata, backend: Optional[str] = None,
                    optimizer=None, epoch=None, loss=None, csv_filename=None, df=None) -> str:
         """
         Save model with enhanced validation and monitoring.
@@ -583,7 +583,7 @@ class ModelManager:
                 model, metadata, backend, optimizer, epoch, loss, csv_filename, df
             )
     
-    def _save_model_impl(self, model: Any, metadata: ModelMetadata, backend: str = None,
+    def _save_model_impl(self, model: Any, metadata: ModelMetadata, backend: Optional[str] = None,
                          optimizer=None, epoch=None, loss=None, csv_filename=None, df=None) -> str:
         """Internal implementation of save_model."""
         # Validation
@@ -966,7 +966,7 @@ class ModelManager:
         try:
             jsonschema.validate(instance=metadata, schema=MODEL_METADATA_SCHEMA)
             return True
-        except jsonschema.exceptions.ValidationError:
+        except jsonschema.ValidationError:
             logger.warning("Metadata validation failed")
             return False
     
@@ -1035,7 +1035,7 @@ class ModelManager:
 class ModelError(Exception):
     """Base exception for model management errors with enhanced context."""
     
-    def __init__(self, message: str, context: Dict[str, Any] = None):
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
         super().__init__(message)
         self.context = context or {}
         self.timestamp = datetime.now().isoformat()
@@ -1094,20 +1094,21 @@ def load_latest_model(model_class: Type, base_directory: str = "models/") -> Any
 
 # Original training function for backward compatibility
 def train_model_deep_learning(epochs, seq_len, learning_rate, batch_size, validation_split,
-                             early_stopping_patience, min_patterns, max_samples_per_symbol,
+                             early_stopping_patience, min_patterns,
                              *args, **kwargs):
     """Backward compatibility function for deep learning training."""
-    config = TrainingConfig(
-        epochs=epochs,
-        seq_len=seq_len,
-        learning_rate=learning_rate,
-        batch_size=batch_size,
-        validation_split=validation_split,
-        early_stopping_patience=early_stopping_patience,
-        min_patterns=min_patterns,
-        max_samples_per_symbol=max_samples_per_symbol
-    )
-    return config
+    config_kwargs = {
+        "epochs": epochs,
+        "seq_len": seq_len,
+        "learning_rate": learning_rate,
+        "batch_size": batch_size,
+        "validation_split": validation_split,
+        "early_stopping_patience": early_stopping_patience,
+        "min_patterns": min_patterns,
+    }
+    # Pass through any additional supported config parameters
+    config_kwargs.update(kwargs)
+    return TrainingConfig(**config_kwargs)
 
 
 # Model format enum for backward compatibility
