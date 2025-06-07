@@ -14,7 +14,6 @@ Key Features:
 - Configurable feature selection and hyperparameters
 """
 
-import asyncio
 import functools
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -46,10 +45,7 @@ from utils.logger import setup_logger
 
 # Import centralized data validation system
 from core.data_validator import (
-    validate_dataframe,
-    DataFrameValidationResult,
-    ValidationResult,
-    get_global_validator
+    validate_dataframe
 )
 
 # Suppress sklearn warnings for cleaner logs

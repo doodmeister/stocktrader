@@ -11,7 +11,7 @@ import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import List, Union, BinaryIO, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional
 
 import pandas as pd
 

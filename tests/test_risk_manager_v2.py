@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from core.risk_manager_v2 import RiskManager, RiskParameters, InvalidRiskConfig
+from core.risk_manager_v2 import RiskManager, RiskParameters
 
 @pytest.fixture
 def ohlc_df():

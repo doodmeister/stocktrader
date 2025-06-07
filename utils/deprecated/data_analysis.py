@@ -10,15 +10,13 @@ Optimized for conciseness while preserving all essential functionality.
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple
 import os
 from collections import defaultdict
 
 # Core imports
-from utils.logger import get_dashboard_logger
 from core.dashboard_utils import (
     setup_page, handle_streamlit_error, initialize_dashboard_session_state
 )
@@ -34,7 +32,6 @@ from utils.technicals.analysis import TechnicalAnalysis, compute_price_stats, co
 
 # Pattern detection and utilities
 from patterns.patterns import create_pattern_detector
-from security.authentication import get_openai_api_key
 from utils.chatgpt import get_chatgpt_insight as _get_chatgpt_insight
 
 # Initialize the page and logger
@@ -143,7 +140,7 @@ def load_df(uploaded_file) -> pd.DataFrame:
                 st.warning(f"⚠️ CSV is missing expected columns: {missing_cols}")
                 st.info("💡 Expected columns: Open, High, Low, Close, Volume")
             else:
-                logger.info(f"✅ All required OHLCV columns present")
+                logger.info("✅ All required OHLCV columns present")
             
             # ENHANCED: Verify all OHLCV columns are numeric
             ohlcv_cols = [col for col in ['open', 'high', 'low', 'close', 'volume'] if col in df.columns]
@@ -324,7 +321,7 @@ def validate_dataframe_for_analysis(df: pd.DataFrame) -> bool:
         return False
     
     # Show current DataFrame info for debugging
-    st.info(f"📊 **Loaded Data Info:**")
+    st.info("📊 **Loaded Data Info:**")
     st.info(f"- **Rows:** {len(df)}")
     st.info(f"- **Columns:** {list(df.columns)}")
     
@@ -473,7 +470,6 @@ def plot_candlestick_with_patterns(df: pd.DataFrame, pattern_results: List[Dict[
         return
     
     # Group patterns by index to avoid overlap
-    from collections import defaultdict
     pattern_by_idx = defaultdict(list)
     
     # ENHANCED: Improved pattern processing with extra validation
@@ -583,7 +579,7 @@ class TechnicalAnalysisDashboard:
         cached_filename = st.session_state.get('filename')
         cached_df = st.session_state.get('df')
         
-        logger.info(f"🔍 Session state check:")
+        logger.info("🔍 Session state check:")
         logger.info(f"   - Current filename: {filename}")
         logger.info(f"   - Cached filename: {cached_filename}")
         logger.info(f"   - Cached df rows: {len(cached_df) if cached_df is not None else 'None'}")
@@ -602,7 +598,7 @@ class TechnicalAnalysisDashboard:
             # Clear the cache to force fresh load
             if hasattr(load_df, 'clear'):
                 load_df.clear()
-                logger.info(f"🧹 Cleared load_df cache")
+                logger.info("🧹 Cleared load_df cache")
             df = load_df(uploaded_file)
             st.session_state.df = df
             st.session_state.filename = filename

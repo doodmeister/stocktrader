@@ -5,8 +5,7 @@ Provides functionality for executing functions with retry logic and error handli
 """
 
 import time
-from typing import Callable, Any, Optional, TypeVar
-from core.exceptions import StockTraderException
+from typing import Callable, Optional, TypeVar
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)

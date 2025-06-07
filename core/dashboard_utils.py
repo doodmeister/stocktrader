@@ -20,11 +20,7 @@ import hashlib
 from datetime import datetime
 from contextlib import contextmanager
 import traceback
-import re
 import json
-import secrets
-from urllib.parse import quote, unquote
-import mimetypes
 
 import psutil
 
@@ -35,7 +31,7 @@ except ImportError:
     HAS_PSUTIL = False
 
 # Import existing pattern detection system
-from patterns.patterns import CandlestickPatterns, create_pattern_detector, PatternResult
+from patterns.patterns import create_pattern_detector, PatternResult
 
 # Import security utilities
 from security.utils import sanitize_user_input as _sanitize_user_input, validate_file_path as _validate_file_path
@@ -392,7 +388,7 @@ def create_candlestick_chart(
         st.write(f"🔍 **Chart Debug:** Columns: {list(df.columns)}")
         st.write(f"🔍 **Chart Debug:** Index type: {type(df.index)}")
         if not df.empty:
-            st.write(f"🔍 **Chart Debug:** First few rows:")
+            st.write("🔍 **Chart Debug:** First few rows:")
             st.dataframe(df.head(3))
     
     try:
@@ -473,7 +469,7 @@ def create_candlestick_chart(
             else:
                 # Use integer index as fallback
                 if debug:
-                    st.write(f"⚠️ **Chart Debug:** No timestamp column found, using integer index")
+                    st.write("⚠️ **Chart Debug:** No timestamp column found, using integer index")
         
         # Ensure OHLC columns are numeric
         for col in required_cols:
@@ -485,12 +481,12 @@ def create_candlestick_chart(
         
         if chart_df.empty:
             if debug:
-                st.write(f"❌ **Chart Debug:** DataFrame is empty after cleaning")
+                st.write("❌ **Chart Debug:** DataFrame is empty after cleaning")
             return _create_empty_chart(title, height, "No valid data for chart after cleaning")
         
         if debug:
             st.write(f"✅ **Chart Debug:** Final chart data shape: {chart_df.shape}")
-            st.write(f"🔍 **Chart Debug:** OHLC sample values:")
+            st.write("🔍 **Chart Debug:** OHLC sample values:")
             st.write(f"  Open: {chart_df['open'].iloc[-1]:.2f}")
             st.write(f"  High: {chart_df['high'].iloc[-1]:.2f}")
             st.write(f"  Low: {chart_df['low'].iloc[-1]:.2f}")
@@ -640,7 +636,7 @@ def create_candlestick_chart(
             )
         
         if debug:
-            st.write(f"✅ **Chart Debug:** Chart created successfully")
+            st.write("✅ **Chart Debug:** Chart created successfully")
         
         return fig
         

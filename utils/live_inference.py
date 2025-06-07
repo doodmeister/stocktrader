@@ -1,7 +1,6 @@
 # inference/live_inference.py
 
 import torch
-from pathlib import Path
 from utils.preprocess_input import load_preprocessing_config, preprocess_input
 from train.model_manager import load_latest_model
 from patterns.patterns_nn import PatternNN

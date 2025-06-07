@@ -13,9 +13,8 @@ import time
 import hmac
 from pathlib import Path
 from typing import Union
-from typing import Optional, Union, Tuple
+from typing import Optional, Tuple
 import streamlit as st
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

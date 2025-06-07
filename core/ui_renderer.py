@@ -6,9 +6,8 @@ Provides clean separation of UI rendering logic from orchestration logic.
 """
 
 import streamlit as st
-import time
 import logging
-from typing import List, Dict, Optional
+from typing import List, Optional
 from pathlib import Path
 
 from utils.logger import get_dashboard_logger
@@ -194,7 +193,7 @@ class UIRenderer:
                     else:
                         st.caption(page.description)
                 else:
-                    st.markdown(f"⚠️ *Unavailable*")
+                    st.markdown("⚠️ *Unavailable*")
                     st.caption(f"{page.description} (File not found or inactive)")
 
             with col2:

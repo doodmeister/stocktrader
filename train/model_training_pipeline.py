@@ -42,7 +42,6 @@ from patterns.patterns_nn import PatternNN
 from .model_manager import ModelManager, ModelMetadata
 from .ml_config import MLConfig
 from utils.notifier import Notifier
-from utils.technicals.performance_utils import get_candles_cached
 from utils.technicals.feature_engineering import compute_technical_features
 from security.authentication import get_api_credentials
 from patterns.pattern_utils import add_candlestick_pattern_features

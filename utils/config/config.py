@@ -1,12 +1,10 @@
 """Dashboard configuration and settings."""
 
 # filepath: c:\dev\stocktrader\data\config.py
-from pydantic_settings import BaseSettings
-from pydantic import Field
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
 @dataclass
 class DashboardConfig:

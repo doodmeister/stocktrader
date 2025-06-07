@@ -14,13 +14,10 @@ Author: Trading Bot Team
 License: MIT
 """
 
-from abc import ABC, abstractmethod
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
-from pathlib import Path
-from typing import Dict, List, Optional, Union, Tuple, Any
+from typing import Dict, List, Optional, Union, Any
 import datetime as dt
 import os
 import signal
@@ -28,7 +25,6 @@ import sys
 import time
 import requests
 import pandas as pd
-import numpy as np
 from requests.adapters import HTTPAdapter
 from requests_oauthlib import OAuth1Session
 from urllib3.util.retry import Retry
@@ -39,7 +35,7 @@ from security.authentication import get_api_credentials
 from patterns.patterns_nn import PatternNN
 from utils.notifier import Notifier
 from utils.technicals.analysis import TechnicalIndicators
-from core.risk_manager_v2 import RiskManager, RiskPercentage, RiskConfigManager
+from core.risk_manager_v2 import RiskManager, RiskPercentage
 
 
 # Configure structured logging
@@ -643,7 +639,7 @@ class ETradeClient:
             return response
         except Exception as e:
             logger.error(f"Error getting order status for {order_id}: {e}")
-            raise APIException(f"Failed to get order status") from e
+            raise APIException("Failed to get order status") from e
     
     def get_positions(self) -> List[Dict[str, Any]]:
         """

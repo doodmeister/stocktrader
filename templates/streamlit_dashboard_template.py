@@ -37,20 +37,16 @@ REQUIREMENTS:
 # =============================================================================
 
 # Standard library imports
-import os
-import sys
 import time
-import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union, Callable
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import wraps
 
 # Third-party imports
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 import plotly.express as px
 
 # Local imports - Update paths based on your project structure
@@ -358,7 +354,7 @@ def handle_dashboard_errors(func: Callable) -> Callable:
             
         except Exception as e:
             logger.error(f"Unexpected error in {func.__name__}: {e}", exc_info=True)
-            st.error(f"An unexpected error occurred. Please check the logs.")
+            st.error("An unexpected error occurred. Please check the logs.")
             return None
     
     return wrapper

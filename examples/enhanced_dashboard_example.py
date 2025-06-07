@@ -9,7 +9,7 @@ while maintaining compatibility with existing code.
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 
 # Import enhanced dashboard utilities
@@ -27,8 +27,7 @@ from core.dashboard_utils import (
     create_advanced_candlestick_chart,
     safe_json_save,
     safe_json_load,
-    create_tiered_cache_key,
-    cache_context
+    create_tiered_cache_key
 )
 
 # Page configuration

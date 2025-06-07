@@ -7,8 +7,7 @@ Orchestrates UI rendering, page management, and system health monitoring.
 
 import streamlit as st
 import time
-import logging
-from typing import Dict, List, Optional
+from typing import Optional
 from pathlib import Path
 
 from core.page_loader import PageLoader

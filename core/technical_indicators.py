@@ -10,7 +10,7 @@ with proper error handling, validation, and fallback implementations.
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
-from typing import Union, List, Optional
+from typing import Union, List
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)

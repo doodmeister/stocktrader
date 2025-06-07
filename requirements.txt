@@ -50,7 +50,8 @@ pydantic>=2.0.0  # For enhanced data validation
 
 python-dotenv
 openpyxl
- twilio>=6.0.0  # For SMS notifications
+twilio>=6.0.0  # For SMS notifications
+ruff
 
 # For older Python versions
 concurrent-futures>=3.0.0  # Enhanced hashing capabilities

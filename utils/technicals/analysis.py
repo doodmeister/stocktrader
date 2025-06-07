@@ -10,12 +10,11 @@ using the core technical indicators from core.technical_indicators.
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
-from typing import Optional, Union, List, Dict, Tuple
+from typing import Optional, Union, List, Tuple
 from utils.logger import setup_logger
 from core.technical_indicators import (
     calculate_rsi, calculate_macd, calculate_bollinger_bands, 
-    calculate_atr, calculate_sma, calculate_ema, 
-    IndicatorError, validate_indicator_data
+    calculate_atr, calculate_sma, calculate_ema
 )
 
 logger = setup_logger(__name__)

@@ -1,6 +1,5 @@
 """Validate .env and core configuration for E*Trade Candlestick Bot."""
 
-import os
 from pathlib import Path
 
 REQUIRED_ENV_VARS = [

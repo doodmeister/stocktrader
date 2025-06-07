@@ -27,8 +27,8 @@ from patterns.pattern_utils import (
     validate_python_code
     # Removed PatternBackupManager - not available
 )
-from patterns.patterns import CandlestickPatterns, create_pattern_detector  # Use existing detection
-from core.data_validator import get_global_validator, validate_dataframe, ValidationResult, DataFrameValidationResult
+from patterns.patterns import create_pattern_detector  # Use existing detection
+from core.data_validator import get_global_validator, validate_dataframe
 
 # Import SessionManager to solve button key conflicts and session state issues
 from core.session_manager import create_session_manager, show_session_debug_info

@@ -35,42 +35,21 @@ import streamlit as st
 # Project imports
 from core.dashboard_utils import (
     initialize_dashboard_session_state,
-    safe_streamlit_metric,
-    handle_streamlit_error,
-    cache_key_builder
+    handle_streamlit_error
 )
-from core.etrade_client import ETradeClient, ETradeAuthenticationError, ETradeAPIError
+from core.etrade_client import ETradeClient
 from core.etrade_auth_ui import (
-    render_etrade_authentication, 
-    validate_etrade_operation,
-    get_etrade_client,
-    is_etrade_authenticated
-)
-from security.authorization import (
-    check_access_permission, 
-    Permission,
-    require_permission,
-    validate_etrade_environment_access
-)
-from security.authentication import (
-    validate_session_security, 
-    validate_credentials, 
-    get_sandbox_mode
+    render_etrade_authentication
 )
 from security.etrade_security import SecureETradeManager
 from core.risk_manager_v2 import RiskManager, RiskConfigManager
-from patterns.patterns import CandlestickPatterns, create_pattern_detector
+from patterns.patterns import create_pattern_detector
 from patterns.patterns_nn import PatternNN
-from train.deeplearning_config import TrainingConfig
-from train.deeplearning_trainer import PatternModelTrainer
 from train.model_manager import ModelManager as CoreModelManager
-from utils.config.notification_settings_ui import render_notification_settings
 from core.data_validator import (
     get_global_validator, 
     validate_symbol, 
-    validate_symbols, 
-    validate_dataframe,
-    ValidationResult
+    validate_symbols
 )
 from utils.notifier import Notifier
 
@@ -79,16 +58,14 @@ from core.technical_indicators import (
     calculate_rsi, calculate_macd, calculate_bollinger_bands, 
     calculate_atr, calculate_sma, calculate_ema, IndicatorError
 )
-from utils.technicals.analysis import TechnicalAnalysis, TechnicalIndicators
+from utils.technicals.analysis import TechnicalAnalysis
 
-from core.decorators import handle_exceptions, handle_dashboard_exceptions
-from train.ml_config import MLConfig
-import torch
+from core.decorators import handle_exceptions
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Import SessionManager to solve button key conflicts and session state issues
-from core.session_manager import create_session_manager, show_session_debug_info
+from core.session_manager import create_session_manager
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger

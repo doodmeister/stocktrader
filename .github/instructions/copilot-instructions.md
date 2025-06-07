@@ -1,18 +1,29 @@
 ---
 applyTo: '**'
 ---
-
 # StockTrader Development Guidelines
+This document outlines the development standards, environment requirements, and best practices for the StockTrader project. It is designed to ensure consistency, maintainability, and security across the codebase.
+
+## Project Overview
+The StockTrader project is a modular dashboard application built with Streamlit, designed to provide real-time stock trading insights and analytics. The project has been fully modularized, with all core components implemented and tested.
+THe project incorpores artifical intelligence to enhance user experience and provide advanced analytics.
 
 ## Environment & Platform Standards
+The terminal is bash running on windows 11
+- **Python Version**: 3.10.11 or higher
+- **Package Manager**: `pip` (Python package installer)
+- **linter**: `ruff` (Python linter)
 
 ### Operating System & Shell Requirements
 - **Target OS**: Windows
 - **Default Shell**: Bash (`bash.exe`)
 - **All terminal commands MUST be bash-compatible**
+- **Avoid emojis in bash commands**
 
 ### Terminal Command Standards
-Do not use emojis in any terminal commands or code snippets. Use clear, concise bash commands that are compatible with the Windows environment.
+- **Avoid emojis in bash commands**
+Use clear, concise bash commands that are compatible with the Windows environment.
+
 #### ✅ Use Bash Syntax
 ```bash
 # Correct: Bash commands
@@ -68,9 +79,20 @@ find core/ -name "*.py" -exec basename {} .py \; | while read module; do python 
 
 ### File and Module Guidelines
 - **Module Organization**: Use the established `core/`, `dashboard_pages/`, `utils/` structure
+- **Data Validation for this proejct comes from the `core/data_validator` module**
+- **Techincal Indicators for this proejct comes from the `core/technical_indicators` module**
+- **Session Management**: Use `core/session_manager.py` for user sessions
+- **Page Management**: Use `core/page_loader.py` for dynamic page loading
+- **Health Monitoring**: Use `core/health_checks.py` for system health checks
+- **Dashboard Controller**: Use `core/dashboard_controller.py` for UI orchestration
+- **Testing**: All test scripts should be saved in the `tests/` directory
+- **Import System**: Use absolute imports for clarity and maintainability
+- **Import Paths**: Use absolute imports (e.g., `from core.dashboard_controller import DashboardController`)
 - **Import Paths**: Use absolute imports (`from core.health_checks import HealthChecker`)
 - **Error Handling**: Leverage the modular error isolation system
 - **Caching**: Utilize the 30-second TTL caching system for performance
+- **Logging**: Use the `logging` module for all logging needs
+- **Configuration**: Use environment variables for configuration (e.g., `STREAMLIT_SERVER_PORT`)
 
 ### Code Quality Standards
 - **Function Length**: Keep modules focused (~300 lines max)
@@ -86,6 +108,9 @@ find core/ -name "*.py" -exec basename {} .py \; | while read module; do python 
 - **Completion Status**: Always acknowledge that modularization is complete
 
 ## Security & Best Practices
+- **Security Functionality**: Use `core/security.py` for security-related functions
+- **Sensitive Data**: Never hard-code sensitive data; use environment variables
+
 
 ### Path Handling
 ```bash

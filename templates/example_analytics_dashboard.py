@@ -22,17 +22,15 @@ To use this example:
 # =============================================================================
 
 # Standard library imports
-import os
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import List
 
 # Third-party imports
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 import plotly.express as px
 
 # Import the template (adjust path as needed)

@@ -3,9 +3,8 @@ E*Trade Candlestick Trading Dashboard utility module.
 Handles data visualization, pattern detection, and order execution.
 """
 import functools
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 import asyncio
-from datetime import datetime
 import streamlit as st
 import pandas as pd
 import torch
@@ -13,7 +12,6 @@ import plotly.graph_objs as go
 from core.etrade_candlestick_bot import ETradeClient
 from patterns.patterns import CandlestickPatterns
 from patterns.patterns_nn import PatternNN
-from train.deeplearning_trainer import train_pattern_model
 from train.ml_trainer import ModelTrainer
 from pathlib import Path
 from contextlib import contextmanager

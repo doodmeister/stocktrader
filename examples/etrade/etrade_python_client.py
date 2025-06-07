@@ -1,11 +1,8 @@
 """This Python script provides examples on using the E*TRADE API endpoints"""
 from __future__ import print_function
 import webbrowser
-import json
 import logging
 import configparser
-import sys
-import requests
 from rauth import OAuth1Service
 from logging.handlers import RotatingFileHandler
 from accounts.accounts import Accounts

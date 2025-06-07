@@ -14,13 +14,11 @@ This module implements the main trading interface with:
 Part of the StockTrader application suite.
 """
 
-import asyncio
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple, Union
+from typing import Optional, List
 import threading
-from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -28,23 +26,9 @@ import streamlit as st
 from pydantic import BaseModel, Field, validator, ValidationError
 
 # Local imports
-from core.etrade_client import ETradeClient, ETradeAuthenticationError, ETradeAPIError
+from core.etrade_client import ETradeClient
 from core.etrade_auth_ui import (
-    render_etrade_authentication,
-    validate_etrade_operation,
-    get_etrade_client,
-    is_etrade_authenticated
-)
-from security.authentication import (
-    validate_session_security,
-    validate_credentials,
-    get_sandbox_mode
-)
-from security.etrade_security import SecureETradeManager
-from security.authorization import (
-    check_access_permission,
-    Permission,
-    validate_etrade_environment_access
+    render_etrade_authentication
 )
 from utils.technicals.analysis import add_technical_indicators
 from core.safe_requests import safe_request
@@ -58,7 +42,7 @@ from patterns.pattern_utils import add_candlestick_pattern_features
 from core.data_validator import validate_dataframe, validate_symbols
 
 # Import SessionManager to solve button key conflicts and session state issues
-from core.session_manager import create_session_manager, show_session_debug_info
+from core.session_manager import create_session_manager
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger

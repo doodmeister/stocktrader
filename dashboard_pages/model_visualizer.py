@@ -16,15 +16,12 @@ import pandas as pd
 import numpy as np
 import hashlib
 import time
-import traceback
-from typing import Any, Dict, Optional, Tuple, List, Union, Protocol
+from typing import Any, Dict, Optional, Tuple, List, Protocol
 from dataclasses import asdict
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from pathlib import Path
 from enum import Enum
 import threading
-from functools import wraps
 import warnings
 import io
 import sys
@@ -33,7 +30,7 @@ import sys
 from train.model_manager import ModelManager
 from patterns.patterns_nn import PatternNN
 from core.dashboard_utils import setup_page, handle_streamlit_error
-from core.session_manager import create_session_manager, show_session_debug_info
+from core.session_manager import create_session_manager
 
 # Logging setup
 from utils.logger import get_dashboard_logger
@@ -509,7 +506,7 @@ class PatternNNDisplayHandler(ModelDisplayHandler):
                     with st.expander(f"📊 {name} - Shape: {tuple(param.shape)}"):
                         try:
                             param_data = param.data.cpu().numpy()
-                            st.write(f"**Statistics:**")
+                            st.write("**Statistics:**")
                             st.write(f"- Mean: {param_data.mean():.6f}")
                             st.write(f"- Std: {param_data.std():.6f}")
                             st.write(f"- Min: {param_data.min():.6f}")

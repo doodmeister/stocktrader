@@ -5,7 +5,7 @@ import torch
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Union, List, Dict
+from typing import Union, Dict
 
 def load_preprocessing_config(config_path: Union[str, Path]) -> Dict:
     """

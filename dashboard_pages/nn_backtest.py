@@ -1,8 +1,6 @@
-import os
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import numpy as np
 import torch
 import joblib
 from datetime import date, timedelta
@@ -15,7 +13,7 @@ from core.dashboard_utils import (
     setup_page,
     handle_streamlit_error
 )
-from core.session_manager import create_session_manager, show_session_debug_info
+from core.session_manager import create_session_manager
 from utils.backtester import run_backtest_wrapper
 
 # Dashboard logger setup

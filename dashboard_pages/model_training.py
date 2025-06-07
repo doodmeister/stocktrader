@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, NamedTuple, List
 from datetime import datetime
 from dataclasses import dataclass, asdict
-from pydantic import BaseModel
 import torch
 import json
 
@@ -18,21 +17,16 @@ from utils.preprocessing_config import save_preprocessing_config
 
 # Import the enhanced data validator
 from core.data_validator import (
-    validate_dataframe, 
-    DataFrameValidationResult,
-    ValidationResult,
-    get_global_validator
+    validate_dataframe
 )
 
 # Define backwards-compatible DataValidationResult
-from typing import NamedTuple
 class DataValidationResult(NamedTuple):
     is_valid: bool
     error_message: Optional[str]
     stats: Optional[Dict[str, Any]] = None
 
 # Deep learning pipeline
-from train.model_training_pipeline import MLPipeline
 from train.model_manager import ModelManager, ModelMetadata
 from patterns.patterns_nn import PatternNN
 from utils.technicals.performance_utils import st_error_boundary, generate_combined_signals
@@ -43,7 +37,6 @@ from train.deeplearning_trainer import train_pattern_model
 # Classic ML pipeline
 from train.ml_trainer import ModelTrainer, TrainingParams
 from patterns.patterns import CandlestickPatterns, create_pattern_detector
-from sklearn.base import BaseEstimator
 from core.dashboard_utils import (
     initialize_dashboard_session_state,
     setup_page,
@@ -55,7 +48,6 @@ from core.technical_indicators import (
     calculate_rsi, calculate_macd, calculate_bollinger_bands, 
     calculate_atr, IndicatorError
 )
-from utils.technicals.analysis import TechnicalAnalysis
 
 # Initialize the page (setup_page returns a logger, but we already have one)
 setup_page(

@@ -18,12 +18,10 @@ import json
 import time
 import traceback
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Union, Any
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
-import pytz
 import streamlit as st
 import yfinance as yf
 
@@ -41,7 +39,6 @@ from security.authentication import get_openai_api_key
 from core.dashboard_utils import (
     safe_streamlit_metric, 
     handle_streamlit_error, 
-    cache_key_builder,
     setup_page
 )
 

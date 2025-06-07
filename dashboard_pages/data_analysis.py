@@ -14,11 +14,9 @@ Key improvements:
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from typing import List, Dict, Any, Tuple, Optional, Union
-import os
+from typing import List, Dict, Any, Optional, Union
 import logging
 import traceback
 
@@ -38,7 +36,7 @@ try:
     
     logger = get_dashboard_logger('enhanced_ta_dashboard')
     
-except ImportError as e:
+except ImportError:
     # Fallback for development/testing
     import logging
     logging.basicConfig(level=logging.INFO)
@@ -109,14 +107,42 @@ except ImportError as e:
         @staticmethod
         def process_ohlcv_dataframe(df):
             """
-            Ensure the function always returns a DataFrame, never None.
-            If input is not a DataFrame, return an empty DataFrame.
+            Process OHLCV DataFrame with comprehensive numeric type enforcement.
+            - Ensures numeric dtype for OHLCV columns.
+            - Handles missing values intelligently.
+            - Returns a clean DataFrame suitable for analysis.
             """
             if df is None or not isinstance(df, pd.DataFrame):
                 logger.warning("process_ohlcv_dataframe: Input is not a DataFrame, returning empty DataFrame.")
                 return pd.DataFrame()
-            return df
-    
+            
+            if df.empty:
+                logger.warning("process_ohlcv_dataframe: Input DataFrame is empty")
+                return df
+
+            try:
+                processed_df = df.copy()
+                numeric_columns = ['open', 'high', 'low', 'close', 'volume']
+
+                for col in numeric_columns:
+                    if col in processed_df.columns:
+                        # Convert column to numeric, force errors to NaN
+                        processed_df[col] = pd.to_numeric(processed_df[col], errors='coerce')
+                        # Handle missing data
+                        if col == 'volume':
+                            processed_df[col] = processed_df[col].fillna(0)
+                        else:
+                            processed_df[col] = processed_df[col].ffill().bfill()
+                    else:
+                        logger.warning(f"process_ohlcv_dataframe: Missing expected column '{col}' in input DataFrame.")
+
+                logger.info(f"✅ DataFrame processed: {len(processed_df)} rows, numeric columns converted")
+                return processed_df
+
+            except Exception as e:
+                logger.error(f"❌ DataFrame processing failed: {str(e)}")
+                return df  # Return original on error
+            
     def create_pattern_detector(confidence_threshold: float = 0.7, enable_caching: bool = True):
         """
         Create a candlestick pattern detector with specified parameters.
@@ -658,12 +684,6 @@ class EnhancedTechnicalAnalysisDashboard:
         Main dashboard application entry point.
         """
         try:
-            st.set_page_config(
-                page_title="Enhanced Technical Analysis",
-                page_icon="📈",
-                layout="wide"
-            )
-            
             st.title("📈 Enhanced Technical Analysis Dashboard")
             st.markdown("Upload your CSV file with OHLCV data to begin analysis.")
             

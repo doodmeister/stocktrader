@@ -18,4 +18,3 @@ warnings.warn(
 )
 
 # Re-export the TechnicalAnalysis class for backward compatibility
-from utils.technicals.analysis import TechnicalAnalysis

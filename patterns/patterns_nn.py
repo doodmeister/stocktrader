@@ -9,7 +9,7 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Optional, Tuple, Union, Any
+from typing import Dict, Optional, Union, Any
 from pathlib import Path
 import json
 from datetime import datetime

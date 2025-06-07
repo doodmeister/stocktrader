@@ -23,7 +23,7 @@ import threading
 import time
 import warnings
 from pathlib import Path
-from typing import List, Optional, Tuple, Callable, Dict, Any, Union
+from typing import List, Optional, Tuple, Callable, Dict, Any
 from dataclasses import dataclass
 
 import pandas as pd
@@ -32,7 +32,6 @@ import numpy as np
 from patterns.patterns import (
     CandlestickPatterns, 
     create_pattern_detector,
-    PatternResult,
     PatternDetectionError,
     DataValidationError
 )

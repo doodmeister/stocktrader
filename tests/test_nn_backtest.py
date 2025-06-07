@@ -5,8 +5,8 @@ Unit tests for the neural network backtesting module.
 import pytest
 import pandas as pd
 import numpy as np
-from datetime import date, timedelta
-from unittest.mock import Mock, patch, MagicMock
+from datetime import date
+from unittest.mock import Mock, patch
 
 from pages.nn_backtest import (
     BacktestParams,

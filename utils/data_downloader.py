@@ -12,10 +12,8 @@ Features:
 """
 
 import os
-import time
 from typing import Dict, List, Optional
-from datetime import date, timedelta, datetime
-from pathlib import Path
+from datetime import date, datetime
 
 import yfinance as yf
 import pandas as pd
@@ -25,7 +23,6 @@ from core.data_validator import (
     validate_symbol,
     validate_dates,
     validate_dataframe,
-    get_global_validator,
 )
 
 logger = setup_logger(__name__)

@@ -37,8 +37,6 @@ class EmailNotifier:
         """Send an email notification."""
         sender = self.username
         password = self.password
-        from email.mime.text import MIMEText
-        import smtplib
         msg = MIMEText(message)
         msg['Subject'] = subject
         msg['From'] = sender
@@ -153,7 +151,7 @@ class Notifier:
                     "StockTrader Notification",
                     message
                 )
-            except Exception as e:
+            except Exception:
                 # Log or ignore
                 pass
 

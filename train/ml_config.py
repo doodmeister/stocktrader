@@ -6,7 +6,7 @@ training with validation, security best practices, and robust error handling.
 """
 
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Dict, Any
 import os
 
 
@@ -100,7 +100,7 @@ class MLConfig:
         
         # Validate device
         if self.device not in {'cpu', 'cuda', 'mps', 'auto'}:
-            raise MLConfigError(f"device must be one of: cpu, cuda, mps, auto")
+            raise MLConfigError("device must be one of: cpu, cuda, mps, auto")
 
     def get_risk_params(self) -> Dict[str, float]:
         """Get risk management parameters as float values."""

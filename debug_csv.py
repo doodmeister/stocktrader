@@ -49,7 +49,7 @@ def test_csv_loading():
             else:
                 print(f"❌ Row count mismatch: direct={len(df_direct)}, our_function={len(df_our_function)}")
             
-            print(f"Sample data from our function:")
+            print("Sample data from our function:")
             if len(df_our_function) > 0:
                 print(df_our_function.head(2))
             else:

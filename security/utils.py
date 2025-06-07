@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import List, Optional, Union, Any
 import html
 import mimetypes
-import secrets
 
 logger = logging.getLogger(__name__)
 

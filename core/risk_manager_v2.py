@@ -21,11 +21,9 @@ Key Features:
 import os
 from dataclasses import dataclass
 from typing import Optional, Literal, Dict, Any, Union, TypeGuard, NewType, TypedDict, List
-from decimal import Decimal, ROUND_HALF_UP
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 import pandas as pd
 import numpy as np
-import math
 import threading
 from contextlib import contextmanager
 from datetime import datetime
@@ -812,11 +810,11 @@ class RiskManager:
                 if not meets_daily_limit:
                     remaining_daily_risk = DollarAmount((params.account_value * self.max_daily_loss) - current_daily_loss)
                     shares = Shares(min(shares, int(max(0, remaining_daily_risk) / risk_per_share)))
-                    logger.warning(f"Position size reduced to respect daily loss limit")
+                    logger.warning("Position size reduced to respect daily loss limit")
                 
                 if not meets_order_limit:
                     shares = Shares(min(shares, int(self.max_order_value / params.entry_price)))
-                    logger.warning(f"Position size reduced to respect order value limit")
+                    logger.warning("Position size reduced to respect order value limit")
                 
                 # Ensure non-negative shares
                 shares = Shares(max(0, shares))

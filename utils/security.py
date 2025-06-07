@@ -18,7 +18,7 @@ import streamlit as st
 import hashlib
 import secrets
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 import logging
 
 # Issue deprecation warning when module is imported

@@ -4,7 +4,6 @@ Standardized logging configuration for dashboard pages.
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 from utils.logger import setup_logger
 
 def get_dashboard_logger(

@@ -23,13 +23,13 @@ warnings.warn(
 from core.technical_indicators import IndicatorError
 
 from utils.logger import setup_logger
-from typing import Optional, Union, List, Any, Dict
+from typing import Union, List
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
 # Import centralized validation system
-from core.data_validator import validate_dataframe, DataFrameValidationResult, ValidationResult, get_global_validator
+from core.data_validator import validate_dataframe
 
 logger = setup_logger(__name__)
 

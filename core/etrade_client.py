@@ -11,12 +11,10 @@ Based on: examples/etrade/etrade_python_client.py
 import json
 import logging
 import webbrowser
-import configparser
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from rauth import OAuth1Service
-import requests
 
 # Configure logging to match E*Trade examples
 logger = logging.getLogger(__name__)

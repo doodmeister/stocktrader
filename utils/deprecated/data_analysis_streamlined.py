@@ -10,10 +10,9 @@ Optimized for conciseness while preserving all essential functionality.
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple
 import os
 from collections import defaultdict
 from dotenv import load_dotenv
@@ -22,7 +21,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Core imports
-from utils.logger import get_dashboard_logger
 from core.dashboard_utils import (
     setup_page, handle_streamlit_error, initialize_dashboard_session_state
 )
@@ -32,13 +30,12 @@ from core.session_manager import create_session_manager
 # New centralized technical analysis imports
 from core.technical_indicators import (
     calculate_rsi, calculate_macd, calculate_bollinger_bands, 
-    calculate_atr, IndicatorError
+    IndicatorError
 )
 from utils.technicals.analysis import TechnicalAnalysis, compute_price_stats, compute_return_stats
 
 # Pattern detection and utilities
 from patterns.patterns import create_pattern_detector
-from security.authentication import get_openai_api_key
 from utils.chatgpt import get_chatgpt_insight as _get_chatgpt_insight
 
 # Initialize the page and logger

@@ -15,9 +15,8 @@ Key Features:
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict, Any, Union
+from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime
-from pathlib import Path
 import warnings
 
 import random
@@ -36,17 +35,14 @@ from sklearn.metrics import (
 from utils.logger import setup_logger
 from train.deeplearning_config import TrainingConfig
 from patterns.patterns_nn import PatternNN
-from patterns.patterns import CandlestickPatterns, create_pattern_detector
-from train.model_manager import ModelManager, ModelMetadata
+from patterns.patterns import create_pattern_detector
+from train.model_manager import ModelManager
 from utils.technicals.feature_engineering import compute_technical_features
 from patterns.pattern_utils import add_candlestick_pattern_features
 
 # Import centralized data validation system
 from core.data_validator import (
-    validate_dataframe,
-    DataFrameValidationResult,
-    ValidationResult,
-    get_global_validator
+    validate_dataframe
 )
 
 # Suppress sklearn warnings for cleaner logs

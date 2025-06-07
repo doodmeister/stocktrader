@@ -9,7 +9,7 @@ from utils.logger import setup_logger
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Any
+from typing import Callable, Dict, List, Tuple, Any
 
 import numpy as np
 import pandas as pd

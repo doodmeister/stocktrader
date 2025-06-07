@@ -8,17 +8,15 @@ Supports multiple data sources with robust error handling, input validation, and
 # Standard library imports
 import functools
 import time
-import re
 import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Third-party imports
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
 import yfinance as yf
 
 # Dashboard logger setup
@@ -28,10 +26,7 @@ logger = get_dashboard_logger(__name__)
 # Core utilities
 from core.dashboard_utils import (
     setup_page, 
-    handle_streamlit_error, 
     safe_streamlit_metric, 
-    create_candlestick_chart, 
-    validate_ohlc_dataframe, 
     initialize_dashboard_session_state
 )
 
@@ -41,7 +36,7 @@ from utils.config.config import DashboardConfig
 from security.utils import sanitize_filename
 
 # Import SessionManager to solve button key conflicts and session state issues
-from core.session_manager import create_session_manager, show_session_debug_info
+from core.session_manager import create_session_manager
 
 # Import UI renderer for home button functionality
 from core.ui_renderer import UIRenderer
@@ -1169,7 +1164,6 @@ class DataDashboard:
                 f.write(json_content)
         else:
             # Use io utility for regular JSON
-            from utils.io import save_dataframe
                   # Convert to temporary dataframe for saving, or handle manually
             json_content = json.dumps(export_data, indent=2, default=str)
             with open(export_path, 'w', encoding='utf-8') as f:
