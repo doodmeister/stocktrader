@@ -37,7 +37,7 @@ from train.deeplearning_trainer import train_pattern_model
 # Classic ML pipeline
 from train.ml_trainer import ModelTrainer, TrainingParams
 from patterns.patterns import CandlestickPatterns, create_pattern_detector
-from core.dashboard_utils import (
+from core.streamlit.dashboard_utils import (
     initialize_dashboard_session_state,
     setup_page,
     handle_streamlit_error
@@ -749,7 +749,8 @@ class ModelTrainingDashboard:
             )
             model_trainer = ModelTrainer({'MODEL_DIR': str(MODELS_DIR)})
             model_manager = get_model_manager()
-            model_files = model_manager.list_models()
+            # model_files = model_manager.list_models() # Removed unused variable
+            model_manager.list_models() # Assuming the call might be important
             tab1, tab2 = st.tabs(["Model Training", "Signal Analysis"])
             with tab1:
                 render_training_page()

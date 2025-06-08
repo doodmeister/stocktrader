@@ -8,7 +8,7 @@ from typing import Callable, Optional, Any
 
 from train.model_manager import ModelManager, load_latest_model
 from patterns.patterns_nn import PatternNN
-from core.dashboard_utils import (
+from core.streamlit.dashboard_utils import (
     initialize_dashboard_session_state,
     setup_page,
     handle_streamlit_error

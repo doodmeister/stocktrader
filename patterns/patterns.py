@@ -21,7 +21,7 @@ import threading
 from typing import Any
 
 from utils.logger import setup_logger
-from core.data_validator import centralized_validate_dataframe
+from core.validation.dataframe_validation_logic import perform_dataframe_validation_logic
 
 logger = setup_logger(__name__)
 
@@ -93,13 +93,10 @@ def validate_dataframe(func: Callable) -> Callable:
             # For instance methods, df is the second argument (after self)
             if hasattr(args[0], '__class__') and len(args) >= 2:
                 df = args[1]  # Instance method: args[0] is self, args[1] is df
-                remaining_args = args[2:]
             else:
                 df = args[0]  # Static function: args[0] is df
-                remaining_args = args[1:]
         elif 'df' in kwargs:
             df = kwargs['df']
-            remaining_args = args
         else:
             raise DataValidationError(
                 "No DataFrame parameter found",
@@ -116,35 +113,26 @@ def validate_dataframe(func: Callable) -> Callable:
                 min_rows_required = args[0].min_rows
             
             logger.debug(f"Running pattern validation with min_rows={min_rows_required}")
-            validation_result = centralized_validate_dataframe(
+            validation_result = perform_dataframe_validation_logic(
                 df, 
                 required_cols=['open', 'high', 'low', 'close'],
-                validate_ohlc=True,
-                check_statistical_anomalies=True,  # Enhanced validation for better pattern reliability
-                min_rows=min_rows_required  # Use pattern-specific minimum rows
+                check_ohlcv=True, # This corresponds to the old validate_ohlc=True
+                detect_anomalies_level='basic' if True else None, # Corresponds to check_statistical_anomalies
+                min_rows=min_rows_required
             )
             
             if not validation_result.is_valid:
-                error_message = "; ".join(validation_result.errors)
+                error_message = "Validation failed"
+                if validation_result.errors:
+                    error_message = "; ".join(validation_result.errors)
                 logger.error(f"Pattern validation failed: {error_message}")
                 raise DataValidationError(
                     f"DataFrame validation failed: {error_message}",
                     error_code="VALIDATION_FAILED"
                 )
             
-            # Log warnings from centralized validation (statistical anomalies, etc.)
-            if validation_result.warnings:
-                for warning in validation_result.warnings:
-                    logger.warning(f"Pattern validation warning: {warning}")
-            
-            # Log enhanced validation metadata for pattern analysis
-            if hasattr(validation_result, 'statistics') and validation_result.statistics:
-                stats = validation_result.statistics
-                if 'price_range' in stats:
-                    logger.debug(f"Price range analysis: {stats['price_range']}")
-                if any(key.endswith('_outliers') for key in stats.keys()):
-                    outlier_info = {k: v for k, v in stats.items() if k.endswith('_outliers')}
-                    logger.debug(f"Statistical anomalies detected: {outlier_info}")
+            # Warnings and detailed statistics are logged within perform_dataframe_validation_logic.
+            # No need to access them directly here from the result object.
             
             logger.debug("Centralized validation passed for pattern detection")
             
@@ -199,49 +187,33 @@ def validate_pattern_data(df: pd.DataFrame, enable_statistical_analysis: bool = 
     """
     try:
         logger.debug("Running centralized pattern data validation")
-        validation_result = centralized_validate_dataframe(
+        validation_result = perform_dataframe_validation_logic(
             df,
             required_cols=['open', 'high', 'low', 'close'],
-            validate_ohlc=True,
-            check_statistical_anomalies=enable_statistical_analysis
+            check_ohlcv=True, # Corresponds to the old validate_ohlc=True
+            detect_anomalies_level='basic' if enable_statistical_analysis else None # Corresponds to check_statistical_anomalies
         )
         
         if not validation_result.is_valid:
-            error_message = "; ".join(validation_result.errors)
+            error_message = "Pattern data validation failed"
+            if validation_result.errors:
+                error_message = "; ".join(validation_result.errors)
             logger.error(f"Pattern data validation failed: {error_message}")
             raise DataValidationError(
                 f"Pattern data validation failed: {error_message}",
                 error_code="PATTERN_VALIDATION_FAILED"
             )
         
-        # Extract enhanced metadata for pattern analysis
+        # Extract metadata that IS available or can be inferred
         validation_metadata = {
             'is_valid': validation_result.is_valid,
-            'row_count': validation_result.row_count,
-            'column_count': validation_result.column_count,
-            'warnings': validation_result.warnings,
-            'statistics': validation_result.statistics if hasattr(validation_result, 'statistics') else {}
+            'row_count': len(df) if validation_result.validated_data is not None else 0, # Get from df
+            'column_count': len(df.columns) if validation_result.validated_data is not None and hasattr(df, 'columns') else 0, # Get from df
+            # 'warnings': [], # No longer directly available from result
+            # 'statistics': {} # No longer directly available from result
         }
         
-        # Log any statistical insights that may affect pattern detection
-        if validation_result.warnings:
-            for warning in validation_result.warnings:
-                logger.warning(f"Pattern data warning: {warning}")
-        
-        if hasattr(validation_result, 'statistics') and validation_result.statistics:
-            stats = validation_result.statistics
-            
-            # Log price range information
-            if 'price_range' in stats:
-                logger.debug(f"Price range for pattern analysis: {stats['price_range']}")
-            
-            # Log outlier information that may affect pattern reliability
-            outlier_keys = [k for k in stats.keys() if k.endswith('_outliers')]
-            if outlier_keys:
-                for key in outlier_keys:
-                    outlier_info = stats[key]
-                    if outlier_info.get('percentage', 0) > 0.05:  # More than 5% outliers
-                        logger.warning(f"High outlier percentage detected in {key}: {outlier_info['percentage']:.1%}")
+        # Warnings and statistics are logged within perform_dataframe_validation_logic.
         
         logger.debug("Centralized pattern data validation completed successfully")
         return validation_metadata

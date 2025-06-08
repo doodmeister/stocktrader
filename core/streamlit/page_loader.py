@@ -321,7 +321,7 @@ class PageLoader:
                     # Reset config-related state if it exists
                     if check in st.__dict__:
                         delattr(st, check)
-                except:
+                except Exception: # Changed bare except
                     pass  # Ignore any errors during cleanup
         
         # Log page isolation

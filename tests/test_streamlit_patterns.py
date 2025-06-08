@@ -3,9 +3,7 @@
 Test script to validate patterns management Streamlit functionality
 """
 
-import os
 import sys
-import streamlit as st
 from pathlib import Path
 
 # Add project root to Python path
@@ -21,7 +19,7 @@ def test_patterns_import():
         
         # Test class instantiation
         manager = pm.PatternsManager()
-        ui = pm.PatternsManagementUI()
+        pm.PatternsManagementUI() # Assuming instantiation might be relevant
         print("✅ Classes instantiated successfully")
         
         # Test pattern loading
@@ -76,9 +74,9 @@ def test_ui_components():
         sys.modules['streamlit'] = MockStreamlit()
         
         # Test UI instantiation
-        manager = pm.PatternsManager()
-        ui = pm.PatternsManagementUI()
-        
+        pm.PatternsManager() # Assuming instantiation might be relevant
+        pm.PatternsManagementUI() # Assuming instantiation might be relevant
+
         print("✅ UI components created successfully")
         
         # Restore original streamlit

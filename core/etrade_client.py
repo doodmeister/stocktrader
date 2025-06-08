@@ -167,7 +167,7 @@ class ETradeClient:
                         error_data = response.json()
                         if "Error" in error_data and "message" in error_data["Error"]:
                             error_msg = error_data["Error"]["message"]
-                    except:
+                    except Exception: # Changed bare except
                         pass
                 
                 raise ETradeAPIError(f"Account list error: {error_msg}")
@@ -347,7 +347,7 @@ class ETradeClient:
                         error_msg = error_data["Error"]["message"]
                     else:
                         error_msg = "Order API service error"
-                except:
+                except Exception: # Changed bare except
                     error_msg = "Order API service error"
                 
                 raise ETradeAPIError(f"Order failed: {error_msg}")

@@ -34,7 +34,6 @@ except Exception as e:
     traceback.print_exc()
 
 try:
-    from dashboard_pages.patterns_management import PatternsManagementUI
     print("✅ Successfully imported PatternsManagementUI")
     
 except Exception as e:

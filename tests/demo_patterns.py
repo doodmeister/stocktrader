@@ -24,8 +24,8 @@ def main():
     
     # Create instances
     manager = PatternsManager()
-    ui = PatternsManagementUI()
-    
+    PatternsManagementUI() # Assuming instantiation might be relevant for some tests
+
     # Show basic stats
     patterns = manager.get_all_patterns()
     st.success(f"✅ Successfully loaded {len(patterns)} patterns!")

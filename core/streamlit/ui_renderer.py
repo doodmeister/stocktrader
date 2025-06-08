@@ -32,9 +32,9 @@ class UIRenderer:
             try:
                 # Fallback to experimental API for older versions
                 st.experimental_set_query_params(page=page)
-            except:
+            except Exception: # Changed bare except
                 # If neither works, just continue without query params
-                self.logger.warning("Unable to update query params - Streamlit API not available")
+                self.logger.warning("Streamlit query parameter API not available") # Used self.logger
                 pass
     
     def render_home_page(self, pages_config: List, state_manager) -> None:

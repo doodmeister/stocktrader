@@ -46,26 +46,26 @@ class PageContext:
 class SessionManager:
     """
     Comprehensive session state management for StockTrader dashboards.
-    
-    Provides automatic namespacing, key conflict prevention, and session isolation
-    to solve recurring button and form key issues in the modular architecture.
+    Now supports optional tab context for widget key namespacing.
     """
     
-    def __init__(self, page_name: str = "main"):
+    def __init__(self, page_name: str = "main", tab: Optional[str] = None):
         """
-        Initialize the session manager for a specific dashboard page.
+        Initialize the session manager for a specific dashboard page and optional tab.
         
         Args:
             page_name: Name of the dashboard page (auto-detected if None)
+            tab: Optional tab context for further key namespacing
         """
         self.page_name = page_name or self._detect_page_name()
         self.namespace = self._generate_namespace()
         self.session_id = self._get_or_create_session_id()
+        self.tab = tab
         
         # Initialize page context
         self._initialize_page_context()
         
-        logger.debug(f"SessionManager initialized for {self.page_name} with namespace {self.namespace}")
+        logger.debug(f"SessionManager initialized for {self.page_name} (tab={self.tab}) with namespace {self.namespace}")
     
     def _detect_page_name(self) -> str:
         """Automatically detect the current page name from the call stack."""
@@ -103,6 +103,10 @@ class SessionManager:
                 session_id=self.session_id
             )
     
+    def _tab_prefix(self) -> str:
+        """Return tab prefix for key if tab context is set."""
+        return f"{self.tab}_" if self.tab else ""
+
     def get_unique_key(self, base_key: str, key_type: str = "button") -> str:
         """
         Generate a stable unique key for buttons, forms, or other Streamlit components.
@@ -112,11 +116,10 @@ class SessionManager:
             key_type: Type of component ("button", "form", "input", etc.)
             
         Returns:
-            str: Stable unique key that won't conflict with other pages
+            str: Stable unique key that won't conflict with other pages or tabs
         """
-        # Create stable keys using namespace and base_key only
-        # This ensures consistent keys across reruns for proper Streamlit functionality
-        unique_key = f"{self.namespace}_{key_type}_{base_key}"
+        tab_prefix = self._tab_prefix()
+        unique_key = f"{self.namespace}_{tab_prefix}{key_type}_{base_key}"
         
         # Track this key for cleanup
         context_key = f"_page_context_{self.namespace}"

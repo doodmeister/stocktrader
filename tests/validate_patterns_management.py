@@ -5,7 +5,6 @@ Tests all four core functionalities without Streamlit dependencies.
 """
 
 import sys
-import os
 from pathlib import Path
 
 # Add the project root to the Python path
@@ -116,7 +115,7 @@ def test_core_functionality():
     print("3. ✅ Download patterns data - JSON, CSV, source code exports")
     print("4. ✅ Add new patterns - Template system with validation")
     
-    print(f"\n🚀 Ready to use! Run: streamlit run dashboard_pages/patterns_management.py")
+    print("\n🚀 Ready to use! Run: streamlit run dashboard_pages/patterns_management.py")
     return True
 
 if __name__ == "__main__":

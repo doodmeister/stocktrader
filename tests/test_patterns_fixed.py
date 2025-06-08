@@ -13,8 +13,8 @@ def test_patterns_management():
         # Test class instantiation
         manager = PatternsManager()
         print("✅ PatternsManager created successfully")
-        
-        ui = PatternsManagementUI()
+
+        PatternsManagementUI() # Assuming instantiation might be relevant
         print("✅ PatternsManagementUI created successfully")
         
         # Test basic pattern loading

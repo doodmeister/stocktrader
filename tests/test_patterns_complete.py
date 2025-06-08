@@ -53,7 +53,7 @@ def test_patterns_management():
         
         # Test UI components
         print("\n🎨 Testing UI components:")
-        ui = PatternsManagementUI()
+        PatternsManagementUI() # Assuming instantiation might be relevant
         print("✅ PatternsManagementUI instantiated successfully")
         
         print("\n🎉 All tests passed! Patterns management system is ready!")
@@ -61,8 +61,8 @@ def test_patterns_management():
         # Summary
         print("\n📊 System Summary:")
         print(f"   • Total patterns available: {len(patterns)}")
-        print(f"   • Export formats: JSON, CSV, Source Code")
-        print(f"   • UI components: Pattern Viewer, Catalog, Download, Add Pattern")
+        print("   • Export formats: JSON, CSV, Source Code")
+        print("   • UI components: Pattern Viewer, Catalog, Download, Add Pattern")
         
         return True
         

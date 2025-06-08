@@ -18,7 +18,7 @@ import json
 import time
 import traceback
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Any, Union
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -28,22 +28,25 @@ import yfinance as yf
 # Optional imports
 try:
     import ta
+    import ta.trend
+    TA_AVAILABLE = True
 except ImportError:
     ta = None
+    TA_AVAILABLE = False
     st.warning("📊 Technical analysis library (ta) not available. Some indicators may be disabled.")
 
 from patterns.patterns import CandlestickPatterns
 from utils.chatgpt import get_chatgpt_insight
 from core.data_validator import validate_symbol
 from security.authentication import get_openai_api_key
-from core.dashboard_utils import (
-    safe_streamlit_metric, 
-    handle_streamlit_error, 
-    setup_page
+from core.streamlit.dashboard_utils import (
+    handle_streamlit_error,
+    setup_page,
+    safe_streamlit_metric  # Add this import
 )
 
 # Import the SessionManager to solve button key conflicts and session state issues
-from core.session_manager import create_session_manager, show_session_debug_info
+from core.streamlit.session_manager import create_session_manager, show_session_debug_info
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
@@ -99,13 +102,29 @@ class DataProcessor:
         """
         try:
             if isinstance(series_or_df, pd.DataFrame):
-                return series_or_df.iloc[:, 0]
+                return series_or_df.iloc[:, 0]  # type: ignore
             elif hasattr(series_or_df, 'values') and series_or_df.values.ndim == 2:
-                return pd.Series(series_or_df.values.flatten(), index=series_or_df.index)
+                # Handle 2D arrays by taking the first column
+                values = series_or_df.values
+                try:
+                    # Try multiple methods to flatten the array
+                    if hasattr(values, 'flatten'):
+                        flattened_values = values.flatten()  # type: ignore
+                    elif hasattr(values, 'ravel'):
+                        flattened_values = values.ravel()  # type: ignore
+                    else:
+                        # Fall back to taking first column
+                        flattened_values = values[:, 0] if values.ndim == 2 else values
+                    return pd.Series(flattened_values, index=series_or_df.index)
+                except Exception:
+                    # If all else fails, just take the first column
+                    return series_or_df.iloc[:, 0] if hasattr(series_or_df, 'iloc') else series_or_df  # type: ignore
             return series_or_df
         except Exception as e:
             logger.error(f"Error flattening column: {e}")
-            return pd.Series()    @staticmethod
+            return pd.Series()
+
+    @staticmethod
     @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
     def fetch_stock_data(ticker: str, period: str, interval: str) -> pd.DataFrame:
         """
@@ -139,8 +158,9 @@ class DataProcessor:
             else:
                 data = yf.download(ticker, period=period, interval=interval)
                 
-            if data.empty:
+            if data is None or data.empty:
                 logger.warning(f"No data returned for {ticker}")
+                return pd.DataFrame()
                 
             return data
             
@@ -152,8 +172,7 @@ class DataProcessor:
     def process_data(data: pd.DataFrame) -> pd.DataFrame:
         """
         Process raw stock data for consistent format.
-        
-        Args:
+          Args:
             data: Raw stock data from yfinance
             
         Returns:
@@ -167,11 +186,15 @@ class DataProcessor:
             if isinstance(data.columns, pd.MultiIndex):
                 data.columns = ['_'.join([str(c) for c in col]).rstrip('_') 
                                for col in data.columns.values]
-
+            
             # Handle timezone
-            if data.index.tzinfo is None:
-                data.index = data.index.tz_localize('UTC')
-            data.index = data.index.tz_convert('US/Eastern')
+            try:
+                if hasattr(data.index, 'tzinfo') and data.index.tzinfo is None:  # type: ignore
+                    data.index = data.index.tz_localize('UTC')  # type: ignore
+                data.index = data.index.tz_convert('US/Eastern')  # type: ignore
+            except Exception as e:
+                logger.warning(f"Error handling timezone conversion: {e}")
+                # Continue without timezone conversion
             
             # Reset index and standardize column names
             data.reset_index(inplace=True)
@@ -247,7 +270,6 @@ class TechnicalAnalyzer:
             processor = DataProcessor()
             
             close_col = processor.find_close_column(data)
-            open_col = processor.find_column(data, 'open')
             high_col = processor.find_column(data, 'high')
             low_col = processor.find_column(data, 'low')
             volume_col = processor.find_column(data, 'volume')
@@ -296,14 +318,18 @@ class TechnicalAnalyzer:
                 
             processor = DataProcessor()
             close_col = processor.find_close_column(data)
-            close_series = processor.flatten_column(data[close_col])
-            
-            # Only calculate indicators if we have enough data
-            if len(close_series) >= 20:
-                data['sma_20'] = ta.trend.sma_indicator(close_series, window=20)
-                data['ema_20'] = ta.trend.ema_indicator(close_series, window=20)
+            close_series = processor.flatten_column(data[close_col])            # Only calculate indicators if we have enough data and ta is available
+            if len(close_series) >= 20 and TA_AVAILABLE:
+                try:
+                    # Type ignore for ta library access
+                    data['sma_20'] = ta.trend.sma_indicator(close_series, window=20)  # type: ignore
+                    data['ema_20'] = ta.trend.ema_indicator(close_series, window=20)  # type: ignore
+                except Exception as e:
+                    logger.warning(f"Error calculating technical indicators: {e}")
+                    data['sma_20'] = None
+                    data['ema_20'] = None
             else:
-                logger.warning("Insufficient data for 20-period indicators")
+                logger.warning("Insufficient data for 20-period indicators or ta library not available")
                 data['sma_20'] = None
                 data['ema_20'] = None
                 
@@ -446,7 +472,6 @@ class ChartBuilder:
             
             # Find required columns
             close_col = processor.find_close_column(data)
-            open_col = processor.find_column(data, 'open')
             high_col = processor.find_column(data, 'high')
             low_col = processor.find_column(data, 'low')
             
@@ -456,7 +481,7 @@ class ChartBuilder:
             if chart_type == 'Candlestick':
                 fig.add_trace(go.Candlestick(
                     x=data['datetime'],
-                    open=processor.flatten_column(data[open_col]),
+                    open=processor.flatten_column(data[close_col]),
                     high=processor.flatten_column(data[high_col]),
                     low=processor.flatten_column(data[low_col]),
                     close=processor.flatten_column(data[close_col]),
@@ -722,11 +747,8 @@ def render_sidebar_prices():
     st.session_state['sidebar_price_cache'] = sidebar_cache
 
 
-def render_main_dashboard():
+def render_main_dashboard(session_manager):
     """Render the main dashboard content."""
-      # Create SessionManager to handle button conflicts and state isolation
-    session_manager = create_session_manager("realtime_dashboard")
-    
     # Initialize components
     processor = DataProcessor()
     analyzer = TechnicalAnalyzer()
@@ -917,7 +939,7 @@ def render_main_dashboard():
 def main():
     """Main dashboard function."""
     try:        # Create SessionManager for this function scope
-        session_manager = create_session_manager("realtime_dashboard_main")
+        session_manager = create_session_manager("realtime_dashboard")
         
         # Only setup page if we're not being loaded by the main dashboard
         # The main dashboard handles page configuration
@@ -929,8 +951,8 @@ def main():
             )
         else:            # When loaded by main dashboard, just set the title
             st.title('📊 Real-Time Stock Dashboard')
-          # Render main dashboard
-        render_main_dashboard()
+          # Render main dashboard with shared session manager
+        render_main_dashboard(session_manager)
         
         # Render sidebar content - temporarily disabled due to rate limiting
         # render_sidebar_prices()
@@ -949,9 +971,8 @@ def main():
                     "Error Count": st.session_state.get('error_count', 0),
                     "Last Update": str(st.session_state.get('last_update', 'Never'))
                 })
-        
-        # Show SessionManager debug info to help troubleshoot conflicts
-        show_session_debug_info()
+          # Show SessionManager debug info to help troubleshoot conflicts
+        show_session_debug_info(session_manager)
             
     except Exception as e:
         st.error(f"Critical dashboard error: {e}")

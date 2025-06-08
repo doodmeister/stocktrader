@@ -52,7 +52,7 @@ import plotly.express as px
 # Local imports - Update paths based on your project structure
 try:
     from utils.logger import get_logger
-    from core.dashboard_utils import (
+    from core.streamlit.dashboard_utils import (
         setup_page, 
         render_performance_metrics,
         validate_session_state,

@@ -32,7 +32,7 @@ from core.etrade_auth_ui import (
 )
 from utils.technicals.analysis import add_technical_indicators
 from core.safe_requests import safe_request
-from core.dashboard_utils import (
+from core.streamlit.dashboard_utils import (
     initialize_dashboard_session_state,
     setup_page,
     handle_streamlit_error

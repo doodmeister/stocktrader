@@ -4,7 +4,6 @@ Comprehensive test for patterns management system
 """
 import sys
 import os
-from pathlib import Path
 
 # Ensure we're in the right directory and add to path
 os.chdir('/c/dev/stocktrader')
@@ -52,7 +51,7 @@ def main():
         
         # Test 5: Create UI instance
         print("\n🎨 Step 5: Testing UI components...")
-        ui = pm.PatternsManagementUI()
+        pm.PatternsManagementUI() # Assuming instantiation might be relevant
         print("   ✅ PatternsManagementUI created")
         
         # Test 6: Initialize page function

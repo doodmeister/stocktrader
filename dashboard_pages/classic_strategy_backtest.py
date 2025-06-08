@@ -1,11 +1,14 @@
 import streamlit as st
-from datetime import datetime
-from utils.backtester import run_backtest  # Ensure this function is properly defined in backtester.py
-from core.dashboard_utils import (
+
+from core.streamlit.dashboard_utils import (
+    handle_streamlit_error,
     initialize_dashboard_session_state,
-    setup_page,
-    handle_streamlit_error
+    setup_page
 )
+
+from datetime import datetime
+
+from utils.backtester import run_backtest  # Ensure this function is properly defined in backtester.py
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger

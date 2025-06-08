@@ -16,7 +16,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from core.dashboard_utils import (
+from core.streamlit.dashboard_utils import (
     DashboardStateManager,
     handle_streamlit_error,
     safe_streamlit_metric,
@@ -27,7 +27,7 @@ from core.data_validator import (
     get_global_validator,
     validate_symbols
 )
-from core.session_manager import create_session_manager, show_session_debug_info
+from core.streamlit.session_manager import create_session_manager, show_session_debug_info
 from utils.config.config import DashboardConfig
 from utils.data_downloader import download_stock_data
 from utils.logger import get_dashboard_logger

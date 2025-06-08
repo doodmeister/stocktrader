@@ -23,7 +23,7 @@ import traceback
 # Import core modules
 try:
     from utils.logger import get_dashboard_logger
-    from core.dashboard_utils import handle_streamlit_error, initialize_dashboard_session_state
+    from core.streamlit.dashboard_utils import handle_streamlit_error, initialize_dashboard_session_state
     from core.data_validator import validate_dataframe as core_validate_dataframe
     from core.session_manager import create_session_manager
     from core.technical_indicators import (
@@ -44,8 +44,9 @@ except ImportError:
     
     def handle_streamlit_error(error: Exception, context: str = ""):
         logger.error(f"Error in {context}: {str(error)}")
-        if 'st' in globals():        st.error(f"Error: {str(error)}")
-    
+        if 'st' in globals():
+            st.error(f"Error: {str(error)}")
+
     def initialize_dashboard_session_state():
         pass
         

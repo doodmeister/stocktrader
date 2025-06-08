@@ -736,6 +736,20 @@ stocktrader/
 ├── core/                             # 🆕 Core dashboard modules (COMPLETED ✅)
 │   ├── dashboard_controller.py       # Main UI orchestration and navigation
 │   ├── data_validator.py             # Main data validator for all scripts
+│   ├── streamlit/                    # 🆕 Streamlit functionality
+│   │   ├── dashboard_controller.py   # Streamlit dashboard controller
+│   │   ├── dashboard_utils.py        # Streamlit utilities
+│   │   ├── health_checks.py          # Streamlit health checks
+│   │   ├── page_loader.py            # Streamlit page loader
+│   │   ├── session_manager.py        # Streamlit session management
+│   │   ├── ui_renderer.py            # ✅ NEW: UI component rendering and presentation Layer
+|
+│   ├── validation/                   # 🆕 Validation logic modules
+│   │   ├── __init__.py
+│   │   ├── dataframe_validation_logic.py # DataFrame specific validation
+│   │   ├── validation_config.py      # Validation configuration settings
+│   │   ├── validation_models.py      # Validation result models
+│   │   ├── validation_results.py     # Validation result classes 
 │   ├── session_manager.py            # Handles user sessions and state
 │   ├── page_loader.py                # Dynamic page discovery and management
 │   ├── health_checks.py              # Comprehensive system health monitoring

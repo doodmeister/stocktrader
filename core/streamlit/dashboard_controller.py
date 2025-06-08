@@ -10,9 +10,9 @@ import time
 from typing import Optional
 from pathlib import Path
 
-from core.page_loader import PageLoader
-from core.health_checks import HealthChecker
-from core.ui_renderer import UIRenderer
+from core.streamlit.page_loader import PageLoader
+from core.streamlit.health_checks import HealthChecker
+from core.streamlit.ui_renderer import UIRenderer
 from utils.logger import get_dashboard_logger
 
 
@@ -54,7 +54,7 @@ class StockTraderMainDashboard:
                 # Fallback to experimental API for older versions
                 query_params = st.experimental_get_query_params()
                 initial_page = query_params.get("page", ["home"])[0]
-            except:
+            except Exception: # Changed bare except
                 # Final fallback if neither API is available
                 query_params = {}
                 initial_page = "home"
@@ -82,7 +82,7 @@ class StockTraderMainDashboard:
     def _initialize_state_manager(self) -> Optional[object]:
         """Initialize dashboard state manager with error handling."""
         try:
-            from core.dashboard_utils import DashboardStateManager
+            from core.streamlit.dashboard_utils import DashboardStateManager
             return DashboardStateManager()
         except Exception as e:
             self.logger.error(f"Failed to initialize state manager: {e}")
@@ -176,7 +176,7 @@ class StockTraderMainDashboard:
         """
         try:
             # Import here to avoid circular imports
-            from ..security.authentication import validate_session_security
+            from ...security.authentication import validate_session_security
             return validate_session_security()
         except ImportError:
             self.logger.warning("Security validation module not available")

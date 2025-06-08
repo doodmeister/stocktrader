@@ -17,12 +17,10 @@ import streamlit as st
 import pandas as pd
 
 # Import existing business logic
-from core.dashboard_utils import (
-    initialize_dashboard_session_state,
-    safe_file_write,
-    handle_streamlit_error,
+from core.streamlit.dashboard_utils import (
     setup_page
 )
+from core.streamlit.session_manager import SessionManager # Add this import
 
 from patterns.pattern_utils import (
     read_patterns_file,
@@ -35,6 +33,17 @@ from patterns.pattern_utils import (
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
 
+# Defensive cleanup for legacy/generic keys (until all keys are managed)
+LEGACY_KEYS = [
+    'select', 'input', 'button', 'download_json', 'download_csv', 'save_source',
+    'patterns_viewer_main_select', 'catalog_type_filter', 'catalog_strength_filter',
+    'catalog_rows_filter', 'pattern_template_select', 'new_pattern_code',
+    'validate_new_pattern', 'save_new_pattern', 'reset_new_pattern'
+]
+for key in LEGACY_KEYS:
+    if key in st.session_state:
+        del st.session_state[key]
+
 def initialize_patterns_page():
     """Initialize the Streamlit page - call this when running in Streamlit context."""
     setup_page(
@@ -46,16 +55,18 @@ def initialize_patterns_page():
 
 class PatternsManager:
     """Core business logic for pattern management."""
-    
+
     def __init__(self):
         self.patterns_file_path = Path("patterns/patterns.py")
-    
-    def get_all_patterns(self) -> List[Dict[str, Any]]:
+
+    @st.cache_data  # Cache the results of this method
+    def get_all_patterns(_self) -> List[Dict[str, Any]]:  # Changed self to _self
         """Get all patterns with their metadata."""
         patterns = []
         try:
+            # Access attributes using _self.patterns_file_path if needed, though not used here
             pattern_names = get_pattern_names()
-            
+
             for name in pattern_names:
                 pattern_info = {
                     'name': name,
@@ -65,7 +76,7 @@ class PatternsManager:
                     'strength': 'Unknown',
                     'min_rows': 'Unknown'
                 }
-                
+
                 # Get method and documentation
                 method = get_pattern_method(name)
                 if method:
@@ -74,19 +85,20 @@ class PatternsManager:
                         pattern_info['source_code'] = inspect.getsource(method)
                     except Exception:
                         pattern_info['source_code'] = 'Source code not available'
-                
+
                 patterns.append(pattern_info)
-                
+
         except Exception as e:
             logger.error(f"Error getting patterns: {e}")
-            
+
         return patterns
-    
-    def export_patterns_data(self, format_type: str = 'json') -> Optional[str]:
+
+    @st.cache_data
+    def export_patterns_data(_self, format_type: str = 'json') -> Optional[str]:  # Changed self to _self
         """Export patterns data in specified format."""
         try:
-            patterns = self.get_all_patterns()
-            
+            patterns = _self.get_all_patterns()  # Call with _self
+
             if format_type == 'json':
                 return json.dumps(patterns, indent=2, default=str)
             elif format_type == 'csv':
@@ -102,19 +114,21 @@ class PatternsManager:
                     })
                 df = pd.DataFrame(simplified)
                 return df.to_csv(index=False)
-            
+
         except Exception as e:
             logger.error(f"Error exporting patterns: {e}")
             return None
-    
-    def get_patterns_source_code(self) -> Optional[str]:
+
+    @st.cache_data
+    def get_patterns_source_code(_self) -> Optional[str]:  # Changed self to _self
         """Get the complete patterns.py source code."""
         try:
             return read_patterns_file()
         except Exception as e:
             logger.error(f"Error reading patterns file: {e}")
             return None
-    
+
+    # save_new_pattern should not be cached as it performs a write operation
     def save_new_pattern(self, pattern_code: str) -> tuple[bool, str]:
         """Save new pattern to patterns.py file."""
         try:
@@ -122,12 +136,12 @@ class PatternsManager:
             is_valid = validate_python_code(pattern_code)
             if not is_valid:
                 return False, "Invalid Python syntax in the pattern code"
-            
+
             # Get current content
             current_content = read_patterns_file()
             if not current_content:
                 return False, "Could not read current patterns file"
-            
+
             # Append new pattern (insert before the last line)
             lines = current_content.strip().split('\n')
             if lines:
@@ -135,14 +149,14 @@ class PatternsManager:
                 new_content = '\n'.join(lines[:-1]) + '\n\n' + pattern_code + '\n' + lines[-1]
             else:
                 new_content = pattern_code
-            
+
             # Save with backup
             success, message, backup_path = safe_file_write(
-                self.patterns_file_path, 
-                new_content, 
+                self.patterns_file_path,
+                new_content,
                 create_backup=True
             )
-            
+
             if success:
                 # Clear cache
                 if hasattr(st, 'cache_data'):
@@ -150,7 +164,7 @@ class PatternsManager:
                 return True, f"Pattern saved successfully. Backup created at: {backup_path}"
             else:
                 return False, message
-                
+
         except Exception as e:
             logger.error(f"Error saving pattern: {e}")
             return False, f"Error saving pattern: {str(e)}"
@@ -158,115 +172,121 @@ class PatternsManager:
 
 class PatternsManagementUI:
     """UI controller for patterns management."""
-    
-    def __init__(self):
+
+    def __init__(self, page_name: str = "patterns_management", tab: Optional[str] = None):
         self.manager = PatternsManager()
-        
+        self.session_manager = SessionManager(page_name=page_name, tab=tab)  # Pass tab context for tab-safe keys
+
     def render_patterns_viewer(self):
         """Render individual pattern viewer section."""
         st.header("🔍 Pattern Viewer")
-        
+
         patterns = self.manager.get_all_patterns()
         if not patterns:
             st.warning("No patterns found in the system.")
             return
-        
+
         pattern_names = [p['name'] for p in patterns]
-        selected_pattern = st.selectbox(
+
+        # Use SessionManager for stable pattern selection
+        # Create a stable key for the dropdown selection
+        selected_pattern_name = self.session_manager.create_selectbox(
             "Select a pattern to view details:",
-            pattern_names,
-            key="pattern_viewer_select",
-            index=0 if 'selected_pattern_for_viewer' not in st.session_state else (
-                pattern_names.index(st.session_state['selected_pattern_for_viewer']) 
-                if st.session_state['selected_pattern_for_viewer'] in pattern_names 
-                else 0
-            )
+            options=pattern_names,
+            selectbox_name="patterns_viewer_main_select"
         )
+
+        # Find the selected pattern's data
+        pattern_data = next((p for p in patterns if p['name'] == selected_pattern_name), None)
         
-        if selected_pattern:
-            pattern_data = next((p for p in patterns if p['name'] == selected_pattern), None)
-            if pattern_data:
-                # Pattern header
-                col1, col2, col3 = st.columns([2, 1, 1])
-                with col1:
-                    st.subheader(f"📊 {pattern_data['name']}")
-                with col2:
-                    st.metric("Type", pattern_data['pattern_type'])
-                with col3:
-                    st.metric("Strength", pattern_data['strength'])
-                
-                # Pattern description
-                st.markdown("**Description:**")
-                st.info(pattern_data['description'])
-                
-                # Pattern details
-                with st.expander("📋 Pattern Details", expanded=False):
-                    st.markdown(f"**Minimum Rows Required:** {pattern_data['min_rows']}")
-                    st.markdown(f"**Pattern Type:** {pattern_data['pattern_type']}")
-                    st.markdown(f"**Pattern Strength:** {pattern_data['strength']}")
-                
-                # Source code viewer
-                with st.expander("💻 Source Code", expanded=False):
-                    if pattern_data['source_code']:
-                        st.code(pattern_data['source_code'], language='python')
-                    else:
-                        st.warning("Source code not available for this pattern.")
-    
+        # Fallback to first pattern if selection is invalid
+        if not pattern_data and pattern_names:
+            pattern_data = patterns[0]
+            selected_pattern_name = pattern_data['name']
+
+        if pattern_data:
+            # Pattern header
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                st.subheader(f"📊 {pattern_data['name']}")
+            with col2:
+                st.metric("Type", pattern_data['pattern_type'])
+            with col3:
+                st.metric("Strength", pattern_data['strength'])
+
+            # Pattern description
+            st.markdown("**Description:**")
+            st.info(pattern_data['description'])
+
+            # Pattern details
+            with st.expander("📋 Pattern Details", expanded=False):
+                st.markdown(f"**Minimum Rows Required:** {pattern_data['min_rows']}")
+                st.markdown(f"**Pattern Type:** {pattern_data['pattern_type']}")
+                st.markdown(f"**Pattern Strength:** {pattern_data['strength']}")
+
+            # Source code viewer
+            with st.expander("💻 Source Code", expanded=False):
+                if pattern_data['source_code']:
+                    st.code(pattern_data['source_code'], language='python')
+                else:
+                    st.warning("Source code not available for this pattern.")
+
+        else:
+            st.info("Select a pattern to view its details.")
+
     def render_patterns_catalog(self):
         """Render patterns catalog with grid view."""
         st.header("📚 Pattern Catalog")
-        
+
         patterns = self.manager.get_all_patterns()
         if not patterns:
             st.warning("No patterns found in the system.")
             return
-        
+
         # Filters
         col1, col2, col3 = st.columns(3)
         with col1:
             pattern_types = list(set(p['pattern_type'] for p in patterns))
-            selected_type = st.selectbox(
+            selected_type = self.session_manager.create_selectbox(
                 "Filter by Type:",
-                ['All'] + pattern_types,
-                key="catalog_type_filter"
+                options=['All'] + pattern_types,
+                selectbox_name="catalog_type_filter"
             )
-        
         with col2:
             strengths = list(set(p['strength'] for p in patterns))
-            selected_strength = st.selectbox(
+            selected_strength = self.session_manager.create_selectbox(
                 "Filter by Strength:",
-                ['All'] + strengths,
-                key="catalog_strength_filter"
+                options=['All'] + strengths,
+                selectbox_name="catalog_strength_filter"
             )
-        
         with col3:
             min_rows_values = [p['min_rows'] for p in patterns if str(p['min_rows']).isdigit()]
             if min_rows_values:
-                min_rows_filter = st.slider(
+                min_rows_filter = self.session_manager.create_slider(
                     "Minimum Rows Required:",
                     min_value=1,
                     max_value=max(int(r) for r in min_rows_values) if min_rows_values else 5,
                     value=1,
-                    key="catalog_rows_filter"
+                    slider_name="catalog_rows_filter"
                 )
             else:
                 min_rows_filter = 1
-        
+
         # Apply filters
         filtered_patterns = patterns
         if selected_type != 'All':
             filtered_patterns = [p for p in filtered_patterns if p['pattern_type'] == selected_type]
         if selected_strength != 'All':
             filtered_patterns = [p for p in filtered_patterns if p['strength'] == selected_strength]
-        
+
         # Filter by min_rows
         filtered_patterns = [
-            p for p in filtered_patterns 
+            p for p in filtered_patterns
             if str(p['min_rows']).isdigit() and int(p['min_rows']) >= min_rows_filter
         ]
-        
+
         st.markdown(f"**Showing {len(filtered_patterns)} of {len(patterns)} patterns**")
-        
+
         # Display patterns in a grid
         if filtered_patterns:
             cols_per_row = 2
@@ -281,24 +301,29 @@ class PatternsManagementUI:
                                 st.caption(f"Type: {pattern['pattern_type']} | Strength: {pattern['strength']}")
                                 description = pattern['description'][:100] + "..." if len(pattern['description']) > 100 else pattern['description']
                                 st.text(description)
-                                if st.button(f"View Details", key=f"catalog_view_details_{i}_{j}"):
-                                    st.session_state['selected_pattern_for_viewer'] = pattern['name']
-                                    st.info(f"Selected {pattern['name']} - Switch to Pattern Viewer tab to see details")
+                                if self.session_manager.create_button(
+                                    "View Details",
+                                    button_name=f"catalog_view_details_{pattern['name']}"
+                                ):
+                                    # Update the pattern viewer selection and switch to viewer section
+                                    viewer_key = self.session_manager.get_unique_key("patterns_viewer_main_select", "selectbox")
+                                    st.session_state[viewer_key] = pattern['name']
+                                    st.session_state['active_section'] = "viewer"
+                                    st.rerun()
         else:
             st.info("No patterns match the selected filters.")
-    
+
     def render_download_section(self):
         """Render download section for patterns data."""
         st.header("📥 Download Patterns")
-        
+
         st.markdown("Export pattern data in various formats:")
-        
+
         col1, col2, col3 = st.columns(3)
-        
         with col1:
             st.subheader("JSON Export")
             st.markdown("Complete pattern data with descriptions and metadata")
-            if st.button("📄 Download JSON", key="download_json"):
+            if self.session_manager.create_button("📄 Download JSON", button_name=f"{self.session_manager.page_name}_download_json"):
                 json_data = self.manager.export_patterns_data('json')
                 if json_data:
                     st.download_button(
@@ -306,15 +331,14 @@ class PatternsManagementUI:
                         data=json_data,
                         file_name=f"patterns_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                         mime="application/json",
-                        key="save_json"
+                        key=f"{self.session_manager.page_name}_save_json"
                     )
                 else:
                     st.error("Failed to export JSON data")
-        
         with col2:
             st.subheader("CSV Export")
             st.markdown("Simplified pattern data for spreadsheet analysis")
-            if st.button("📊 Download CSV", key="download_csv"):
+            if self.session_manager.create_button("📊 Download CSV", button_name=f"{self.session_manager.page_name}_download_csv"):
                 csv_data = self.manager.export_patterns_data('csv')
                 if csv_data:
                     st.download_button(
@@ -322,15 +346,14 @@ class PatternsManagementUI:
                         data=csv_data,
                         file_name=f"patterns_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv",
-                        key="save_csv"
+                        key=f"{self.session_manager.page_name}_save_csv"
                     )
                 else:
                     st.error("Failed to export CSV data")
-        
         with col3:
             st.subheader("Source Code")
             st.markdown("Complete patterns.py source code")
-            if st.button("💻 Download Source", key="download_source"):
+            if self.session_manager.create_button("💻 Download Source", button_name=f"{self.session_manager.page_name}_download_source"):
                 source_code = self.manager.get_patterns_source_code()
                 if source_code:
                     st.download_button(
@@ -338,11 +361,11 @@ class PatternsManagementUI:
                         data=source_code,
                         file_name=f"patterns_source_{datetime.now().strftime('%Y%m%d_%H%M%S')}.py",
                         mime="text/python",
-                        key="save_source"
+                        key=f"{self.session_manager.page_name}_save_source"
                     )
                 else:
                     st.error("Failed to get source code")
-        
+
         # Export statistics
         patterns = self.manager.get_all_patterns()
         if patterns:
@@ -360,29 +383,29 @@ class PatternsManagementUI:
             with col4:
                 with_source = len([p for p in patterns if p['source_code'] != 'Source code not available'])
                 st.metric("With Source Code", with_source)
-    
+
     def render_add_pattern_section(self):
         """Render section for adding new patterns."""
         st.header("➕ Add New Pattern")
-        
+
         st.markdown("Add a new candlestick pattern to the system:")
-        
+
         # Pattern template selector
-        template_type = st.selectbox(
+        template_type = self.session_manager.create_selectbox(
             "Select Pattern Template:",
-            [
+            options=[
                 "Empty Pattern",
                 "Bullish Pattern Template", 
                 "Bearish Pattern Template",
                 "Reversal Pattern Template",
                 "Continuation Pattern Template"
             ],
-            key="pattern_template_select"
+            selectbox_name="pattern_template_select"
         )
-        
+
         # Generate template code
-        template_code = self._get_pattern_template(template_type)
-        
+        template_code = self._get_pattern_template(template_type or "Empty Pattern")
+
         # Code editor
         st.subheader("Pattern Code")
         pattern_code = st.text_area(
@@ -390,14 +413,14 @@ class PatternsManagementUI:
             value=template_code,
             height=400,
             help="Write a function that detects your candlestick pattern. Follow the existing pattern structure.",
-            key="new_pattern_code"
+            key=self.session_manager.get_unique_key("new_pattern_code", "text_area")
         )
-        
+
         # Validation and save buttons
         col1, col2, col3 = st.columns([1, 1, 1])
-        
+
         with col1:
-            if st.button("✅ Validate Code", key="validate_new_pattern"):
+            if self.session_manager.create_button("✅ Validate Code", button_name="validate_new_pattern"):
                 if pattern_code.strip():
                     is_valid = validate_python_code(pattern_code)
                     if is_valid:
@@ -406,221 +429,220 @@ class PatternsManagementUI:
                         st.error("❌ Syntax error in the pattern code")
                 else:
                     st.warning("Please enter some code to validate.")
-        
+
         with col2:
-            if st.button("💾 Save Pattern", key="save_new_pattern"):
+            if self.session_manager.create_button("💾 Save Pattern", button_name="save_new_pattern"):
                 if pattern_code.strip():
                     success, message = self.manager.save_new_pattern(pattern_code)
                     if success:
                         st.success(f"✅ {message}")
                         st.balloons()
-                        # Clear the code editor
                         st.session_state['new_pattern_code'] = ""
                         st.rerun()
                     else:
                         st.error(f"❌ {message}")
                 else:
                     st.warning("Please enter pattern code before saving.")
-        
+
         with col3:
-            if st.button("🔄 Reset Code", key="reset_new_pattern"):
+            if self.session_manager.create_button("🔄 Reset Code", button_name="reset_new_pattern"):
                 st.session_state['new_pattern_code'] = template_code
                 st.rerun()
-        
+
         # Help section
         with st.expander("📖 Pattern Development Guide", expanded=False):
             st.markdown("""
             **Pattern Development Guidelines:**
-            
+
             1. **Function Structure**: Each pattern should be a function that takes a DataFrame and returns a boolean
             2. **Data Access**: Use column names like 'open', 'high', 'low', 'close', 'volume'
             3. **Window Size**: Consider how many candles your pattern needs (usually 1-3)
             4. **Return Type**: Return True when pattern is detected, False otherwise
             5. **Documentation**: Add a docstring explaining what the pattern detects
-            
+
             **Example Pattern:**
             ```python
             def detect_hammer(df):
                 \"\"\"Detect hammer candlestick pattern.\"\"\"
                 if len(df) < 1:
                     return False
-                
+
                 row = df.iloc[-1]
                 body = abs(row['close'] - row['open'])
                 lower_shadow = min(row['open'], row['close']) - row['low']
                 upper_shadow = row['high'] - max(row['open'], row['close'])
-                
+
                 return lower_shadow > (2 * body) and upper_shadow < body
             ```
             """)
-    
+
     def _get_pattern_template(self, template_type: str) -> str:
         """Get template code based on selected type."""
         templates = {
             "Empty Pattern": '''def detect_new_pattern(df):
     """
     Detect new pattern.
-    
+
     Args:
         df: DataFrame with OHLC data
-        
+
     Returns:
         bool: True if pattern is detected, False otherwise
     """
     if len(df) < 1:
         return False
-    
+
     # Your pattern detection logic here
     return False''',
-            
+
             "Bullish Pattern Template": '''def detect_bullish_pattern(df):
     """
     Detect bullish candlestick pattern.
-    
+
     Args:
         df: DataFrame with OHLC data
-        
+
     Returns:
         bool: True if bullish pattern is detected, False otherwise
     """
     if len(df) < 2:
         return False
-    
+
     current = df.iloc[-1]
     previous = df.iloc[-2]
-    
+
     # Example: Bullish engulfing logic
     current_bullish = current['close'] > current['open']
     previous_bearish = previous['close'] < previous['open']
-    
-    engulfing = (current['open'] < previous['close'] and 
+
+    engulfing = (current['open'] < previous['close'] and
                 current['close'] > previous['open'])
-    
+
     return current_bullish and previous_bearish and engulfing''',
-            
+
             "Bearish Pattern Template": '''def detect_bearish_pattern(df):
     """
     Detect bearish candlestick pattern.
-    
+
     Args:
         df: DataFrame with OHLC data
-        
+
     Returns:
         bool: True if bearish pattern is detected, False otherwise
     """
     if len(df) < 2:
         return False
-    
+
     current = df.iloc[-1]
     previous = df.iloc[-2]
-    
+
     # Example: Bearish engulfing logic
     current_bearish = current['close'] < current['open']
     previous_bullish = previous['close'] > previous['open']
-    
-    engulfing = (current['open'] > previous['close'] and 
+
+    engulfing = (current['open'] > previous['close'] and
                 current['close'] < previous['open'])
-    
+
     return current_bearish and previous_bullish and engulfing''',
-            
+
             "Reversal Pattern Template": '''def detect_reversal_pattern(df):
     """
     Detect reversal candlestick pattern.
-    
+
     Args:
         df: DataFrame with OHLC data
-        
+
     Returns:
         bool: True if reversal pattern is detected, False otherwise
     """
     if len(df) < 3:
         return False
-    
+
     first = df.iloc[-3]
-    second = df.iloc[-2] 
+    second = df.iloc[-2]
     third = df.iloc[-1]
-    
+
     # Example: Morning star pattern logic
     first_bearish = first['close'] < first['open']
     second_small = abs(second['close'] - second['open']) < abs(first['close'] - first['open']) * 0.3
     third_bullish = third['close'] > third['open']
-    
+
     gap_down = second['high'] < first['close']
     gap_up = third['open'] > second['high']
-    
+
     return first_bearish and second_small and third_bullish and gap_down and gap_up''',
-            
+
             "Continuation Pattern Template": '''def detect_continuation_pattern(df):
     """
     Detect continuation candlestick pattern.
-    
+
     Args:
         df: DataFrame with OHLC data
-        
+
     Returns:
         bool: True if continuation pattern is detected, False otherwise
     """
     if len(df) < 3:
         return False
-    
+
     # Look at recent trend
     trend_candles = df.iloc[-5:] if len(df) >= 5 else df
-    
+
     # Example: Flag pattern in uptrend
     uptrend = trend_candles['close'].iloc[-1] > trend_candles['close'].iloc[0]
-    
+
     current = df.iloc[-1]
     previous = df.iloc[-2]
-    
+
     # Small consolidation after strong move
     small_body = abs(current['close'] - current['open']) < abs(previous['close'] - previous['open']) * 0.5
-    
+
     return uptrend and small_body'''
         }
-        
+
         return templates.get(template_type, templates["Empty Pattern"])
 
 
 def main():
-    """Main entry point for patterns management."""
-    # Initialize the page when running as a standalone Streamlit app
     initialize_patterns_page()
+    ui = PatternsManagementUI(page_name="patterns_management")
+    st.title("Candlestick Patterns Management")
     
-    initialize_dashboard_session_state()
+    # Left toolbar navigation using SessionManager buttons
+    st.markdown("### Navigation")
+    col1, col2, col3, col4 = st.columns(4)
     
-    st.title("🎯 Pattern Management System")
-    st.markdown("Comprehensive pattern viewing, management, and development tools")
+    with col1:
+        if ui.session_manager.create_button("🔍 Pattern Viewer", button_name="nav_viewer"):
+            st.session_state['active_section'] = "viewer"
     
-    # Create tabs for the four core functionalities
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "🔍 Pattern Viewer", 
-        "📚 Pattern Catalog", 
-        "📥 Download", 
-        "➕ Add Pattern"
-    ])
+    with col2:
+        if ui.session_manager.create_button("📚 Pattern Catalog", button_name="nav_catalog"):
+            st.session_state['active_section'] = "catalog"
     
-    ui = PatternsManagementUI()
+    with col3:
+        if ui.session_manager.create_button("📥 Download", button_name="nav_download"):
+            st.session_state['active_section'] = "download"
     
-    with tab1:
-        ui.render_patterns_viewer()
+    with col4:
+        if ui.session_manager.create_button("➕ Add Pattern", button_name="nav_add"):
+            st.session_state['active_section'] = "add"
     
-    with tab2:
-        ui.render_patterns_catalog()
+    # Initialize active section if not set
+    if 'active_section' not in st.session_state:
+        st.session_state['active_section'] = "viewer"
     
-    with tab3:
-        ui.render_download_section()
-    
-    with tab4:
-        ui.render_add_pattern_section()
-    
-    # Footer with summary
     st.markdown("---")
-    patterns = ui.manager.get_all_patterns()
-    st.caption(f"📊 System Status: {len(patterns)} patterns available | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
+    
+    # Render the active section
+    if st.session_state['active_section'] == "viewer":
+        ui.render_patterns_viewer()
+    elif st.session_state['active_section'] == "catalog":
+        ui.render_patterns_catalog()
+    elif st.session_state['active_section'] == "download":
+        ui.render_download_section()
+    elif st.session_state['active_section'] == "add":
+        ui.render_add_pattern_section()
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        handle_streamlit_error(e, "Patterns Management System")
+    main()

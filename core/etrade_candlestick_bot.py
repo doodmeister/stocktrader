@@ -887,7 +887,6 @@ class StrategyEngine:
         
         # Core components
         self.positions: Dict[str, Position] = {}
-        max_position_value = getattr(config, 'max_position_value', None)
         self.risk_manager = RiskManager(
             max_position_pct=RiskPercentage(config.max_position_size_pct),
             # Add other required arguments if needed
@@ -1215,7 +1214,7 @@ class StrategyEngine:
             atr = df['atr'].iloc[-1] if 'atr' in df.columns else current_price * Decimal('0.02')
             stop_loss = current_price - (Decimal(str(atr)) * Decimal('2'))
             take_profit = current_price + (Decimal(str(atr)) * Decimal('3'))
-            order_response = self.client.place_market_order(symbol, quantity, "BUY")
+            self.client.place_market_order(symbol, quantity, "BUY")
             position = Position(
                 symbol=symbol,
                 quantity=quantity,
@@ -1274,7 +1273,7 @@ class StrategyEngine:
             if not position:
                 logger.warning(f"No open position to exit for {symbol}")
                 return
-            order_response = self.client.place_market_order(symbol, position.quantity, "SELL")
+            self.client.place_market_order(symbol, position.quantity, "SELL")
             logger.info(f"Exited position: {symbol} (reason: {reason})")
             del self.positions[symbol]
         except Exception as e:

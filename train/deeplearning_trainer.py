@@ -758,7 +758,7 @@ class PatternModelTrainer:
             TrainingMetrics containing all evaluation results
         """
         model.eval()
-        all_y_true, all_y_pred, all_y_scores = [], [], []
+        all_y_true, all_y_pred = [], []
         
         with torch.no_grad():
             for batch_X, batch_y in val_loader:
@@ -771,7 +771,6 @@ class PatternModelTrainer:
                         scores = torch.sigmoid(outputs).cpu().numpy()
                         preds = (scores > 0.5).astype(int)
                         
-                        all_y_scores.extend(scores)
                         all_y_pred.extend(preds)
                         all_y_true.extend(batch_y.cpu().numpy())
                         
@@ -786,8 +785,7 @@ class PatternModelTrainer:
         # Convert to numpy arrays
         y_true = np.array(all_y_true)
         y_pred = np.array(all_y_pred)
-        y_scores = np.array(all_y_scores)
-        
+
         # Calculate comprehensive metrics
         try:
             subset_acc = accuracy_score(y_true, y_pred)

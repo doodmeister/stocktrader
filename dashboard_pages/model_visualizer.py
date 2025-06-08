@@ -29,7 +29,7 @@ import sys
 # Core imports
 from train.model_manager import ModelManager
 from patterns.patterns_nn import PatternNN
-from core.dashboard_utils import setup_page, handle_streamlit_error
+from core.streamlit.dashboard_utils import setup_page, handle_streamlit_error
 from core.session_manager import create_session_manager
 
 # Logging setup

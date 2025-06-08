@@ -566,7 +566,6 @@ class FeatureEngineer:
             close_prices = df['close']
             high_prices = df['high']
             low_prices = df['low']
-            open_prices = df['open']
             volume = df['volume']
             
             # Validate minimum data requirements

@@ -31,9 +31,11 @@ from enum import Enum
 import numpy as np
 import pandas as pd
 import streamlit as st
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 
 # Project imports
-from core.dashboard_utils import (
+from core.streamlit.dashboard_utils import (
     initialize_dashboard_session_state,
     handle_streamlit_error
 )
@@ -60,12 +62,12 @@ from core.technical_indicators import (
 )
 from utils.technicals.analysis import TechnicalAnalysis
 
-from core.decorators import handle_exceptions
+from core.streamlit.decorators import handle_exceptions
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Import SessionManager to solve button key conflicts and session state issues
-from core.session_manager import create_session_manager
+from core.streamlit.session_manager import create_session_manager
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
@@ -80,6 +82,12 @@ CACHE_TTL = 300  # 5 minutes
 MIN_PRICE = 0.01
 MAX_POSITION_SIZE = 0.5  # 50%
 MIN_POSITION_SIZE = 0.001  # 0.1%
+
+# Mapping of model names to classes
+SKLEARN_MODELS = {
+    "RandomForest": RandomForestClassifier,
+    "LogisticRegression": LogisticRegression
+}
 
 
 class TradingEnvironment(Enum):
@@ -140,7 +148,8 @@ class AlertConfig:
         """Validate and normalize symbol using core validator."""
         result = validate_symbol(symbol)
         if not result.is_valid:
-            raise DashboardValidationError(f"Invalid symbol: {'; '.join(result.errors)}")
+            errors = result.errors or []
+            raise DashboardValidationError(f"Invalid symbol: {'; '.join(errors)}")
         return result.value
 
 
@@ -334,8 +343,8 @@ class AlertManager:
             
             # Create alert config
             alert_type = AlertType.PRICE_ABOVE if condition == 'above' else AlertType.PRICE_BELOW
-            alert = AlertConfig(symbol=symbol, alert_type=alert_type, threshold=price)
-            
+            AlertConfig(symbol=symbol, alert_type=alert_type, threshold=price)  # Assuming object creation might have side effects or is planned for use
+
             # Store in session state
             alerts = st.session_state[SessionStateManager.ALERTS]
             if symbol not in alerts["price_alerts"]:
@@ -395,7 +404,8 @@ class AlertManager:
         """Validate and normalize a stock symbol using core validator."""
         result = validate_symbol(symbol)
         if not result.is_valid:
-            raise DashboardValidationError(f"Invalid symbol: {'; '.join(result.errors)}")
+            errors = result.errors or []
+            raise DashboardValidationError(f"Invalid symbol: {'; '.join(errors)}")
         return result.value
 
 
@@ -472,7 +482,7 @@ class EnhancedModelManager:
     def _load_sklearn_model(self, model_type: str):
         """Load sklearn model."""
         try:
-            model = self.model_manager.load_model(model_type)
+            model = self.model_manager.load_model(SKLEARN_MODELS[model_type])
             metadata = {"type": "sklearn", "model_file": model_type, "loaded_at": datetime.now()}
             return model, metadata
         except Exception as e:
@@ -528,15 +538,17 @@ class TradingDashboard:
             return component_class()
         except Exception as e:
             logger.error(f"Failed to initialize {component_name}: {e}")
-            return None    @handle_exceptions
+            return None
+
+    @handle_exceptions
     def run(self) -> None:
         """Main dashboard entry point with comprehensive error handling."""
         try:
             # Check for and display success messages from flags
             self._handle_session_flags()
               # Render sidebar and get authenticated ETradeClient
-            etrade_client = self._render_sidebar()
-            
+            self._render_sidebar() # Assuming the action is still needed
+
             # Render main dashboard content
             self._render_main_dashboard()
             
@@ -583,10 +595,10 @@ class TradingDashboard:
         st.sidebar.title("🤖 AI Trading Dashboard")
         
         # Use SecureETradeManager for consistent authentication
-        etrade_client = render_etrade_authentication()
+        render_etrade_authentication()
         
         # Only render other controls if we have an authenticated client
-        if etrade_client:
+        if SecureETradeManager.get_authenticated_client():
             self._render_symbol_management()
             self._render_risk_management()
             self._render_model_section()
@@ -594,7 +606,7 @@ class TradingDashboard:
             with st.sidebar.expander("⚙️ Settings"):
                 self._render_settings()
         
-        return etrade_client
+        return None
 
     def _render_main_dashboard(self) -> None:
         """Render the main dashboard content with comprehensive technical analysis."""
@@ -646,7 +658,7 @@ class TradingDashboard:
         for i in range(99):
             change = np.random.normal(0, 0.02)  # 2% daily volatility
             new_price = prices[-1] * (1 + change)
-            prices.append(max(new_price, 1))  # Ensure positive prices
+            prices.append(int(max(new_price, 1)))  # Ensure positive prices
         
         demo_data = pd.DataFrame({
             'date': dates,
@@ -811,9 +823,9 @@ class TradingDashboard:
             # RSI
             fig.add_trace(go.Scatter(x=data.index, y=data['rsi'], name='RSI', 
                                    line=dict(color='purple')), row=2, col=1)
-            fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
-            fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
-            fig.add_hline(y=50, line_dash="dot", line_color="gray", row=2, col=1)
+            fig.add_hline(y=70, line_dash="dash", line_color="red",   row="2", col="1")
+            fig.add_hline(y=30, line_dash="dash", line_color="green", row="2", col="1")
+            fig.add_hline(y=50, line_dash="dot",  line_color="gray",  row="2", col="1")
             
             # MACD
             fig.add_trace(go.Scatter(x=data.index, y=data['macd'], name='MACD', 
@@ -920,9 +932,18 @@ class TradingDashboard:
                         'Indicator': ['RSI', 'MACD', 'Bollinger Bands'],
                         'Score': [rsi_score, macd_score, bb_score],
                         'Signal': [
-                            'Bullish' if rsi_score > 0 else 'Bearish',
-                            'Bullish' if macd_score > 0 else 'Bearish',
-                            'Bullish' if bb_score > 0 else 'Bearish'
+                            # RSI
+                            'Bullish' if rsi_score is not None and rsi_score > 0
+                            else 'Bearish' if rsi_score is not None and rsi_score < 0
+                            else 'Neutral',
+                            # MACD
+                            'Bullish' if macd_score is not None and macd_score > 0
+                            else 'Bearish' if macd_score is not None and macd_score < 0
+                            else 'Neutral',
+                            # Bollinger Bands
+                            'Bullish' if bb_score is not None and bb_score > 0
+                            else 'Bearish' if bb_score is not None and bb_score < 0
+                            else 'Neutral'
                         ]
                     })
                     st.dataframe(score_df, use_container_width=True)            # Price targets
@@ -1239,8 +1260,8 @@ class TradingDashboard:
                     scanner_df,
                     use_container_width=True,
                     column_config={
-                        'Symbol': st.column_config.TextColumn('Symbol', width=80),
-                        'Signal': st.column_config.TextColumn('Signal', width=70),
+                        'Symbol': st.column_config.TextColumn('Symbol', width='medium'),
+                        'Signal': st.column_config.TextColumn('Signal', width='small'),
                     }
                 )
             else:
@@ -1329,7 +1350,7 @@ class TradingDashboard:
                         st.sidebar.warning(error)
                     return
                 
-                new_symbols = validation_result.value
+                new_symbols = validation_result.symbols
                 
                 if len(new_symbols) > MAX_SYMBOLS:
                     st.sidebar.error(f"Maximum {MAX_SYMBOLS} symbols allowed")
@@ -1447,8 +1468,12 @@ class TradingDashboard:
         # Model selection with status indication
         try:
             available_models = ["PatternNN"]
-            joblib_models = [f for f in self.model_manager.model_manager.list_models() 
-                           if f.endswith(".joblib")]
+            # Ensure items are strings before calling endswith
+            all_listed_items = self.model_manager.model_manager.list_models()
+            joblib_models = [
+                item for item in all_listed_items
+                if isinstance(item, str) and item.endswith(".joblib")
+            ]
             available_models.extend(joblib_models)
         except Exception as e:
             logger.error(f"Failed to list models: {e}")
