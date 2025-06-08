@@ -445,13 +445,17 @@ class DataDashboard:
         
         for key, value in defaults.items():
             if key not in st.session_state:
-                st.session_state[key] = value
-        
-        # Initialize instance variables
+                st.session_state[key] = value        # Initialize instance variables
         self.saved_paths = [Path(p) for p in st.session_state.get('saved_paths', [])]
         self.symbols = []
-        self.start_date = date.today() - timedelta(days=365)
-        self.end_date = date.today()
+        # FIXED: Use shorter default range (30 days instead of 365)
+        # This prevents the 365-day override bug
+        default_start = date.today() - timedelta(days=30)
+        default_end = date.today()
+        
+        # Use session state for date persistence to prevent reset issues
+        self.start_date = st.session_state.get('dashboard_start_date', default_start)
+        self.end_date = st.session_state.get('dashboard_end_date', default_end)
         self.interval = "1d"
         self.clean_old = True
         
@@ -670,16 +674,17 @@ class DataDashboard:
                 value=self.end_date,
                 max_value=date.today(),
                 help="End date for historical data",
-                date_input_name="end_date_input"
-            )
+                date_input_name="end_date_input"        )
         
         # Update dates if changed
         if new_start and new_start != self.start_date:
             self.start_date = new_start
+            st.session_state["dashboard_start_date"] = new_start
             st.session_state["data_fetched"] = False
         
         if new_end and new_end != self.end_date:
             self.end_date = new_end
+            st.session_state["dashboard_end_date"] = new_end
             st.session_state["data_fetched"] = False
         
         # Display date range validation
@@ -705,10 +710,14 @@ class DataDashboard:
                     f"preset_{days}days",
                     help=f"Set range to last {days} days"
                 ):
+                    # Update both instance variables AND session state
                     self.start_date = today - timedelta(days=days)
                     self.end_date = today
+                    st.session_state["dashboard_start_date"] = self.start_date
+                    st.session_state["dashboard_end_date"] = self.end_date
                     st.session_state["data_fetched"] = False
                     st.success(f"✅ Date range set to {label}")
+                    st.rerun()
     
     def _display_date_validation(self) -> None:
         """Display date range validation status."""

@@ -6,7 +6,7 @@ pandas-ta==0.3.14b0
 numpy>=1.21.0,<1.24.0
 requests==2.31.0
 requests-oauthlib==1.3.1
-plotly>=5.0.0
+plotly>=5.3.1
 torch==2.0.1
 scikit-learn==1.3.2
 python-dateutil>=2.8.2,<3.0.0
@@ -24,11 +24,11 @@ vectorbt==0.27.2
 # Data Visualization
 matplotlib>=3.7.0,<4.0.0
 openai>=1.0.0,<2.0.0
-kaleido
+kaleido>=0.2.1
 
 # Development & Utilities
 python-dotenv==1.0.0
-psutil>=7.0.0  # For performance monitoring and system metrics
+psutil>=6.1.0  # For performance monitoring and system metrics
 
 # Testing
 pytest>=7.4.0
@@ -48,11 +48,8 @@ types-requests==2.31.0
 pydantic-settings>=2.0.0
 pydantic>=2.0.0  # For enhanced data validation
 
-python-dotenv
+
 openpyxl
 twilio>=6.0.0  # For SMS notifications
 ruff
 
-# For older Python versions
-concurrent-futures>=3.0.0  # Enhanced hashing capabilities
-hashlib2>=1.0.0
