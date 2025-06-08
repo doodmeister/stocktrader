@@ -1,18 +1,12 @@
 ---
 applyTo: '**'
 ---
-# StockTrader Development Guidelines
-This document outlines the development standards, environment requirements, and best practices for the StockTrader project. It is designed to ensure consistency, maintainability, and security across the codebase.
-
-## Project Overview
-The StockTrader project is a modular dashboard application built with Streamlit, designed to provide real-time stock trading insights and analytics. The project has been fully modularized, with all core components implemented and tested.
-THe project incorpores artifical intelligence to enhance user experience and provide advanced analytics.
-
 ## Environment & Platform Standards
 The terminal is bash running on windows 11
 - **Python Version**: 3.10.11 or higher
 - **Package Manager**: `pip` (Python package installer)
 - **linter**: `ruff` (Python linter)
+
 
 ### Operating System & Shell Requirements
 - **Target OS**: Windows
@@ -22,39 +16,8 @@ The terminal is bash running on windows 11
 
 ### Terminal Command Standards
 - **Avoid emojis in bash commands**
-Use clear, concise bash commands that are compatible with the Windows environment.
-
-#### ✅ Use Bash Syntax
-```bash
-# Correct: Bash commands
-pwd
-cd /c/dev/stocktrader
-source venv/Scripts/activate
-streamlit run main.py
-python -m pip install -r requirements.txt
-```
-
-#### ❌ Avoid PowerShell Commands
-```powershell
-# Incorrect: Do not use PowerShell syntax
-Get-Location
-Set-Location c:\dev\stocktrader
-.\venv\Scripts\activate
-```
-
-### Project Status & Architecture
-
-#### ✅ Modular Architecture COMPLETED (May 29, 2025)
-- **Status**: 100% Complete and Functional
-- **Entry Point**: `streamlit run main.py` (modular)
-- **Legacy**: `streamlit_dashboard.py` (deprecated, shows migration notice)
-
-#### Core Modules (All Completed ✅)
-1. **`main.py`** - Modular dashboard entry point
-2. **`core/dashboard_controller.py`** - UI orchestration and navigation  
-3. **`core/page_loader.py`** - Dynamic page discovery and management
-4. **`core/health_checks.py`** - System health monitoring with 30s caching
-5. **`core/session_manager.py`** - Manages user sessions and state
+- **Always activate the virtual environment by running source venv/Scripts/activate before executing commands**
+- **Use absolute paths** for clarity
 
 #### Project Commands (Bash)
 ```bash
@@ -63,34 +26,96 @@ python -m venv venv
 source venv/Scripts/activate
 pip install -r requirements.txt
 
-# Launch dashboard (recommended)
-streamlit run main.py
-
-# Development commands
-python -c "import main; print('Imports working')"
-python -c "from core import dashboard_controller; print('Core modules working')"
-
 # Testing
 python -m pytest tests/
 find core/ -name "*.py" -exec basename {} .py \; | while read module; do python -c "import core.$module; print('$module.py imported successfully')"; done
 ```
 
-## Development Standards
+### Project structure
+```plaintext
+stocktrader/
+├── main.py                           # 🚀 NEW: Modular dashboard entry point
+├── streamlit_dashboard.py            # ⚠️ LEGACY: Redirects to main.py (deprecated)
+├── core/                             # 🆕 Core dashboard modules (COMPLETED ✅)
+│   ├── dashboard_controller.py       # Main UI orchestration and navigation
+│   ├── data_validator.py             # Main data validator for all scripts
+│   ├── session_manager.py            # Handles user sessions and state
+│   ├── page_loader.py                # Dynamic page discovery and management
+│   ├── health_checks.py              # Comprehensive system health monitoring
+│   ├── ui_renderer.py                # ✅ NEW: UI component rendering and presentation layer
+│   ├── dashboard_utils.py            # Dashboard utilities
+│   ├── technical_indicators.py       # 📈 NEW: Core technical indicator calculations (283 lines)
+│   ├── etrade_candlestick_bot.py     # Trading engine
+│   └── risk_manager_v2.py            # Risk management
+│
+├── dashboard_pages/                  # 📊 Individual dashboard pages
+│   ├── advanced_ai_trade.py          # 📈 NEW: Advanced AI trading with centralized technical analysis
+│   ├── data_dashboard.py             # Data download dashboard
+│   ├── data_analysis_v2.py           # Data analysis tools
+│   ├── model_training.py             # ML pipeline UI
+│   ├── model_visualizer.py           # Model visualization
+│   ├── nn_backtest.py                # Neural net backtesting
+│   ├── classic_strategy_backtest.py  # Classic strategy backtesting
+│   ├── patterns_management.py        # Pattern management UI
+│   ├── realtime_dashboard.py         # Latest real-time dashboard
+│   └── simple_trade.py               # Simple trading interface
+│
+├── utils/                            # Utility modules
+│   ├── config/                       # 🆕 Configuration utilities
+│   │   └── __init__.py               # Project path and config functions
+│   ├── etrade_candlestick_bot.py     # E*TRADE API trading logic
+│   ├── etrade_client_factory.py      # E*TRADE client initialization
+│   ├── chatgpt.py                    # GPT-4/LLM helpers
+│   ├── technicals/
+│   │   ├── performance_utils.py      # Pattern detection, dashboard state
+│   │   ├── risk_manager.py           # Position sizing & risk controls
+│   │   ├── analysis.py               # 📈 NEW: High-level technical analysis classes (402 lines)
+│   │   ├── indicators.py             # 📈 LEGACY: Backward compatibility (replaced by core module)
+│   │   └── technical_analysis.py     # 📈 LEGACY: Replaced by centralized analysis.py
+│   ├── notifier.py                   # Notification system
+│   ├── data_downloader.py            # Data download utilities
+│   ├── logger.py                     # Logging utilities
+│   └── dashboard_utils.py            # Shared dashboard/session state logic
+│
+├── security/                         # Enterprise-grade security package
+│   ├── __init__.py                   # Security package initialization
+│   ├── authentication.py            # Session management, API validation, credentials
+│   ├── authorization.py             # Role-based access control (RBAC) with permissions
+│   ├── encryption.py                # Cryptographic operations, token generation, file integrity
+│   └── utils.py                      # Input sanitization, file validation, path security
+│
+├── patterns/                         # Pattern recognition modules
+│   ├── __init__.py
+│   ├── patterns.py                   # Candlestick pattern detection
+│   ├── patterns_nn.py                # PatternNN model definition
+│   └── pattern_utils.py              # Pattern utilities
+│
+├── train/                            # Machine learning training pipeline
+│   ├── __init__.py
+│   ├── deeplearning_config.py        # Deep learning configuration
+│   ├── deeplearning_trainer.py       # Deep learning training scripts
+│   ├── model_training_pipeline.py    # Orchestrates end-to-end ML pipeline
+│   ├── model_manager.py              # Model persistence/versioning/saving
+│   ├── ml_trainer.py                 # Classic ML training
+│   ├── ml_config.py                  # ML configuration
+│   └── feature_engineering.py        # Feature engineering (uses technical_analysis)
+│
+├── models/                           # Saved ML models and artifacts
+├── data/                             # Data storage directory
+├── logs/                             # Application logs
+├── tests/                            # Unit & integration tests
+├── source/                           # Source data and configurations
+├── .env.example                      # Example environment configuration
+├── requirements.txt                  # Python dependencies
+├── project_plan.md                   # Project planning documentation
+```
 
 ### File and Module Guidelines
 - **Module Organization**: Use the established `core/`, `dashboard_pages/`, `utils/` structure
-- **Data Validation for this proejct comes from the `core/data_validator` module**
-- **Techincal Indicators for this proejct comes from the `core/technical_indicators` module**
-- **Session Management**: Use `core/session_manager.py` for user sessions
-- **Page Management**: Use `core/page_loader.py` for dynamic page loading
-- **Health Monitoring**: Use `core/health_checks.py` for system health checks
-- **Dashboard Controller**: Use `core/dashboard_controller.py` for UI orchestration
+- **Data Validation for this project comes from the `core/data_validator` module**
+- **Technical Indicators for this project comes from the `core/technical_indicators` module**
 - **Testing**: All test scripts should be saved in the `tests/` directory
 - **Import System**: Use absolute imports for clarity and maintainability
-- **Import Paths**: Use absolute imports (e.g., `from core.dashboard_controller import DashboardController`)
-- **Import Paths**: Use absolute imports (`from core.health_checks import HealthChecker`)
-- **Error Handling**: Leverage the modular error isolation system
-- **Caching**: Utilize the 30-second TTL caching system for performance
 - **Logging**: Use the `logging` module for all logging needs
 - **Configuration**: Use environment variables for configuration (e.g., `STREAMLIT_SERVER_PORT`)
 
@@ -100,12 +125,6 @@ find core/ -name "*.py" -exec basename {} .py \; | while read module; do python 
 - **Type Hints**: Use Python type annotations where applicable
 - **Docstrings**: Google-style docstrings for all public functions
 - **Error Messages**: Provide clear, actionable error messages
-
-### Documentation Standards
-- **Status Indicators**: Use ✅ for completed features, 🚀 for new features, ⚠️ for deprecated
-- **Command Examples**: Always use bash syntax
-- **Architecture Notes**: Reference the modular structure in explanations
-- **Completion Status**: Always acknowledge that modularization is complete
 
 ## Security & Best Practices
 - **Security Functionality**: Use `core/security.py` for security-related functions
@@ -118,41 +137,3 @@ find core/ -name "*.py" -exec basename {} .py \; | while read module; do python 
 projectPath="/c/dev/stocktrader"
 corePath="$projectPath/core"
 ```
-
-### Environment Variables
-```bash
-# Bash environment variable syntax
-export PYTHONPATH="/c/dev/stocktrader"
-export STREAMLIT_SERVER_PORT="8501"
-```
-
-### File Operations
-```bash
-# Use bash commands
-cp "source/file.py" "destination/file.py"
-rm -f temp/*.log
-mkdir -p new_folder
-```
-
-## AI Assistant Guidelines
-
-### When Providing Instructions
-1. **Always use bash commands** for Windows environment
-2. **Reference completed modular architecture** - don't suggest recreating existing modules
-3. **Use absolute file paths** with Unix-style forward slashes
-4. **Acknowledge completion status** of the modularization project
-5. **Provide working examples** that can be copy-pasted into bash
-
-### Response Format
-- **Commands**: Use bash syntax with proper escaping
-- **File Paths**: Use Unix format (`/c/dev/stocktrader/core/file.py`)
-- **Status**: Always acknowledge completed modular architecture
-- **Examples**: Provide runnable bash commands
-
-### Completion Acknowledgment
-Always recognize that:
-- ✅ Modular architecture is 100% complete and functional
-- ✅ All 4 core modules are implemented and tested
-- ✅ Health monitoring system is active with caching
-- ✅ Dashboard runs successfully on Windows with bash
-- ✅ Import system is fixed and working properly

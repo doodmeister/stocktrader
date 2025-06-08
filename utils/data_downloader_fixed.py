@@ -46,13 +46,16 @@ def fetch_daily_ohlcv(symbol: str, start: str, end: str) -> pd.DataFrame:
     if not date_result.is_valid:
         raise ValueError(f"Invalid date range: {date_result.errors}")
 
+    window_days = (end_date - start_date).days + 1
     ticker = yf.Ticker(symbol)
+    # FIXED: Use start/end dates instead of period
     hist = ticker.history(start=start, end=end, interval="1d")
 
     if hist.empty:
         raise ValueError(f"No data returned for {symbol}")
 
     hist.index = pd.to_datetime(hist.index)
+    # FIXED: No need for date slicing since we use start/end
     df = hist[["Open", "High", "Low", "Close", "Volume"]]
     if df.empty:
         raise ValueError(f"No data in requested date range {start} to {end} for {symbol}")
@@ -69,7 +72,7 @@ def fetch_daily_ohlcv(symbol: str, start: str, end: str) -> pd.DataFrame:
 
 
 def _period_from_days(days: int) -> str:
-    """Map a number of days to yfinance’s supported period strings."""
+    """Map a number of days to yfinance's supported period strings."""
     if days <= 7:
         return f"{days}d"
     if days <= 30:
@@ -119,11 +122,13 @@ def download_stock_data(
     # --- Fetching Data ---
     start_date_str = start_date.strftime("%Y-%m-%d")
     end_date_str = end_date.strftime("%Y-%m-%d")
+    window_days = (end_date - start_date).days + 1
 
     try:
         # --- Batch Fetch ---
         symbol_str = ",".join(valid_symbols)
-        logger.info(f"Batch fetching via history(): {symbol_str} ({interval})")
+        # FIXED: Updated log message and use start/end dates
+        logger.info(f"Batch fetching via history(): {symbol_str} ({interval}) from {start_date_str} to {end_date_str}")
         df = yf.Ticker(symbol_str).history(
             start=start_date_str,
             end=end_date_str,
@@ -135,7 +140,7 @@ def download_stock_data(
         tzinfo = getattr(df.index, "tz", None)
         if tzinfo is not None and isinstance(df.index, pd.DatetimeIndex):
             df.index = df.index.tz_localize(None)
-        df = df.loc[pd.to_datetime(start_date):pd.to_datetime(end_date)]
+        # FIXED: Removed date slicing since we use start/end
 
         # --- Process & Validate DataFrames ---
         result = process_downloaded_data(df, valid_symbols)
@@ -155,9 +160,10 @@ def download_stock_data(
         fallback_results = {}
         for symbol in valid_symbols:
             try:
+                # FIXED: Use start/end dates instead of period
                 hist = yf.Ticker(symbol).history(
                     start=start_date_str,
-            end=end_date_str,
+                    end=end_date_str,
                     interval=interval,
                     auto_adjust=False,
                     actions=False,
@@ -166,7 +172,7 @@ def download_stock_data(
                 tzinfo = getattr(hist.index, "tz", None)
                 if tzinfo is not None and isinstance(hist.index, pd.DatetimeIndex):
                     hist.index = hist.index.tz_localize(None)
-                hist = hist.loc[pd.to_datetime(start_date):pd.to_datetime(end_date)]
+                # FIXED: Removed date slicing since we use start/end
                 if hist.empty:
                     logger.warning(f"No data for {symbol} in fallback mode")
                     continue
