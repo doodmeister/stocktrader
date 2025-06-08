@@ -1,4 +1,3 @@
-# filepath: c:\dev\stocktrader\dashboard_pages\patterns_management.py
 """
 Patterns Management - Focused interface for pattern viewing, description, download, and addition.
 Core functionalities:
@@ -30,18 +29,18 @@ from patterns.pattern_utils import (
     get_pattern_method,
     validate_python_code
 )
+from patterns.patterns import create_pattern_detector
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
 
-def initialize_patterns_page():
-    """Initialize the Streamlit page - call this when running in Streamlit context."""
-    setup_page(
-        title="🎯 Pattern Management",
-        logger_name=__name__,
-        sidebar_title="Pattern Tools"
-    )
+# Initialize the page
+setup_page(
+    title="🎯 Pattern Management",
+    logger_name=__name__,
+    sidebar_title="Pattern Tools"
+)
 
 
 class PatternsManager:
@@ -55,6 +54,7 @@ class PatternsManager:
         patterns = []
         try:
             pattern_names = get_pattern_names()
+            pattern_detector = create_pattern_detector()
             
             for name in pattern_names:
                 pattern_info = {
@@ -65,15 +65,30 @@ class PatternsManager:
                     'strength': 'Unknown',
                     'min_rows': 'Unknown'
                 }
-                
-                # Get method and documentation
+                  # Get method and documentation
                 method = get_pattern_method(name)
                 if method:
                     pattern_info['description'] = method.__doc__ or 'No description available'
                     try:
                         pattern_info['source_code'] = inspect.getsource(method)
-                    except Exception:
+                    except:
                         pattern_info['source_code'] = 'Source code not available'
+                
+                # Try to get pattern detector attributes - simplified approach
+                try:
+                    if hasattr(pattern_detector, '_patterns') and name in pattern_detector._patterns:
+                        pattern_obj = pattern_detector._patterns[name]
+                        # Use safe attribute access
+                        for attr_name, default in [('pattern_type', 'Unknown'), ('strength', 'Unknown'), ('min_rows', 'Unknown')]:
+                            if hasattr(pattern_obj, attr_name):
+                                value = getattr(pattern_obj, attr_name, default)
+                                # Handle enum values
+                                if hasattr(value, 'value'):
+                                    pattern_info[attr_name] = str(value.value)
+                                else:
+                                    pattern_info[attr_name] = str(value)
+                except Exception as e:
+                    logger.debug(f"Could not get pattern attributes for {name}: {e}")
                 
                 patterns.append(pattern_info)
                 
@@ -114,8 +129,7 @@ class PatternsManager:
         except Exception as e:
             logger.error(f"Error reading patterns file: {e}")
             return None
-    
-    def save_new_pattern(self, pattern_code: str) -> tuple[bool, str]:
+      def save_new_pattern(self, pattern_code: str) -> tuple[bool, str]:
         """Save new pattern to patterns.py file."""
         try:
             # Validate the code
@@ -175,12 +189,7 @@ class PatternsManagementUI:
         selected_pattern = st.selectbox(
             "Select a pattern to view details:",
             pattern_names,
-            key="pattern_viewer_select",
-            index=0 if 'selected_pattern_for_viewer' not in st.session_state else (
-                pattern_names.index(st.session_state['selected_pattern_for_viewer']) 
-                if st.session_state['selected_pattern_for_viewer'] in pattern_names 
-                else 0
-            )
+            key="pattern_viewer_select"
         )
         
         if selected_pattern:
@@ -245,7 +254,7 @@ class PatternsManagementUI:
                 min_rows_filter = st.slider(
                     "Minimum Rows Required:",
                     min_value=1,
-                    max_value=max(int(r) for r in min_rows_values) if min_rows_values else 5,
+                    max_value=max(int(r) for r in min_rows_values),
                     value=1,
                     key="catalog_rows_filter"
                 )
@@ -281,9 +290,9 @@ class PatternsManagementUI:
                                 st.caption(f"Type: {pattern['pattern_type']} | Strength: {pattern['strength']}")
                                 description = pattern['description'][:100] + "..." if len(pattern['description']) > 100 else pattern['description']
                                 st.text(description)
-                                if st.button(f"View Details", key=f"catalog_view_details_{i}_{j}"):
-                                    st.session_state['selected_pattern_for_viewer'] = pattern['name']
-                                    st.info(f"Selected {pattern['name']} - Switch to Pattern Viewer tab to see details")
+                                if st.button(f"View Details", key=f"view_details_{pattern['name']}"):
+                                    st.session_state['selected_pattern_viewer'] = pattern['name']
+                                    st.rerun()
         else:
             st.info("No patterns match the selected filters.")
     
@@ -392,8 +401,7 @@ class PatternsManagementUI:
             help="Write a function that detects your candlestick pattern. Follow the existing pattern structure.",
             key="new_pattern_code"
         )
-        
-        # Validation and save buttons
+          # Validation and save buttons
         col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
@@ -583,9 +591,6 @@ class PatternsManagementUI:
 
 def main():
     """Main entry point for patterns management."""
-    # Initialize the page when running as a standalone Streamlit app
-    initialize_patterns_page()
-    
     initialize_dashboard_session_state()
     
     st.title("🎯 Pattern Management System")
@@ -624,3 +629,4 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         handle_streamlit_error(e, "Patterns Management System")
+

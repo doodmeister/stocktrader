@@ -35,13 +35,12 @@ from patterns.pattern_utils import (
 from utils.logger import get_dashboard_logger
 logger = get_dashboard_logger(__name__)
 
-def initialize_patterns_page():
-    """Initialize the Streamlit page - call this when running in Streamlit context."""
-    setup_page(
-        title="🎯 Pattern Management",
-        logger_name=__name__,
-        sidebar_title="Pattern Tools"
-    )
+# Initialize the page
+setup_page(
+    title="🎯 Pattern Management",
+    logger_name=__name__,
+    sidebar_title="Pattern Tools"
+)
 
 
 class PatternsManager:
@@ -175,12 +174,7 @@ class PatternsManagementUI:
         selected_pattern = st.selectbox(
             "Select a pattern to view details:",
             pattern_names,
-            key="pattern_viewer_select",
-            index=0 if 'selected_pattern_for_viewer' not in st.session_state else (
-                pattern_names.index(st.session_state['selected_pattern_for_viewer']) 
-                if st.session_state['selected_pattern_for_viewer'] in pattern_names 
-                else 0
-            )
+            key="pattern_viewer_select"
         )
         
         if selected_pattern:
@@ -281,9 +275,9 @@ class PatternsManagementUI:
                                 st.caption(f"Type: {pattern['pattern_type']} | Strength: {pattern['strength']}")
                                 description = pattern['description'][:100] + "..." if len(pattern['description']) > 100 else pattern['description']
                                 st.text(description)
-                                if st.button(f"View Details", key=f"catalog_view_details_{i}_{j}"):
-                                    st.session_state['selected_pattern_for_viewer'] = pattern['name']
-                                    st.info(f"Selected {pattern['name']} - Switch to Pattern Viewer tab to see details")
+                                if st.button(f"View Details", key=f"view_details_{pattern['name']}"):
+                                    st.session_state['pattern_viewer_select'] = pattern['name']
+                                    st.switch_page("🔍 Pattern Viewer")
         else:
             st.info("No patterns match the selected filters.")
     
@@ -583,9 +577,6 @@ class PatternsManagementUI:
 
 def main():
     """Main entry point for patterns management."""
-    # Initialize the page when running as a standalone Streamlit app
-    initialize_patterns_page()
-    
     initialize_dashboard_session_state()
     
     st.title("🎯 Pattern Management System")
