@@ -65,6 +65,8 @@ from utils.logger import setup_logger
 from core.data_validator import (
     validate_dataframe
 )
+# Import new indicator functions
+from core.indicators import calculate_rsi, calculate_macd, calculate_bollinger_bands
 
 logger = setup_logger(__name__)
 
@@ -247,8 +249,9 @@ class FeatureEngineer:
         try:
             validation_result = validate_dataframe(df)
             if not validation_result.is_valid:
-                logger.error(f"Core validation failed: {validation_result.summary}")
-                raise DataValidationError(f"Core validation failed: {validation_result.summary}")
+                error_summary = "; ".join(validation_result.errors) if validation_result.errors else "Core validation failed without specific error messages."
+                logger.error(f"Core validation failed: {error_summary}")
+                raise DataValidationError(f"Core validation failed: {error_summary}")
             else:
                 logger.debug("Core validation passed")
         except Exception as e:
@@ -392,12 +395,10 @@ class FeatureEngineer:
             
             # Add technical indicators if enabled and available
             if getattr(self.config, 'use_technical_indicators', False):
-                if HAS_TA:
-                    logger.debug("Adding technical indicators...")
-                    result_df = self._add_technical_indicators(result_df)
-                    self._check_memory_usage(result_df, "technical_indicators")
-                else:
-                    logger.warning("Technical indicators requested but TA library not available")
+                # The HAS_TA check is now inside _add_technical_indicators
+                logger.debug("Adding technical indicators...")
+                result_df = self._add_technical_indicators(result_df)
+                self._check_memory_usage(result_df, "technical_indicators")
             
             # Add candlestick patterns if enabled
             if getattr(self.config, 'use_candlestick_patterns', False):
@@ -555,122 +556,219 @@ class FeatureEngineer:
         Raises:
             FeatureGenerationError: If technical indicator generation fails
         """
-        if not HAS_TA:
-            logger.warning("TA library not available, skipping technical indicators")
-            return df
+        # REMOVED: TA library check, as we are using our own implementations for core indicators
         
         try:
             result_df = df.copy()
             
             # Extract price and volume data
-            close_prices = df['close']
-            high_prices = df['high']
-            low_prices = df['low']
-            volume = df['volume']
+            # Ensure 'close', 'high', 'low', 'volume' are present, validated by _validate_input_data
             
             # Validate minimum data requirements
-            min_periods = 26  # Minimum for MACD
+            # This might need adjustment based on the requirements of our custom indicators
+            min_periods_rsi = 14 + 1  # RSI typically needs period + 1 for initial calculation
+            min_periods_macd = 26 + 9 # MACD (26,12,9) needs longest period + signal period
+            min_periods_bb = 20       # Bollinger Bands typically 20 periods
+
+            min_periods = max(min_periods_rsi, min_periods_macd, min_periods_bb)
+
             if len(df) < min_periods:
-                logger.warning(f"Insufficient data for technical indicators: {len(df)} < {min_periods}")
-                return result_df
+                logger.warning(f"Insufficient data for core technical indicators: {len(df)} < {min_periods}")
+                # Still attempt to calculate other TA-lib indicators if HAS_TA
             
             indicators_added = 0
             
             try:
-                # RSI (Relative Strength Index)
-                result_df['rsi_14'] = ta.momentum.rsi(close_prices, window=14)
-                result_df['rsi_21'] = ta.momentum.rsi(close_prices, window=21)
-                indicators_added += 2
+                # RSI (Relative Strength Index) using core.indicators
+                # Corrected parameter name from 'period' to 'length'
+                rsi_14_series = calculate_rsi(result_df, length=14)
+                if rsi_14_series is not None:
+                    result_df['rsi_14'] = rsi_14_series
+                    indicators_added += 1
+                
+                # Corrected parameter name from 'period' to 'length'
+                rsi_21_series = calculate_rsi(result_df, length=21)
+                if rsi_21_series is not None:
+                    result_df['rsi_21'] = rsi_21_series
+                    indicators_added += 1
+
             except Exception as e:
-                logger.warning(f"Failed to compute RSI: {e}")
+                logger.warning(f"Failed to compute RSI using core.indicators: {e}")
             
             try:
-                # MACD (Moving Average Convergence Divergence)
-                result_df['macd'] = ta.trend.macd(close_prices)
-                result_df['macd_signal'] = ta.trend.macd_signal(close_prices)
-                result_df['macd_histogram'] = ta.trend.macd_diff(close_prices)
-                indicators_added += 3
+                # MACD (Moving Average Convergence Divergence) using core.indicators
+                # Corrected parameter names
+                macd_output = calculate_macd(result_df, fast=12, slow=26, signal=9)
+                # calculate_macd now returns a tuple: (macd_line, signal_line, histogram)
+                if macd_output is not None:
+                    macd_line, signal_line, hist_line = macd_output
+                    result_df['macd'] = macd_line
+                    result_df['macd_signal'] = signal_line
+                    result_df['macd_histogram'] = hist_line
+                    indicators_added += 3
             except Exception as e:
-                logger.warning(f"Failed to compute MACD: {e}")
+                logger.warning(f"Failed to compute MACD using core.indicators: {e}")
             
             try:
-                # Bollinger Bands
-                result_df['bb_upper'] = ta.volatility.bollinger_hband(close_prices)
-                result_df['bb_middle'] = ta.volatility.bollinger_mavg(close_prices)
-                result_df['bb_lower'] = ta.volatility.bollinger_lband(close_prices)
-                result_df['bb_width'] = ta.volatility.bollinger_wband(close_prices)
-                result_df['bb_position'] = ta.volatility.bollinger_pband(close_prices)
-                indicators_added += 5
+                # Bollinger Bands using core.indicators
+                # Corrected parameter names from 'period' to 'length' and 'std_dev' to 'std'
+                bb_output = calculate_bollinger_bands(result_df, length=20, std=2)
+                # calculate_bollinger_bands now returns a tuple: (upper_band, middle_band, lower_band)
+                if bb_output is not None:
+                    upper_band, middle_band, lower_band = bb_output
+                    result_df['bb_upper'] = upper_band
+                    result_df['bb_middle'] = middle_band
+                    result_df['bb_lower'] = lower_band
+                    indicators_added += 3 
+                    
+                    # Calculate BB width and position if needed
+                    if middle_band is not None and upper_band is not None and lower_band is not None:
+                        # Ensure no division by zero or NaN in middle band for width calculation
+                        safe_middle_band = middle_band.replace(0, np.nan) # Avoid division by zero
+                        result_df['bb_width'] = (upper_band - lower_band) / safe_middle_band
+                        
+                        # Ensure no division by zero or NaN in (upper_band - lower_band) for position
+                        band_range = upper_band - lower_band
+                        safe_band_range = band_range.replace(0, np.nan)
+                        result_df['bb_position'] = (result_df['close'] - lower_band) / safe_band_range
+                        indicators_added += 2 # for width and position
             except Exception as e:
-                logger.warning(f"Failed to compute Bollinger Bands: {e}")
-            
-            try:
-                # Stochastic Oscillator
-                result_df['stoch_k'] = ta.momentum.stoch(high_prices, low_prices, close_prices)
-                result_df['stoch_d'] = ta.momentum.stoch_signal(high_prices, low_prices, close_prices)
-                indicators_added += 2
-            except Exception as e:
-                logger.warning(f"Failed to compute Stochastic: {e}")
-            
-            try:
-                # ADX (Average Directional Index)
-                result_df['adx'] = ta.trend.adx(high_prices, low_prices, close_prices)
-                result_df['adx_pos'] = ta.trend.adx_pos(high_prices, low_prices, close_prices)
-                result_df['adx_neg'] = ta.trend.adx_neg(high_prices, low_prices, close_prices)
-                indicators_added += 3
-            except Exception as e:
-                logger.warning(f"Failed to compute ADX: {e}")
-            
-            try:
-                # ATR (Average True Range)
-                result_df['atr'] = ta.volatility.average_true_range(high_prices, low_prices, close_prices)
-                result_df['atr_14'] = ta.volatility.average_true_range(high_prices, low_prices, close_prices, window=14)
-                indicators_added += 2
-            except Exception as e:
-                logger.warning(f"Failed to compute ATR: {e}")
-            
-            try:
-                # Williams %R
-                result_df['williams_r'] = ta.momentum.williams_r(high_prices, low_prices, close_prices)
-                indicators_added += 1
-            except Exception as e:
-                logger.warning(f"Failed to compute Williams %R: {e}")
-            
-            try:
-                # CCI (Commodity Channel Index)
-                result_df['cci'] = ta.trend.cci(high_prices, low_prices, close_prices)
-                indicators_added += 1
-            except Exception as e:
-                logger.warning(f"Failed to compute CCI: {e}")
-            
-            try:
-                # Volume indicators
-                result_df['obv'] = ta.volume.on_balance_volume(close_prices, volume)
-                result_df['vwap'] = ta.volume.volume_weighted_average_price(
-                    high_prices, low_prices, close_prices, volume
-                )
-                indicators_added += 2
-            except Exception as e:
-                logger.warning(f"Failed to compute volume indicators: {e}")
-            
-            try:
-                # Additional momentum indicators
-                result_df['mfi'] = ta.volume.money_flow_index(
-                    high_prices, low_prices, close_prices, volume
-                )
-                result_df['roc'] = ta.momentum.roc(close_prices)
-                indicators_added += 2
-            except Exception as e:
-                logger.warning(f"Failed to compute additional momentum indicators: {e}")
-            
-            try:
-                # Trend indicators
-                result_df['sma_20'] = ta.trend.sma_indicator(close_prices, window=20)
-                result_df['ema_12'] = ta.trend.ema_indicator(close_prices, window=12)
-                result_df['ema_26'] = ta.trend.ema_indicator(close_prices, window=26)
-                indicators_added += 3
-            except Exception as e:
-                logger.warning(f"Failed to compute trend indicators: {e}")
+                logger.warning(f"Failed to compute Bollinger Bands using core.indicators: {e}")
+
+            # Keep other TA-Lib indicators if HAS_TA (pandas_ta)
+            if HAS_TA and ta is not None: # 'ta' here refers to 'pandas_ta'
+                logger.debug("Adding other technical indicators using pandas_ta...")
+                # Use df.ta strategy for pandas_ta
+                # Ensure result_df has a DatetimeIndex if required by pandas_ta, or necessary columns
+                # It's safer to apply ta calculations to a copy or ensure columns are not overwritten if originals are needed.
+                
+                # Example for Stochastic using pandas_ta
+                try:
+                    if len(df) >= 14: # Common period for Stochastic
+                        stoch = result_df.ta.stoch(k=14, d=3, smooth_k=3)
+                        if stoch is not None and not stoch.empty:
+                            result_df['stoch_k'] = stoch.iloc[:,0] # STOCHk_14_3_3
+                            result_df['stoch_d'] = stoch.iloc[:,1] # STOCHd_14_3_3
+                            indicators_added += 2
+                    else:
+                        logger.warning("Skipping Stochastic Oscillator (pandas_ta) due to insufficient data.")
+                except Exception as e:
+                    logger.warning(f"Failed to compute Stochastic with pandas_ta: {e}")
+
+                # Example for ADX using pandas_ta
+                try:
+                    if len(df) >= 28: # ADX typically needs 2x period
+                        adx_df = result_df.ta.adx(length=14)
+                        if adx_df is not None and not adx_df.empty:
+                            result_df['adx'] = adx_df.iloc[:,0]    # ADX_14
+                            result_df['adx_pos'] = adx_df.iloc[:,1] # DMP_14
+                            result_df['adx_neg'] = adx_df.iloc[:,2] # DMN_14
+                            indicators_added += 3
+                    else:
+                        logger.warning("Skipping ADX (pandas_ta) due to insufficient data.")
+                except Exception as e:
+                    logger.warning(f"Failed to compute ADX with pandas_ta: {e}")
+
+                # Example for ATR using pandas_ta
+                try:
+                    if len(df) >= 14:
+                        atr_series = result_df.ta.atr(length=14)
+                        if atr_series is not None:
+                            result_df['atr'] = atr_series # ATR_14
+                            indicators_added += 1
+                    else:
+                        logger.warning("Skipping ATR (pandas_ta) due to insufficient data.")
+                except Exception as e:
+                    logger.warning(f"Failed to compute ATR with pandas_ta: {e}")
+
+                # Example for Williams %R using pandas_ta
+                try:
+                    if len(df) >= 14:
+                        willr_series = result_df.ta.willr(length=14)
+                        if willr_series is not None:
+                            result_df['williams_r'] = willr_series # WILLR_14
+                            indicators_added += 1
+                    else:
+                        logger.warning("Skipping Williams %R (pandas_ta) due to insufficient data.")
+                except Exception as e:
+                    logger.warning(f"Failed to compute Williams %R with pandas_ta: {e}")
+
+                # Example for CCI using pandas_ta
+                try:
+                    if len(df) >= 20:
+                        cci_series = result_df.ta.cci(length=20)
+                        if cci_series is not None:
+                            result_df['cci'] = cci_series # CCI_20_0.015
+                            indicators_added += 1
+                    else:
+                        logger.warning("Skipping CCI (pandas_ta) due to insufficient data.")
+                except Exception as e:
+                    logger.warning(f"Failed to compute CCI with pandas_ta: {e}")
+                
+                # Example for OBV using pandas_ta
+                try:
+                    if len(df) >= 1:
+                        obv_series = result_df.ta.obv()
+                        if obv_series is not None:
+                            result_df['obv'] = obv_series
+                            indicators_added +=1
+                except Exception as e:
+                    logger.warning(f"Failed to compute OBV with pandas_ta: {e}")
+
+                # Example for VWAP using pandas_ta (VWAP is typically daily, or needs a reset condition)
+                # pandas_ta.vwap might not take a window in the same way.
+                # It usually calculates VWAP for the entire series or resets based on a 'anchor' (e.g., 'D' for daily)
+                try:
+                    if 'high' in result_df and 'low' in result_df and 'close' in result_df and 'volume' in result_df:
+                        # For a rolling VWAP-like feature, you might need a custom rolling apply or use a different approach.
+                        # pandas_ta.vwap is typically for a fixed period (e.g. daily VWAP)
+                        # If a windowed VWAP is needed, it's often calculated as (typical_price * volume).sum() / volume.sum() over the window.
+                        # For now, let's assume we want the standard pandas_ta VWAP (which might be for the whole period or anchored)
+                        vwap_series = result_df.ta.vwap() # This will compute VWAP over the available data, might need anchoring for meaningful results in a rolling context.
+                        if vwap_series is not None:
+                             result_df['vwap_pandas_ta'] = vwap_series 
+                             indicators_added += 1
+                    else:
+                        logger.warning("Skipping VWAP (pandas_ta) as HLCV columns are not available.")
+                except Exception as e:
+                    logger.warning(f"Failed to compute VWAP with pandas_ta: {e}")
+
+                # Example for MFI using pandas_ta
+                try:
+                    if len(df) >= 14:
+                        mfi_series = result_df.ta.mfi(length=14)
+                        if mfi_series is not None:
+                            result_df['mfi'] = mfi_series # MFI_14
+                            indicators_added += 1
+                    else:
+                        logger.warning("Skipping MFI (pandas_ta) due to insufficient data.")
+                except Exception as e:
+                    logger.warning(f"Failed to compute MFI with pandas_ta: {e}")
+
+                # Example for ROC using pandas_ta
+                try:
+                    if len(df) >= 12: # common ROC period
+                        roc_series = result_df.ta.roc(length=12)
+                        if roc_series is not None:
+                            result_df['roc'] = roc_series # ROC_12
+                            indicators_added += 1
+                    else:
+                        logger.warning("Skipping ROC (pandas_ta) due to insufficient data.")
+                except Exception as e:
+                    logger.warning(f"Failed to compute ROC with pandas_ta: {e}")
+
+                # Trend indicators (SMAs, EMAs)
+                # SMAs are often covered by rolling features. EMAs are part of MACD.
+                # Add specific ones if not covered.
+                try:
+                    if len(df) >= 50 and 'close_sma_50' not in result_df.columns:
+                        sma50 = result_df.ta.sma(length=50)
+                        if sma50 is not None: result_df['sma_50_pta'] = sma50; indicators_added += 1
+                    if len(df) >= 200 and 'close_sma_200' not in result_df.columns:
+                        sma200 = result_df.ta.sma(length=200)
+                        if sma200 is not None: result_df['sma_200_pta'] = sma200; indicators_added += 1
+                except Exception as e:
+                    logger.warning(f"Failed to compute additional SMAs with pandas_ta: {e}")
             
             logger.debug(f"Successfully added {indicators_added} technical indicators")
             return result_df

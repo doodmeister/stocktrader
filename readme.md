@@ -704,6 +704,9 @@ Python 3.10 is the rcommended version for this project. Ensure you have Python a
    pip install TA-Lib
    ```
 
+   #### Important Note for TA-Lib Installation (Especially Windows)
+   Direct installation via `pip install TA-Lib` can sometimes be problematic on Windows due to the need for C++ build tools and specific library dependencies. If you encounter issues, using the precompiled wheels (Option A) or installing via Conda (Option B, if you use Anaconda/Miniconda) are generally more reliable methods on Windows. These methods typically bypass the need for manual compilation and handle dependencies more smoothly.
+
 ---
 
 ## Configuration
@@ -730,86 +733,104 @@ Python 3.10 is the rcommended version for this project. Ensure you have Python a
 
 ```plaintext
 stocktrader/
-├── main.py                           # 🚀 NEW: Modular dashboard entry point
-├── streamlit_dashboard.py            # ⚠️ LEGACY: Redirects to main.py (deprecated)
+├── main.py                           # Modular dashboard entry point
 │
-├── core/                             # 🆕 Core dashboard modules (COMPLETED ✅)
-│   ├── dashboard_controller.py       # Main UI orchestration and navigation
-│   ├── data_validator.py             # Main data validator for all scripts
+├── core/                             # Core dashboard modules
+│   ├── __init__.py                   # Initializes the core package
 │   ├── streamlit/                    # 🆕 Streamlit functionality
-│   │   ├── dashboard_controller.py   # Streamlit dashboard controller
+│   │   ├── dashboard_controller.py   # Main UI orchestration and navigation for Streamlit
 │   │   ├── dashboard_utils.py        # Streamlit utilities
-│   │   ├── health_checks.py          # Streamlit health checks
-│   │   ├── page_loader.py            # Streamlit page loader
+│   │   ├── decorators.py             # Custom decorators for Streamlit pages
+│   │   ├── health_checks.py          # Comprehensive system health monitoring
+│   │   ├── page_loader.py            # Dynamic page discovery and management
 │   │   ├── session_manager.py        # Streamlit session management
-│   │   ├── ui_renderer.py            # ✅ NEW: UI component rendering and presentation Layer
-|
+│   │   ├── ui_renderer.py            # ✅ NEW: UI component rendering and presentation layer
 │   ├── validation/                   # 🆕 Validation logic modules
-│   │   ├── __init__.py
+│   │   ├── __init__.py               # Initializes the validation package
 │   │   ├── dataframe_validation_logic.py # DataFrame specific validation
 │   │   ├── validation_config.py      # Validation configuration settings
-│   │   ├── validation_models.py      # Validation result models
-│   │   ├── validation_results.py     # Validation result classes 
-│   ├── session_manager.py            # Handles user sessions and state
-│   ├── page_loader.py                # Dynamic page discovery and management
-│   ├── health_checks.py              # Comprehensive system health monitoring
-│   ├── ui_renderer.py                # ✅ NEW: UI component rendering and presentation layer
-│   ├── dashboard_utils.py            # Dashboard utilities
-│   ├── technical_indicators.py       # 📈 NEW: Core technical indicator calculations (283 lines)
-│   ├── etrade_candlestick_bot.py     # Trading engine
-│   └── risk_manager_v2.py            # Risk management
+│   │   ├── validation_models.py      # Validation result Pydantic models
+│   │   ├── validation_results.py     # Validation result classes
+│   ├── indicators/                   # 🆕 Indicator specific modules
+│   │   ├── __init__.py               # Initializes the indicators package
+│   │   ├── base.py                   # Base class and common utilities for indicators
+│   │   ├── rsi.py                    # RSI calculation logic
+│   │   ├── macd.py                   # MACD calculation logic
+│   │   ├── bollinger_bands.py        # Bollinger Bands calculation logic
+│   ├── data_validator.py             # Centralized data validation services
+│   ├── etrade_auth_ui.py             # E*TRADE authentication UI components
+│   ├── etrade_candlestick_bot.py     # Trading engine logic
+│   ├── etrade_client.py              # E*TRADE API client
+│   ├── exceptions.py                 # Custom application exceptions
+│   ├── risk_manager_v2.py            # Advanced risk management logic
+│   ├── safe_requests.py              # Wrapper for safe HTTP requests
+│   └── technical_indicators.py       # 📈 NEW: Core technical indicator calculations (remaining indicators)
 │
 ├── dashboard_pages/                  # 📊 Individual dashboard pages
 │   ├── advanced_ai_trade.py          # 📈 NEW: Advanced AI trading with centralized technical analysis
-│   ├── data_dashboard.py             # Data download dashboard
-│   ├── data_analysis_v2.py           # Data analysis tools
-│   ├── model_training.py             # ML pipeline UI
-│   ├── model_visualizer.py           # Model visualization
-│   ├── nn_backtest.py                # Neural net backtesting
-│   ├── classic_strategy_backtest.py  # Classic strategy backtesting
-│   ├── patterns_management.py        # Pattern management UI
-│   ├── realtime_dashboard.py         # Latest real-time dashboard
-│   └── simple_trade.py               # Simple trading interface
+│   ├── data_dashboard.py             # Data download and visualization dashboard
+│   ├── data_analysis.py              # Data analysis tools and utilities
+│   ├── model_training.py             # ML model training pipeline UI
+│   ├── model_visualizer.py           # Visualization tools for ML models
+│   ├── nn_backtest.py                # Neural network backtesting interface
+│   ├── classic_strategy_backtest.py  # Classic trading strategy backtesting interface
+│   ├── patterns_management.py        # Candlestick pattern management UI
+│   ├── realtime_dashboard.py         # Latest real-time trading dashboard
+│   └── simple_trade.py               # Simplified trading interface
 │
 ├── utils/                            # Utility modules
+│   ├── __init__.py                   # Initializes the utils package
 │   ├── config/                       # 🆕 Configuration utilities
-│   │   └── __init__.py               # Project path and config functions
-│   ├── etrade_candlestick_bot.py     # E*TRADE API trading logic
-│   ├── etrade_client_factory.py      # E*TRADE client initialization
-│   ├── chatgpt.py                    # GPT-4/LLM helpers
+│   │   ├── __init__.py               # Initializes the config utility package
+│   │   ├── config.py                 # Loads and manages application configuration
+│   │   ├── getuservar.py             # Retrieves user-specific variables or settings
+│   │   ├── notification_settings_ui.py # Streamlit UI components for notification settings
+│   │   └── validate_config.py        # Validates the application's configuration files
 │   ├── technicals/
-│   │   ├── performance_utils.py      # Pattern detection, dashboard state
-│   │   ├── risk_manager.py           # Position sizing & risk controls
-│   │   ├── analysis.py               # 📈 NEW: High-level technical analysis classes (402 lines)
-│   │   ├── indicators.py             # 📈 LEGACY: Backward compatibility (replaced by core module)
-│   │   └── technical_analysis.py     # 📈 LEGACY: Replaced by centralized analysis.py
-│   ├── notifier.py                   # Notification system
-│   ├── data_downloader.py            # Data download utilities
-│   ├── logger.py                     # Logging utilities
-│   └── dashboard_utils.py            # Shared dashboard/session state logic
+│   │   ├── __init__.py               # Initializes the technicals package
+│   │   ├── analysis.py               # 📈 NEW: High-level technical analysis classes
+│   │   ├── feature_engineering.py    # Technical feature engineering functions
+│   │   ├── performance_utils.py      # Pattern detection, dashboard state utilities
+│   │   ├── indicators.py             # 📈 LEGACY: Backward compatibility (replaced by core.indicators)
+│   │   └── technical_analysis.py     # 📈 LEGACY: Replaced by centralized analysis.py & core.technical_indicators.py
+│   ├── backtester.py                 # Utilities for backtesting trading strategies
+│   ├── chatgpt.py                    # GPT-4/LLM integration helpers
+│   ├── dashboard_logger.py           # Specific logger configurations for the dashboard
+│   ├── data_downloader.py            # Data download utilities for various sources
+│   ├── deprecated/                   # Directory for deprecated utility modules
+│   ├── io.py                         # General input/output helper functions
+│   ├── live_inference.py             # Handles real-time inference for ML models
+│   ├── logger.py                     # Logging setup and utilities
+│   ├── notifier.py                   # Notification system (Email, SMS, Slack)
+│   ├── preprocessing_config.py       # Configuration for data preprocessing tasks
+│   ├── preprocess_input.py           # Functions for preprocessing input data
+│   ├── security.py                   # General security helper functions (distinct from security/ package)
+│   ├── synthetic_trading_data.py     # Tools for generating synthetic trading data
+│   └── test_scripts_dev/             # Directory for development and test scripts
 │
 ├── security/                         # Enterprise-grade security package
 │   ├── __init__.py                   # Security package initialization
-│   ├── authentication.py            # Session management, API validation, credentials
-│   ├── authorization.py             # Role-based access control (RBAC) with permissions
-│   ├── encryption.py                # Cryptographic operations, token generation, file integrity
-│   └── utils.py                      # Input sanitization, file validation, path security
+│   ├── authentication.py             # Session management, API validation, credentials
+│   ├── authorization.py              # Role-based access control (RBAC) with permissions
+│   ├── encryption.py                 # Cryptographic operations, token generation, file integrity
+│   ├── etrade_security.py            # Security utilities specific to E*TRADE integration
+│   └── utils.py                      # Input sanitization, file validation, path security helpers
 │
 ├── patterns/                         # Pattern recognition modules
-│   ├── __init__.py
-│   ├── patterns.py                   # Candlestick pattern detection
+│   ├── __init__.py                   # Initializes the patterns package
+│   ├── patterns.py                   # Candlestick pattern detection logic
 │   ├── patterns_nn.py                # PatternNN model definition
-│   └── pattern_utils.py              # Pattern utilities
+│   └── pattern_utils.py              # Utilities for pattern handling and analysis
 │
 ├── train/                            # Machine learning training pipeline
-│   ├── __init__.py
-│   ├── deeplearning_config.py        # Deep learning configuration
-│   ├── deeplearning_trainer.py       # Deep learning training scripts
-│   ├── model_training_pipeline.py    # Orchestrates end-to-end ML pipeline
-│   ├── model_manager.py              # Model persistence/versioning/saving
-│   ├── ml_trainer.py                 # Classic ML training
-│   ├── ml_config.py                  # ML configuration
-│   └── feature_engineering.py        # Feature engineering (uses technical_analysis)
+│   ├── __init__.py                   # Initializes the train package
+│   ├── deeplearning_config.py        # Deep learning model configuration
+│   ├── deeplearning_trainer.py       # Deep learning model training scripts
+│   ├── feature_engineering.py        # Feature engineering for ML models (uses technical_analysis)
+│   ├── ml_config.py                  # Machine learning model configuration
+│   ├── ml_trainer.py                 # Classic machine learning model training scripts
+│   ├── model_manager.py              # Model persistence, versioning, and saving
+│   └── model_training_pipeline.py    # Orchestrates the end-to-end ML training pipeline
 │
 ├── models/                           # Saved ML models and artifacts
 ├── data/                             # Data storage directory
