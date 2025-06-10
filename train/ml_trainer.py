@@ -15,18 +15,23 @@ Key Features:
 """
 
 import functools
+from functools import lru_cache # ENSURED
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+import json
 from typing import Any, Dict, List, Optional, Tuple, Union
-
-import os
-import joblib
-import numpy as np
 import pandas as pd
+import numpy as np
+import os
+import shutil # ENSURED
+import warnings
+import joblib
+import sklearn # ENSURED
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score,
@@ -40,7 +45,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from train.feature_engineering import FeatureEngineer
-from train.model_manager import ModelManager, ModelMetadata
+from train.model_manager import ModelManager, ModelMetadata, ModelManagerConfig
+from train.model_manager import ModelType as ManagerModelType # MODIFIED: Aliased import
 from utils.logger import setup_logger
 
 # Import centralized data validation system
@@ -160,25 +166,54 @@ class ModelTrainer:
     
     Example:
         ```python
-        config = load_config()
-        trainer = ModelTrainer(config)
+        # Assuming config is loaded and stock_data is a pandas DataFrame
+        # from utils.config import load_config # Example: replace with actual config loading
+        # config = load_config() 
+        # import pandas as pd # Example: replace with actual data loading
+        # stock_data = pd.read_csv("your_stock_data.csv", index_col="Date", parse_dates=True)
+
+        feature_cfg = FeatureConfig()
+        training_params_cfg = TrainingParams()
+        
+        # Placeholder for actual config object if needed by ModelTrainer's __init__
+        # For example, if config.MODEL_DIR is used.
+        class MockConfig:
+            MODEL_DIR = "models"
+            # Add other attributes expected by ModelTrainer from the config object
+
+        mock_config = MockConfig() # Replace with your actual config loading
+
+        trainer = ModelTrainer(
+            config=mock_config, # Pass the mock_config or your actual config
+            feature_config=feature_cfg,
+            training_params=training_params_cfg
+        )
         
         # Train model with custom parameters
-        pipeline, metrics, cm, report = trainer.train_model(
-            df=stock_data,
+        trained_pipeline, model_metrics, conf_matrix, class_report = trainer.train_model(
+            df=stock_data, # Make sure stock_data is prepared
             params=TrainingParams(n_estimators=200, max_depth=15)
         )
         
         # Save with version tracking
-        model_path = trainer.save_model_with_manager(
-            pipeline, "AAPL", "1d", metrics
-        )
+        if trained_pipeline and model_metrics:
+            model_path_saved = trainer.save_model_with_manager(
+                model_pipeline=trained_pipeline, # Pass the trained pipeline
+                symbol="AAPL", 
+                interval="1d", 
+                metrics=model_metrics,
+                # backend="sklearn" # Explicitly pass backend if not defaulted in ModelManager
+            )
+            if model_path_saved:
+                print(f"Model saved to: {model_path_saved}")
+        else:
+            print("Model training failed, not saving.")
         ```
     """
     
     def __init__(
         self,
-        config: Any,
+        config: Any, # Can be a simple object or dict if MODEL_DIR is the only thing used
         feature_config: Optional[FeatureConfig] = None,
         training_params: Optional[TrainingParams] = None,
         max_workers: Optional[int] = None
@@ -232,14 +267,12 @@ class ModelTrainer:
             # Use the comprehensive DataValidator from core module
             validation_result = validate_dataframe(
                 df, 
-                required_cols=required_columns,
-                validate_ohlc=True,
-                check_statistical_anomalies=True
+                required_cols=required_columns
             )
             
             # Check validation results
             if not validation_result.is_valid:
-                error_message = "; ".join(validation_result.errors)
+                error_message = "; ".join(validation_result.errors) if validation_result.errors else "Unknown validation error"
                 logger.error(f"Core validation failed: {error_message}")
                 raise ValidationError(f"Data validation failed: {error_message}")
             
@@ -302,9 +335,17 @@ class ModelTrainer:
         )
 
     @functools.lru_cache(maxsize=128)
-    def _get_cached_feature_columns(self, column_tuple: tuple) -> List[str]:
+    def _get_cached_feature_columns(self, dummy_df: pd.DataFrame) -> List[str]:
+        """Internal helper to cache feature and target column names."""
+        column_tuple = tuple(dummy_df.columns.tolist())
+        return self.__cached_feature_columns(column_tuple)
+
+    @lru_cache(maxsize=None)
+    def __cached_feature_columns(self, column_tuple: Tuple[str, ...]) -> List[str]:
         """Cache feature column computation for performance."""
-        return self.feature_engineer.get_feature_columns(list(column_tuple))
+        # Pass tuple directly, assuming feature_engineer.get_feature_columns
+        # is either not cached or expects a hashable argument if it is.
+        return self.feature_engineer.get_feature_columns(column_tuple)
 
     def feature_engineering(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -372,10 +413,15 @@ class ModelTrainer:
             raise ValidationError(f"Feature engineering failed: {str(e)}") from e
 
     def _select_top_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Select top features based on importance or correlation."""
+        '''Select top features based on importance or correlation.'''
         try:
             feature_cols = [col for col in df.columns if col not in ['target', 'future_return']]
-            
+
+            if self.feature_config.max_features is None: # ADDED CHECK
+                logger.info("max_features is None, skipping feature selection.")
+                return df
+
+            # max_features is now guaranteed to be an int here
             if len(feature_cols) <= self.feature_config.max_features:
                 return df
             
@@ -465,39 +511,45 @@ class ModelTrainer:
             X = features_df[feature_cols].fillna(0)  # Handle any remaining NaNs
             y = features_df['target']
             
-            # Check class balance
             class_counts = y.value_counts()
             minority_class_pct = class_counts.min() / len(y) * 100
-            
             if minority_class_pct < 5:
                 logger.warning(
                     f"Severe class imbalance: minority class {minority_class_pct:.1f}%"
                 )
-            
             logger.info(f"Class distribution: {dict(class_counts)}")
             
-            # Create and train pipeline
             pipeline = self._create_model_pipeline(params)
-            
-            # Time series cross-validation
             cv_metrics = self._cross_validate_model(X, y, pipeline, params)
             
-            # Final training on full dataset
             logger.info("Training final model on full dataset...")
             pipeline.fit(X, y)
             
-            # Final predictions and metrics
-            y_pred = pipeline.predict(X)
-            y_proba = pipeline.predict_proba(X)[:, 1] if hasattr(pipeline, 'predict_proba') else None
+            y_pred_final: np.ndarray
+            _prediction_output_final = pipeline.predict(X)
+            if isinstance(_prediction_output_final, tuple):
+                logger.warning(
+                    "pipeline.predict(X) in train_model returned a tuple. "
+                    "Expected np.ndarray. Using the first element as predictions."
+                )
+                y_pred_final = _prediction_output_final[0]
+                # Consider logging _prediction_output_final[1] if it might contain useful info or indicate an issue
+            else:
+                y_pred_final = _prediction_output_final
             
-            final_metrics = self._calculate_comprehensive_metrics(y, y_pred, y_proba)
-            cm = confusion_matrix(y, y_pred)
-            report = classification_report(y, y_pred, zero_division=0)
+            y_proba_final: Optional[np.ndarray] = None
+            if hasattr(pipeline, 'predict_proba'):
+                y_proba_final = pipeline.predict_proba(X)[:, 1]
             
-            # Aggregate all metrics
+            final_metrics_tuple = self._calculate_comprehensive_metrics(y.to_numpy(), y_pred_final, y_proba_final)
+            
+            final_metrics_dict = final_metrics_tuple[0]
+            cm_from_calc = final_metrics_tuple[1]
+            report_from_calc = final_metrics_tuple[2]
+
             metrics_dict = {
                 'cv_metrics': cv_metrics,
-                'final_metrics': final_metrics,
+                'final_metrics': final_metrics_dict,
                 'training_info': {
                     'training_samples': len(X),
                     'n_features': len(feature_cols),
@@ -509,11 +561,12 @@ class ModelTrainer:
             
             logger.info(
                 f"Training completed successfully. "
-                f"Final accuracy: {final_metrics['accuracy']:.4f}, "
-                f"AUC: {final_metrics.get('auc', 'N/A')}"
+                f"Final accuracy: {final_metrics_dict.get('accuracy', 0.0):.4f}, "
+                f"AUC: {final_metrics_dict.get('auc', 'N/A')}"
+
             )
             
-            return pipeline, metrics_dict, cm, report
+            return pipeline, metrics_dict, cm_from_calc, report_from_calc
             
         except Exception as e:
             logger.exception("Model training failed")
@@ -578,17 +631,29 @@ class ModelTrainer:
         pipeline: Pipeline,
         fold: int
     ) -> Dict[str, float]:
-        """Train and evaluate a single CV fold."""
+        '''Train and evaluate a single CV fold.'''
         try:
             # Create fresh pipeline for this fold
-            fold_pipeline = self._create_model_pipeline(self.default_params)
+            fold_pipeline = self._create_model_pipeline(self.default_params) # Use self.default_params or specific fold params
             fold_pipeline.fit(X_train, y_train)
             
-            y_pred = fold_pipeline.predict(X_test)
-            y_proba = (fold_pipeline.predict_proba(X_test)[:, 1] 
-                      if hasattr(fold_pipeline, 'predict_proba') else None)
+            y_pred_fold: np.ndarray
+            _prediction_output_fold = fold_pipeline.predict(X_test)
+            if isinstance(_prediction_output_fold, tuple):
+                logger.warning(
+                    f"fold_pipeline.predict(X_test) in fold {fold} returned a tuple. "
+                    f"Expected np.ndarray. Using the first element as predictions."
+                )
+                y_pred_fold = _prediction_output_fold[0]
+            else:
+                y_pred_fold = _prediction_output_fold
             
-            return self._calculate_comprehensive_metrics(y_test, y_pred, y_proba)
+            y_proba_fold: Optional[np.ndarray] = None
+            if hasattr(fold_pipeline, 'predict_proba'):
+                 y_proba_fold = fold_pipeline.predict_proba(X_test)[:, 1]
+            
+            metrics_tuple = self._calculate_comprehensive_metrics(y_test.to_numpy(), y_pred_fold, y_proba_fold)
+            return metrics_tuple[0]
             
         except Exception as e:
             logger.warning(f"Error in fold {fold}: {e}")
@@ -596,30 +661,77 @@ class ModelTrainer:
 
     def _calculate_comprehensive_metrics(
         self,
-        y_true: np.ndarray,
-        y_pred: np.ndarray,
-        y_proba: Optional[np.ndarray] = None
-    ) -> Dict[str, float]:
-        """Calculate comprehensive performance metrics."""
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            y_true, y_pred, average='binary', zero_division=0
-        )
-        
-        metrics = {
-            'accuracy': accuracy_score(y_true, y_pred),
-            'precision': precision,
-            'recall': recall,
-            'f1': f1
-        }
-        
-        # Add AUC if probabilities available
-        if y_proba is not None and len(np.unique(y_true)) > 1:
-            try:
-                metrics['auc'] = roc_auc_score(y_true, y_proba)
-            except Exception as e:
-                logger.debug(f"Could not calculate AUC: {e}")
-        
-        return metrics
+        y_true: np.ndarray, # MODIFIED: Directly np.ndarray
+        y_pred: np.ndarray, # MODIFIED: Directly np.ndarray
+        y_proba: Optional[np.ndarray] = None # MODIFIED: Directly Optional[np.ndarray]
+    ) -> Tuple[Dict[str, Any], np.ndarray, str]:
+        """
+        Calculates and logs comprehensive classification metrics.
+        Handles binary and multiclass classification.
+        """
+        # Inputs are now expected to be np.ndarray directly
+        y_true_np = y_true
+        y_pred_np = y_pred
+        y_proba_np = y_proba
+
+        num_classes = len(np.unique(y_true_np))
+        is_multiclass = num_classes > 2
+
+        metrics = {}
+        try:
+            metrics["accuracy"] = accuracy_score(y_true_np, y_pred_np)
+            
+            if is_multiclass:
+                precision, recall, f1, _ = precision_recall_fscore_support(
+                    y_true_np, y_pred_np, average="weighted", zero_division=0
+                )
+            else: # FIXED: Added colon
+                precision, recall, f1, _ = precision_recall_fscore_support(
+                    y_true_np, y_pred_np, average="binary", zero_division=0
+                )
+            metrics["precision"] = precision
+            metrics["recall"] = recall
+            metrics["f1_score"] = f1
+            
+            # ROC AUC Score
+            if y_proba_np is not None:
+                if is_multiclass:
+                    # For multiclass, y_proba_np should be shape (n_samples, n_classes)
+                    if y_proba_np.ndim == 1: # If it's 1D, it might be for the positive class in binary
+                        if num_classes == 2: # Check if it's actually binary case passed as multiclass
+                             metrics["roc_auc"] = roc_auc_score(y_true_np, y_proba_np)
+                        else: # True multiclass but y_proba is 1D - cannot calculate easily
+                            logger.warning("ROC AUC for multiclass requires y_proba with shape (n_samples, n_classes). Skipping.")
+                            metrics["roc_auc"] = None
+                    else:
+                        metrics["roc_auc"] = roc_auc_score(y_true_np, y_proba_np, multi_class="ovr", average="weighted")
+                else: # Binary classification
+                    # y_proba_np should be probabilities of the positive class
+                    metrics["roc_auc"] = roc_auc_score(y_true_np, y_proba_np)
+            else:
+                metrics["roc_auc"] = None # ROC AUC cannot be computed without probabilities
+
+            # Classification Report
+            report_str = classification_report(y_true_np, y_pred_np, zero_division=0, output_dict=False)
+            
+            # Confusion Matrix
+            cm = confusion_matrix(y_true_np, y_pred_np)
+
+            logger.info(f"Model Metrics: {metrics}")
+            logger.debug(f"Classification Report:\n{report_str}")
+            logger.debug(f"Confusion Matrix:\n{cm}")
+            
+            return metrics, cm, str(report_str) # Ensure report is string
+
+        except ValueError as e:
+            logger.error(f"Error calculating metrics: {e}")
+            # Return default/error values
+            error_metrics = {
+                "accuracy": 0.0, "precision": 0.0, "recall": 0.0, 
+                "f1_score": 0.0, "roc_auc": None
+            }
+            dummy_cm = np.array([[0, 0], [0, 0]]) if not is_multiclass else np.zeros((num_classes, num_classes))
+            return error_metrics, dummy_cm, "Error in metrics calculation."
 
     def _aggregate_cv_metrics(self, cv_metrics: List[Dict[str, float]]) -> Dict[str, Dict[str, float]]:
         """Aggregate cross-validation metrics with statistics."""
@@ -639,190 +751,116 @@ class ModelTrainer:
         return result
 
     def save_model_with_manager(
-        self,
-        pipeline: Pipeline,
-        symbol: str,
-        interval: str,
-        metrics: Optional[Dict] = None,
-        backend: str = "Classic ML (RandomForest)"
-    ) -> str:
+        self, 
+        model_pipeline: Pipeline, 
+        symbol: str, 
+        interval: str, 
+        metrics: Dict[str, Any],
+        backend: str = "sklearn", # Added backend parameter, default to sklearn
+        model_type_enum: Optional[ManagerModelType] = None, # Use aliased ModelType
+        **kwargs 
+    ) -> Optional[Path]:
         """
-        Save model using ModelManager with comprehensive metadata.
-        
+        Saves the trained model and its metadata using ModelManager.
+
         Args:
-            pipeline: Trained pipeline to save
-            symbol: Trading symbol
-            interval: Time interval
-            metrics: Training metrics
-            backend: Model backend identifier
-            
+            model_pipeline: The trained scikit-learn pipeline.
+            symbol: Stock symbol (e.g., AAPL).
+            interval: Data interval (e.g., 1d, 1h).
+            metrics: Dictionary of performance metrics.
+            backend: The ML backend used (e.g., "sklearn", "pytorch").
+            model_type_enum: The type of model (e.g., ManagerModelType.RANDOM_FOREST).
+                           This should come from train.model_manager.ModelType.
+            **kwargs: Additional metadata to save.
+
         Returns:
-            Path to saved model
+            Path to the saved model file, or None if saving failed.
         """
         try:
-            model_manager = ModelManager(base_directory=str(self.model_dir))
-            version = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            # Prepare feature information
-            dummy_df = pd.DataFrame(columns=self.feature_config.PRICE_FEATURES)
-            expected_features = self.feature_engineer.get_feature_columns(
-                dummy_df.columns.tolist()
-            )
+            main_accuracy = None
+            if isinstance(metrics, dict):
+                if 'final_metrics' in metrics and isinstance(metrics['final_metrics'], dict):
+                    main_accuracy = metrics['final_metrics'].get('accuracy')
+                elif 'accuracy' in metrics:
+                    main_accuracy = metrics.get('accuracy')
+
+            if not isinstance(main_accuracy, (float, int, type(None))):
+                main_accuracy = None
             
-            # Extract accuracy from metrics
-            accuracy = None
-            if metrics:
-                final_metrics = metrics.get('final_metrics', {})
-                cv_metrics = metrics.get('cv_metrics', {})
-                accuracy = (final_metrics.get('accuracy') or 
-                          cv_metrics.get('mean', {}).get('accuracy'))
-            
-            metadata = ModelMetadata(
-                version=version,
+            metadata_obj = ModelMetadata(
+                version=timestamp_str, 
                 saved_at=datetime.now().isoformat(),
-                accuracy=accuracy,
+                accuracy=main_accuracy,
                 parameters={
-                    "symbol": symbol,
-                    "interval": interval,
-                    "model_type": self.default_params.model_type.value,
-                    "features": expected_features,
-                    "feature_config": {
-                        "rolling_windows": self.feature_config.ROLLING_WINDOWS,
-                        "target_horizon": self.feature_config.TARGET_HORIZON,
-                        "use_patterns": self.feature_config.use_candlestick_patterns,
-                        "use_indicators": self.feature_config.use_technical_indicators,
-                        "selected_patterns": self.feature_config.selected_patterns
-                    },
-                    "training_params": {
-                        "n_estimators": self.default_params.n_estimators,
-                        "max_depth": self.default_params.max_depth,
-                        "cv_folds": self.default_params.cv_folds
-                    },
-                    "metrics": metrics
+                    "ml_trainer_full_metrics": metrics, 
+                    "feature_config": self.feature_config.__dict__,
+                    "training_params": self.default_params.__dict__,
+                    "custom_kwargs": kwargs,
+                    "symbol": symbol.upper(),
+                    "interval": interval
                 },
-                framework_version="sklearn"
+                framework_version=sklearn.__version__,
+                backend=backend, 
+                tags=["stocktrader_v2", backend, symbol.upper(), interval]
             )
             
-            save_path = model_manager.save_model(
-                model=pipeline,
-                metadata=metadata,
+            model_manager_config = ModelManagerConfig(base_directory=self.model_dir)
+            model_manager = ModelManager(config=model_manager_config)
+
+            logger.info(f"Attempting to save model for symbol {symbol} with version {timestamp_str}, backend: {backend}")
+            
+            saved_path_str = model_manager.save_model(
+                model=model_pipeline,
+                metadata=metadata_obj, 
                 backend=backend
             )
-            
-            logger.info(f"Model saved successfully to: {save_path}")
-            return save_path
-            
-        except Exception as e:
-            logger.exception("Failed to save model")
-            raise ModelError(f"Model save failed: {str(e)}") from e
 
-    def load_model(self, model_path: Union[str, Path]) -> Pipeline:
+            if saved_path_str:
+                logger.info(f"Model and metadata saved successfully. Path: {saved_path_str}")
+                return Path(saved_path_str)
+            else:
+                logger.error(f"Failed to save model for symbol {symbol} using ModelManager (save_model returned None/empty).")
+                return None
+
+        except Exception as e:
+            _model_name_ref = f"{symbol}_{interval}" if 'symbol' in locals() and 'interval' in locals() else 'UNKNOWN_MODEL'
+            logger.error(f"Error saving model {_model_name_ref}: {e}", exc_info=True)
+            return None
+
+    def get_model_info(self, model_path: Union[str, Path]) -> Optional[ModelMetadata]:
         """
-        Load model with validation.
-        
-        Args:
-            model_path: Path to model file
-            
-        Returns:
-            Loaded pipeline
-            
-        Raises:
-            ModelError: If loading fails
+        Retrieves metadata for a given model path using ModelManager.
         """
         try:
-            model_path = Path(model_path)
-            if not model_path.exists():
-                raise ModelError(f"Model file not found: {model_path}")
-            
-            pipeline = joblib.load(model_path)
-            
-            # Validate loaded pipeline
-            if not hasattr(pipeline, "predict"):
-                raise ModelError("Loaded object is not a valid pipeline")
-            
-            logger.info(f"Model loaded successfully from: {model_path}")
-            return pipeline
-            
-        except Exception as e:
-            logger.exception("Failed to load model")
-            raise ModelError(f"Model loading failed: {str(e)}") from e
+            model_p = Path(model_path)
+            if not model_p.is_file():
+                logger.error(f"Model file path does not exist or is not a file: {model_p}")
+                return None 
 
-    def predict(self, df: pd.DataFrame, model_path: Union[str, Path]) -> pd.Series:
-        """
-        Generate predictions using trained model.
-        
-        Args:
-            df: Input DataFrame
-            model_path: Path to trained model
+            model_manager_config = ModelManagerConfig(base_directory=self.model_dir)
+            model_manager = ModelManager(config=model_manager_config)
             
-        Returns:
-            Series with predictions
-        """
-        try:
-            pipeline = self.load_model(model_path)
-            features_df = self.feature_engineering(df)
-            
-            feature_cols = [col for col in features_df.columns 
-                          if col not in ['target', 'future_return']]
-            
-            if not feature_cols:
-                raise ValidationError("No feature columns found for prediction")
-            
-            X = features_df[feature_cols].fillna(0)
-            predictions = pipeline.predict(X)
-            
-            return pd.Series(
-                predictions,
-                index=features_df.index,
-                name="model_signal"
-            )
-            
-        except Exception as e:
-            logger.exception("Prediction failed")
-            raise ModelError(f"Prediction failed: {str(e)}") from e
+            try:
+                _loaded_model, loaded_metadata = model_manager.load_model(path=str(model_p))
 
-    def predict_proba(self, df: pd.DataFrame, model_path: Union[str, Path]) -> pd.Series:
-        """
-        Generate prediction probabilities.
-        
-        Args:
-            df: Input DataFrame
-            model_path: Path to trained model
-            
-        Returns:
-            Series with buy probabilities
-        """
-        try:
-            pipeline = self.load_model(model_path)
-            
-            if not hasattr(pipeline, "predict_proba"):
-                raise ModelError("Model does not support probability prediction")
-            
-            features_df = self.feature_engineering(df)
-            feature_cols = [col for col in features_df.columns 
-                          if col not in ['target', 'future_return']]
-            
-            X = features_df[feature_cols].fillna(0)
-            probabilities = pipeline.predict_proba(X)[:, 1]
-            
-            return pd.Series(
-                probabilities,
-                index=features_df.index,
-                name="model_buy_proba"
-            )
-            
-        except Exception as e:
-            logger.exception("Probability prediction failed")
-            raise ModelError(f"Probability prediction failed: {str(e)}") from e
-
-    def get_model_info(self, model_path: Union[str, Path]) -> Dict[str, Any]:
-        """Get information about a saved model."""
-        try:
-            model_manager = ModelManager(base_directory=str(self.model_dir))
-            return model_manager.get_model_info(str(model_path))
-        except Exception as e:
-            logger.warning(f"Could not retrieve model info: {e}")
-            return {}
+                if loaded_metadata:
+                    logger.info(f"Successfully loaded metadata for: {model_p} via ModelManager")
+                    return loaded_metadata 
+                else:
+                    logger.warning(f"Failed to load metadata via ModelManager for: {model_p} (load_model returned None for metadata)")
+                    return None
+            except FileNotFoundError: # Specific exception for model not found by manager
+                logger.error(f"Model file not found by ModelManager at {model_p}", exc_info=False)
+                return None
+            except Exception as mm_load_error: # Catch other model_manager load errors
+                logger.error(f"ModelManager failed to load metadata for {model_p}: {mm_load_error}", exc_info=True)
+                return None
+                
+        except Exception as e: # Catch broader errors like Path issues
+            logger.error(f"Error retrieving model info for {model_path}: {e}", exc_info=True)
+            return None
 
     def cleanup_old_models(self, keep_latest: int = 5) -> None:
         """Clean up old model files, keeping only the latest N."""
@@ -839,3 +877,20 @@ class ModelTrainer:
                 
         except Exception as e:
             logger.warning(f"Model cleanup failed: {e}")
+
+    def _cleanup_temp_files(self):
+        """Remove temporary files and directories created during processing."""
+        try:
+            # Example: remove a temp directory if it exists
+            temp_dir = Path(self.config.TEMP_DIR)
+            if temp_dir.exists():
+                for child in temp_dir.iterdir():
+                    if child.is_file():
+                        child.unlink()
+                    elif child.is_dir():
+                        shutil.rmtree(child)
+                temp_dir.rmdir()  # Remove the empty directory itself
+                logger.info(f"Cleaned up temporary directory: {temp_dir}")
+            
+        except Exception as e:
+            logger.warning(f"Temporary file cleanup failed: {e}")

@@ -176,7 +176,8 @@ class StockTraderMainDashboard:
         """
         try:
             # Import here to avoid circular imports
-            from ...security.authentication import validate_session_security
+            # Changed from relative import to absolute import
+            from security.authentication import validate_session_security
             return validate_session_security()
         except ImportError:
             self.logger.warning("Security validation module not available")

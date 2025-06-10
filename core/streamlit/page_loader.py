@@ -31,7 +31,7 @@ class PageLoader:
     def __init__(self, logger: logging.Logger):
         """Initialize the page loader."""
         self.logger = logger
-        self.project_root = Path(__file__).parent.parent
+        self.project_root = Path(__file__).parent.parent.parent
     
     def discover_pages(self) -> List[str]:
         """Dynamically discover all Python files in dashboard_pages directory."""

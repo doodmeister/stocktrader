@@ -58,6 +58,7 @@ try:
     from utils.logger import configure_dashboard_logging as imported_configure_dashboard_logging, get_dashboard_logger
     from security.authentication import validate_session_security as _original_validate_session_security
     from core.streamlit.dashboard_utils import DashboardStateManager as ImportedDashboardStateManager
+    from core.streamlit.dashboard_controller import StockTraderMainDashboard
     from core.streamlit.page_loader import PageLoader as ImportedPageLoader
     from core.streamlit.health_checks import HealthChecker as ImportedHealthChecker
     
@@ -144,10 +145,6 @@ except ImportError as e:
     
     if 'st' in globals() and hasattr(st, 'warning'): # Check if st is available
         st.warning("Some core modules (e.g., PageLoader, HealthChecker) might not have been imported. Running in limited mode.")
-
-# Import the main dashboard controller
-from core.streamlit.dashboard_controller import StockTraderMainDashboard # Corrected path
-
 
 def main():
     """Main entry point for the StockTrader dashboard."""

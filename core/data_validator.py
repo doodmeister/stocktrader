@@ -139,8 +139,8 @@ class DataValidator:
                 return ValidationResult(
                     is_valid=False,
                     errors=["Symbol must be a non-empty string"],
-                    validated_data=None
-                ) # MODIFIED
+                    details={'original_symbol': symbol} # MODIFIED
+                ) 
             
             # Security check
             if len(symbol) > ValidationConfig.MAX_INPUT_LENGTH:
@@ -174,9 +174,9 @@ class DataValidator:
                 logger.info(f"Symbol validation failed (basic checks) for '{original_symbol_for_logging}' -> '{clean_symbol}' in {validation_time:.4f}s. Errors: {errors}")
                 return ValidationResult(
                     is_valid=False,
-                    validated_data=clean_symbol, # Even if invalid, provide the cleaned version
-                    errors=errors
-                ) # MODIFIED
+                    errors=errors,
+                    details={'cleaned_symbol': clean_symbol, 'original_symbol': original_symbol_for_logging} # MODIFIED
+                ) 
             
             # API validation (if enabled) - Placeholder for actual API call logic
             api_valid = True # Assume true if not checked or if API check passes
@@ -187,7 +187,11 @@ class DataValidator:
                 cached_result = self._get_from_cache(f"symbol:{clean_symbol}")
             if cached_result:
                 self._validation_stats['cache_hits'] += 1
-                cached_result.validated_data = clean_symbol # Ensure cleaned symbol is part of cached data if needed
+                # MODIFIED: Update details if necessary, validated_data is not a direct attribute
+                if cached_result.details:
+                    cached_result.details['cleaned_symbol_on_cache_hit'] = clean_symbol 
+                else:
+                    cached_result.details = {'cleaned_symbol_on_cache_hit': clean_symbol}
                 logger.info(f"Symbol validation cache hit for '{clean_symbol}'. Time: {time.time() - start_time:.4f}s")
                 return cached_result
 
@@ -228,10 +232,10 @@ class DataValidator:
             
             if errors: # If API validation (or other checks) added errors
                 logger.info(f"Symbol validation failed for '{original_symbol_for_logging}' -> '{clean_symbol}'. Metadata: {log_metadata}. Errors: {errors}")
-                result = ValidationResult(is_valid=False, validated_data=clean_symbol, errors=errors)
+                result = ValidationResult(is_valid=False, errors=errors, details={**log_metadata, 'final_status': 'failed'}) # MODIFIED
             else:
                 logger.info(f"Symbol validation successful for '{original_symbol_for_logging}' -> '{clean_symbol}'. Metadata: {log_metadata}")
-                result = ValidationResult(is_valid=True, validated_data=clean_symbol, errors=None)
+                result = ValidationResult(is_valid=True, errors=None, details={**log_metadata, 'final_status': 'successful', 'validated_symbol': clean_symbol}) # MODIFIED
             
             with self._cache_lock:
                 self._add_to_cache(f"symbol:{clean_symbol}", result)
@@ -241,7 +245,7 @@ class DataValidator:
             self._validation_stats['validation_errors'] += 1
             logger.error(f"Security validation error for symbol '{original_symbol_for_logging}': {sve}", exc_info=True)
             # Do not return potentially unsafe data in validated_data for security issues
-            return ValidationResult(is_valid=False, errors=[f"Security error: {str(sve)}"], validated_data=None)
+            return ValidationResult(is_valid=False, errors=[f"Security error: {str(sve)}"], details={'original_symbol': original_symbol_for_logging, 'error_type': 'SecurityValidationError'}) # MODIFIED
         except Exception as e:
             self._validation_stats['validation_errors'] += 1
             validation_time = time.time() - start_time
@@ -249,8 +253,8 @@ class DataValidator:
             return ValidationResult(
                 is_valid=False,
                 errors=[f"Unexpected validation error: {str(e)}"],
-                validated_data=None # Or symbol if it's safe to return
-            ) # MODIFIED
+                details={'original_symbol': original_symbol_for_logging, 'error_type': 'Exception'} # MODIFIED
+            ) 
     
     def validate_symbols(self, symbols_input: str, max_symbols: int = 50, check_api: Optional[bool] = None) -> ValidationResult: # MODIFIED
         """
@@ -269,18 +273,18 @@ class DataValidator:
 
         if not symbols_input or not isinstance(symbols_input, str) or not symbols_input.strip():
             logger.info("No symbols provided for batch validation.")
-            return ValidationResult(is_valid=False, errors=["No symbols provided"], validated_data=[]) # MODIFIED
+            return ValidationResult(is_valid=False, errors=["No symbols provided"], details={'input_symbols': symbols_input}) # MODIFIED
         
         raw_symbols = [s.strip() for s in symbols_input.split(',') if s.strip()]
         
         if not raw_symbols: # Handles case of " , , "
              logger.info("No valid symbols found after stripping input.")
-             return ValidationResult(is_valid=False, errors=["No symbols provided after cleaning input"], validated_data=[])
+             return ValidationResult(is_valid=False, errors=["No symbols provided after cleaning input"], details={'input_symbols': symbols_input}) # MODIFIED
 
         if len(raw_symbols) > max_symbols:
             err_msg = f"Too many symbols: {len(raw_symbols)} (maximum {max_symbols})"
             logger.warning(err_msg)
-            return ValidationResult(is_valid=False, errors=[err_msg], validated_data=[]) # MODIFIED
+            return ValidationResult(is_valid=False, errors=[err_msg], details={'input_symbols': symbols_input, 'raw_symbol_count': len(raw_symbols)}) # MODIFIED
 
         valid_symbols: List[str] = []
         all_errors: List[str] = []
@@ -295,13 +299,11 @@ class DataValidator:
             logger.debug(f"Batch validating symbol {sym_idx+1}/{len(unique_symbols_to_validate)}: '{symbol_str}'")
             # Pass the check_api override down
             result = self.validate_symbol(symbol_str, check_api=check_api)
-            if result.is_valid and result.validated_data:
-                # Ensure validated_data is a string as expected for a single symbol
-                if isinstance(result.validated_data, str):
-                    valid_symbols.append(result.validated_data)
-                else: # Should not happen if validate_symbol is correct
-                    logger.error(f"validate_symbol returned non-string validated_data: {result.validated_data} for symbol {symbol_str}")
-                    all_errors.append(f"{symbol_str}: Internal error - unexpected validation data type.")
+            if result.is_valid and result.details and isinstance(result.details.get('validated_symbol'), str): # MODIFIED: Check details
+                valid_symbols.append(result.details['validated_symbol'])
+            elif result.is_valid and not (result.details and isinstance(result.details.get('validated_symbol'), str)): # MODIFIED
+                logger.error(f"validate_symbol was valid but 'validated_symbol' not found or not string in details: {result.details} for symbol {symbol_str}")
+                all_errors.append(f"{symbol_str}: Internal error - validated_symbol missing in details from successful validation.")
             elif result.errors:
                 for error_message in result.errors:
                     all_errors.append(f"{symbol_str}: {error_message}")
@@ -328,19 +330,19 @@ class DataValidator:
             # The definition of is_valid for a batch can vary. Here, True if no errors at all.
             return ValidationResult(
                 is_valid=False, # Or: is_valid = not all_errors and bool(final_valid_symbols)
-                validated_data=final_valid_symbols, 
-                errors=all_errors
-            ) # MODIFIED
+                errors=all_errors,
+                details={**log_metadata, 'final_valid_symbols': final_valid_symbols} # MODIFIED
+            ) 
         elif not final_valid_symbols: # No errors, but also no valid symbols (e.g. empty input that wasn't caught earlier)
             logger.info(f"Batch symbol validation completed. No valid symbols found. Metadata: {log_metadata}")
-            return ValidationResult(is_valid=False, validated_data=[], errors=["No valid symbols found."])
+            return ValidationResult(is_valid=False, errors=["No valid symbols found."], details=log_metadata) # MODIFIED
         else:
             logger.info(f"Batch symbol validation successful. All {len(final_valid_symbols)} symbols valid. Metadata: {log_metadata}")
             return ValidationResult(
                 is_valid=True, 
-                validated_data=final_valid_symbols, 
-                errors=None
-            ) # MODIFIED
+                errors=None,
+                details={**log_metadata, 'final_valid_symbols': final_valid_symbols} # MODIFIED
+            ) 
             
     def validate_dates(self, start_date: date, end_date: date, interval: str = "1d") -> ValidationResult: # MODIFIED
         """
@@ -416,15 +418,15 @@ class DataValidator:
             return ValidationResult(
                 is_valid=False, 
                 errors=errors, 
-                validated_data={'start_date': start_date, 'end_date': end_date, 'interval': interval}
-            ) # MODIFIED
+                details={**log_metadata, 'input_start_date': start_date, 'input_end_date': end_date, 'input_interval': interval} # MODIFIED
+            ) 
         else:
             logger.info(f"Date validation successful. Metadata: {log_metadata}")
             return ValidationResult(
                 is_valid=True, 
                 errors=None, 
-                validated_data={'start_date': start_date, 'end_date': end_date, 'interval': interval}
-            ) # MODIFIED
+                details={**log_metadata, 'validated_start_date': start_date, 'validated_end_date': end_date, 'validated_interval': interval} # MODIFIED
+            ) 
 
     def validate_dataframe(self, 
                          df: pd.DataFrame, 
@@ -477,6 +479,7 @@ class DataValidator:
         errors: List[str] = []
         warnings_log: List[str] = []
         validated_price: Optional[float] = None
+        original_input_for_details = price # Store original input for details
 
         try:
             if isinstance(price, str):
@@ -511,7 +514,7 @@ class DataValidator:
             validation_time = time.time() - start_time
             log_metadata = {
                 'validation_time_seconds': round(validation_time, 4),
-                'original_input': price,
+                'original_input': original_input_for_details,
                 'min_price': min_price,
                 'max_price': max_price,
                 'price_precision': getattr(ValidationConfig, 'PRICE_PRECISION', 4) # Added getattr
@@ -520,15 +523,27 @@ class DataValidator:
                 log_metadata['warnings'] = warnings_log
 
             if errors:
-                logger.warning(f"Price validation failed for '{price}'. Metadata: {log_metadata}. Errors: {errors}")
-                return ValidationResult(is_valid=False, errors=errors, validated_data=validated_price) # Return converted price even if invalid
+                logger.warning(f"Price validation failed for '{original_input_for_details}'. Metadata: {log_metadata}. Errors: {errors}")
+                return ValidationResult(
+                    is_valid=False, 
+                    errors=errors, 
+                    details={**log_metadata, 'converted_value': validated_price} # MODIFIED
+                )
             else:
-                logger.info(f"Price validation successful for '{price}'. Validated: {validated_price}. Metadata: {log_metadata}")
-                return ValidationResult(is_valid=True, errors=None, validated_data=validated_price)
+                logger.info(f"Price validation successful for '{original_input_for_details}'. Validated: {validated_price}. Metadata: {log_metadata}")
+                return ValidationResult(
+                    is_valid=True, 
+                    errors=None, 
+                    details={**log_metadata, 'validated_price': validated_price} # MODIFIED
+                )
         
         except Exception as e:
-            logger.error(f"Unexpected error during price validation for '{price}': {e}", exc_info=True)
-            return ValidationResult(is_valid=False, errors=[f"Unexpected price validation error: {str(e)}"], validated_data=None)
+            logger.error(f"Unexpected error during price validation for '{original_input_for_details}': {e}", exc_info=True)
+            return ValidationResult(
+                is_valid=False, 
+                errors=[f"Unexpected price validation error: {str(e)}"], 
+                details={'original_input': original_input_for_details, 'error_type': 'Exception'} # MODIFIED
+            )
 
 
     def validate_quantity(self, quantity: Union[int, float, str], 
@@ -541,6 +556,7 @@ class DataValidator:
         errors: List[str] = []
         warnings_log: List[str] = []
         validated_quantity: Optional[Union[int, float]] = None
+        original_input_for_details = quantity # Store original input
 
         try:
             if isinstance(quantity, str):
@@ -577,7 +593,7 @@ class DataValidator:
             validation_time = time.time() - start_time
             log_metadata = {
                 'validation_time_seconds': round(validation_time, 4),
-                'original_input': quantity,
+                'original_input': original_input_for_details,
                 'min_quantity': min_quantity,
                 'max_quantity': max_quantity,
                 'allow_fractional': allow_fractional
@@ -586,15 +602,27 @@ class DataValidator:
                 log_metadata['warnings'] = warnings_log
 
             if errors:
-                logger.warning(f"Quantity validation failed for '{quantity}'. Metadata: {log_metadata}. Errors: {errors}")
-                return ValidationResult(is_valid=False, errors=errors, validated_data=validated_quantity)
+                logger.warning(f"Quantity validation failed for '{original_input_for_details}'. Metadata: {log_metadata}. Errors: {errors}")
+                return ValidationResult(
+                    is_valid=False, 
+                    errors=errors, 
+                    details={**log_metadata, 'converted_value': validated_quantity} # MODIFIED
+                )
             else:
-                logger.info(f"Quantity validation successful for '{quantity}'. Validated: {validated_quantity}. Metadata: {log_metadata}")
-                return ValidationResult(is_valid=True, errors=None, validated_data=validated_quantity)
+                logger.info(f"Quantity validation successful for '{original_input_for_details}'. Validated: {validated_quantity}. Metadata: {log_metadata}")
+                return ValidationResult(
+                    is_valid=True, 
+                    errors=None, 
+                    details={**log_metadata, 'validated_quantity': validated_quantity} # MODIFIED
+                )
 
         except Exception as e:
-            logger.error(f"Unexpected error during quantity validation for '{quantity}': {e}", exc_info=True)
-            return ValidationResult(is_valid=False, errors=[f"Unexpected quantity validation error: {str(e)}"], validated_data=None)
+            logger.error(f"Unexpected error during quantity validation for '{original_input_for_details}': {e}", exc_info=True)
+            return ValidationResult(
+                is_valid=False, 
+                errors=[f"Unexpected quantity validation error: {str(e)}"], 
+                details={'original_input': original_input_for_details, 'error_type': 'Exception'} # MODIFIED
+            )
 
     def validate_percentage(self, percentage: Union[float, str], 
                             min_pct: Optional[float] = 0.0, # MODIFIED
@@ -604,6 +632,7 @@ class DataValidator:
         start_time = time.time()
         errors: List[str] = []
         validated_percentage: Optional[float] = None
+        original_input_for_details = percentage # Store original input
 
         try:
             if isinstance(percentage, str):
@@ -639,22 +668,34 @@ class DataValidator:
             validation_time = time.time() - start_time
             log_metadata = {
                 'validation_time_seconds': round(validation_time, 4),
-                'original_input': percentage,
+                'original_input': original_input_for_details,
                 'min_percentage': min_pct,
                 'max_percentage': max_pct,
                 'as_percentage_string': f"{validated_percentage*100:.2f}%" if validated_percentage is not None else "N/A"
             }
 
             if errors:
-                logger.warning(f"Percentage validation failed for '{percentage}'. Metadata: {log_metadata}. Errors: {errors}")
-                return ValidationResult(is_valid=False, errors=errors, validated_data=validated_percentage)
+                logger.warning(f"Percentage validation failed for '{original_input_for_details}'. Metadata: {log_metadata}. Errors: {errors}")
+                return ValidationResult(
+                    is_valid=False, 
+                    errors=errors, 
+                    details={**log_metadata, 'converted_value': validated_percentage} # MODIFIED
+                )
             else:
-                logger.info(f"Percentage validation successful for '{percentage}'. Validated: {validated_percentage}. Metadata: {log_metadata}")
-                return ValidationResult(is_valid=True, errors=None, validated_data=validated_percentage)
+                logger.info(f"Percentage validation successful for '{original_input_for_details}'. Validated: {validated_percentage}. Metadata: {log_metadata}")
+                return ValidationResult(
+                    is_valid=True, 
+                    errors=None, 
+                    details={**log_metadata, 'validated_percentage': validated_percentage} # MODIFIED
+                )
         
         except Exception as e:
-            logger.error(f"Unexpected error during percentage validation for '{percentage}': {e}", exc_info=True)
-            return ValidationResult(is_valid=False, errors=[f"Unexpected percentage validation error: {str(e)}"], validated_data=None)
+            logger.error(f"Unexpected error during percentage validation for '{original_input_for_details}': {e}", exc_info=True)
+            return ValidationResult(
+                is_valid=False, 
+                errors=[f"Unexpected percentage validation error: {str(e)}"], 
+                details={'original_input': original_input_for_details, 'error_type': 'Exception'} # MODIFIED
+            )
 
 
     def sanitize_input(self, input_str: str, 
@@ -704,47 +745,66 @@ class DataValidator:
         start_time = time.time()
         errors: List[str] = []
         warnings_log: List[str] = []
+        original_input_path_str = str(file_path) # Store original input for details
         
         try:
             path = Path(file_path)
+            # Initialize resolved_path to None or original path string for cases where resolution fails early
+            resolved_path_str: Optional[str] = None 
 
             # Path traversal check
             if base_directory:
                 base_directory = Path(base_directory).resolve()
-                resolved_path = path.resolve()
-                if base_directory not in resolved_path.parents and base_directory != resolved_path :
-                    # Check if resolved_path is a subpath of base_directory
-                    # A more robust check: os.path.commonprefix([str(base_directory), str(resolved_path)]) != str(base_directory)
-                    # or resolved_path.relative_to(base_directory) raises ValueError
+                # Resolve path carefully, it might not exist yet
+                try:
+                    # Attempt to resolve, but catch if it doesn't exist and must_exist is false
+                    # For security, we want to work with absolute paths if possible
+                    absolute_path_attempt = Path(os.path.abspath(path))
+                except Exception: # Broad exception for os.path.abspath issues
+                    absolute_path_attempt = path # Fallback to original path object
+
+                if absolute_path_attempt.is_absolute():
+                    resolved_path_obj = absolute_path_attempt
+                else: # If still not absolute (e.g. empty path string), make it relative to CWD for consistent checks
+                    resolved_path_obj = Path.cwd() / absolute_path_attempt
+                
+                resolved_path_str = str(resolved_path_obj.resolve()) # Final resolved string
+
+                if base_directory not in resolved_path_obj.resolve().parents and base_directory != resolved_path_obj.resolve() :
                     try:
-                        resolved_path.relative_to(base_directory)
+                        resolved_path_obj.resolve().relative_to(base_directory)
                     except ValueError:
                          errors.append("Path traversal attempt detected or path is outside the allowed base directory.")
-                         logger.error(f"Path traversal attempt: {file_path} (resolved: {resolved_path}) is outside base: {base_directory}")
+                         logger.error(f"Path traversal attempt: {original_input_path_str} (resolved: {resolved_path_str}) is outside base: {base_directory}")
             else: # If no base_directory, resolve normally
-                resolved_path = path.resolve()
+                try:
+                    resolved_path_obj = path.resolve()
+                    resolved_path_str = str(resolved_path_obj)
+                except Exception as resolve_err: # Catch errors if path is invalid (e.g. contains null bytes on some OS)
+                    errors.append(f"Invalid file path provided: {original_input_path_str}. Error: {resolve_err}")
+                    # resolved_path_str remains None or its initial value if path object was created
 
+            current_resolved_path_for_checks = Path(resolved_path_str) if resolved_path_str else path
 
-            if not errors: # Continue if no traversal error
-                if must_exist and not resolved_path.exists():
-                    errors.append(f"File or directory does not exist: {resolved_path}")
-                elif resolved_path.exists() and check_read_access and not os.access(resolved_path, os.R_OK):
-                    errors.append(f"No read access to path: {resolved_path}")
+            if not errors: # Continue if no traversal or resolution error
+                if must_exist and not current_resolved_path_for_checks.exists():
+                    errors.append(f"File or directory does not exist: {current_resolved_path_for_checks}")
+                elif current_resolved_path_for_checks.exists() and check_read_access and not os.access(current_resolved_path_for_checks, os.R_OK):
+                    errors.append(f"No read access to path: {current_resolved_path_for_checks}")
 
-                if allowed_extensions and resolved_path.suffix.lower() not in [ext.lower() for ext in allowed_extensions]:
-                    errors.append(f"Invalid file extension: '{resolved_path.suffix}'. Allowed: {', '.join(allowed_extensions)}")
+                if allowed_extensions and current_resolved_path_for_checks.suffix.lower() not in [ext.lower() for ext in allowed_extensions]:
+                    errors.append(f"Invalid file extension: '{current_resolved_path_for_checks.suffix}'. Allowed: {', '.join(allowed_extensions)}")
             
-            # Further checks: length, dangerous characters in path components, etc.
-            max_fp_len = getattr(ValidationConfig, 'MAX_FILE_PATH_LENGTH', 1024) # Added getattr
-            if len(str(resolved_path)) > max_fp_len:
-                errors.append(f"File path is too long (max {max_fp_len} chars).")
+            max_fp_len = getattr(ValidationConfig, 'MAX_FILE_PATH_LENGTH', 1024) 
+            if len(str(current_resolved_path_for_checks)) > max_fp_len:
+                errors.append(f"File path is too long (max {max_fp_len} chars). Path: {str(current_resolved_path_for_checks)[:200]}...")
 
 
             validation_time = time.time() - start_time
             log_metadata = {
                 'validation_time_seconds': round(validation_time, 4),
-                'original_path': str(file_path),
-                'resolved_path': str(resolved_path) if 'resolved_path' in locals() else 'N/A',
+                'original_path': original_input_path_str,
+                'resolved_path_attempt': resolved_path_str, # This is the best effort resolved path
                 'base_directory': str(base_directory) if base_directory else 'N/A',
                 'must_exist': must_exist,
                 'allowed_extensions': allowed_extensions
@@ -753,15 +813,31 @@ class DataValidator:
                 log_metadata['warnings'] = warnings_log
 
             if errors:
-                logger.warning(f"File path validation failed for '{file_path}'. Metadata: {log_metadata}. Errors: {errors}")
-                return ValidationResult(is_valid=False, errors=errors, validated_data=str(resolved_path) if 'resolved_path' in locals() else str(file_path))
+                logger.warning(f"File path validation failed for '{original_input_path_str}'. Metadata: {log_metadata}. Errors: {errors}")
+                return ValidationResult(
+                    is_valid=False, 
+                    errors=errors, 
+                    details=log_metadata # MODIFIED
+                )
             else:
-                logger.info(f"File path validation successful for '{file_path}'. Metadata: {log_metadata}")
-                return ValidationResult(is_valid=True, errors=None, validated_data=str(resolved_path))
+                logger.info(f"File path validation successful for '{original_input_path_str}'. Metadata: {log_metadata}")
+                # Ensure 'resolved_path' key exists with the successfully validated path
+                log_metadata['resolved_path'] = resolved_path_str 
+                return ValidationResult(
+                    is_valid=True, 
+                    errors=None, 
+                    details=log_metadata # MODIFIED
+                )
         
         except Exception as e:
-            logger.error(f"Unexpected error during file path validation for '{file_path}': {e}", exc_info=True)
-            return ValidationResult(is_valid=False, errors=[f"Unexpected path validation error: {str(e)}"], validated_data=str(file_path))
+            logger.error(f"Unexpected error during file path validation for '{original_input_path_str}': {e}", exc_info=True)
+            # Try to get resolved_path_str if it was set before exception
+            current_resolved_str = resolved_path_str if 'resolved_path_str' in locals() and resolved_path_str is not None else original_input_path_str
+            return ValidationResult(
+                is_valid=False, 
+                errors=[f"Unexpected path validation error: {str(e)}"], 
+                details={'original_input': original_input_path_str, 'resolved_path_attempt': current_resolved_str, 'error_type': 'Exception'} # MODIFIED
+            )
 
     # ========================================
     # INTERNAL HELPER METHODS
@@ -894,28 +970,28 @@ if __name__ == "__main__":
     # Symbol validation
     logger.info("--- Symbol Validation ---")
     res_sym_valid = validator.validate_symbol("AAPL")
-    logger.info(f"AAPL: valid={res_sym_valid.is_valid}, data={res_sym_valid.validated_data}, errors={res_sym_valid.errors}")
+    logger.info(f"AAPL: valid={res_sym_valid.is_valid}, details={res_sym_valid.details}, errors={res_sym_valid.errors}") 
     res_sym_invalid = validator.validate_symbol("INVALID$SYMBOL")
-    logger.info(f"INVALID$SYMBOL: valid={res_sym_invalid.is_valid}, data={res_sym_invalid.validated_data}, errors={res_sym_invalid.errors}")
+    logger.info(f"INVALID$SYMBOL: valid={res_sym_invalid.is_valid}, details={res_sym_invalid.details}, errors={res_sym_invalid.errors}") 
     res_sym_empty = validator.validate_symbol("")
-    logger.info(f"Empty Symbol: valid={res_sym_empty.is_valid}, data={res_sym_empty.validated_data}, errors={res_sym_empty.errors}")
+    logger.info(f"Empty Symbol: valid={res_sym_empty.is_valid}, details={res_sym_empty.details}, errors={res_sym_empty.errors}") 
 
     # Batch symbol validation
     logger.info("--- Batch Symbol Validation ---")
     res_batch = validator.validate_symbols("MSFT, GOOG, BAD!,TSLA, ,NVDA")
-    logger.info(f"Batch: valid={res_batch.is_valid}, data={res_batch.validated_data}, errors={res_batch.errors}")
+    logger.info(f"Batch: valid={res_batch.is_valid}, details={res_batch.details}, errors={res_batch.errors}") 
 
     # Date validation
     logger.info("--- Date Validation ---")
     d_start = date(2023, 1, 1)
     d_end = date(2023, 1, 30)
     res_date_valid = validator.validate_dates(d_start, d_end, "1d")
-    logger.info(f"Dates {d_start}-{d_end} (1d): valid={res_date_valid.is_valid}, data={res_date_valid.validated_data}, errors={res_date_valid.errors}")
+    logger.info(f"Dates {d_start}-{d_end} (1d): valid={res_date_valid.is_valid}, details={res_date_valid.details}, errors={res_date_valid.errors}") 
     
     d_start_invalid = date(2023, 2, 1)
     d_end_invalid = date(2023, 1, 1)
     res_date_invalid = validator.validate_dates(d_start_invalid, d_end_invalid)
-    logger.info(f"Dates {d_start_invalid}-{d_end_invalid}: valid={res_date_invalid.is_valid}, data={res_date_invalid.validated_data}, errors={res_date_invalid.errors}")
+    logger.info(f"Dates {d_start_invalid}-{d_end_invalid}: valid={res_date_invalid.is_valid}, details={res_date_invalid.details}, errors={res_date_invalid.errors}") 
 
     # DataFrame validation
     logger.info("--- DataFrame Validation ---")
@@ -942,28 +1018,29 @@ if __name__ == "__main__":
     # Price validation
     logger.info("--- Price Validation ---")
     res_price_valid = validator.validate_price("123.45")
-    logger.info(f"Price '123.45': {res_price_valid.is_valid}, data={res_price_valid.validated_data}, errors={res_price_valid.errors}")
+    logger.info(f"Price '123.45': valid={res_price_valid.is_valid}, validated_price={res_price_valid.details.get('validated_price') if res_price_valid.details else 'N/A'}, errors={res_price_valid.errors}, warnings={res_price_valid.details.get('warnings') if res_price_valid.details else 'N/A'}")
     res_price_invalid = validator.validate_price("-5.0")
-    logger.info(f"Price '-5.0': {res_price_invalid.is_valid}, data={res_price_invalid.validated_data}, errors={res_price_invalid.errors}")
+    logger.info(f"Price '-5.0': valid={res_price_invalid.is_valid}, converted_value={res_price_invalid.details.get('converted_value') if res_price_invalid.details else 'N/A'}, errors={res_price_invalid.errors}")
     res_price_toolong = validator.validate_price("123.456789") # Assuming default precision is less
-    logger.info(f"Price '123.456789': {res_price_toolong.is_valid}, data={res_price_toolong.validated_data}, errors={res_price_toolong.errors}")
+    logger.info(f"Price '123.456789': valid={res_price_toolong.is_valid}, validated_price={res_price_toolong.details.get('validated_price') if res_price_toolong.details else 'N/A'}, errors={res_price_toolong.errors}, warnings={res_price_toolong.details.get('warnings') if res_price_toolong.details else 'N/A'}")
 
 
     # File path validation
     logger.info("--- File Path Validation ---")
     # Create a dummy file for testing 'must_exist'
     dummy_file_path = Path("dummy_test_file.txt")
-    with open(dummy_file_path, "w") as f:
-        f.write("test")
-    
-    res_path_valid = validator.validate_file_path(str(dummy_file_path), must_exist=True, allowed_extensions=[".txt"])
-    logger.info(f"Path '{dummy_file_path}': {res_path_valid.is_valid}, data={res_path_valid.validated_data}, errors={res_path_valid.errors}")
-    
-    res_path_noexist = validator.validate_file_path("non_existent_file.dat", must_exist=True)
-    logger.info(f"Path 'non_existent_file.dat': {res_path_noexist.is_valid}, data={res_path_noexist.validated_data}, errors={res_path_noexist.errors}")
-    
-    # Clean up dummy file
-    if dummy_file_path.exists():
-        os.remove(dummy_file_path)
+    try:
+        with open(dummy_file_path, "w") as f:
+            f.write("test")
+        
+        res_path_valid = validator.validate_file_path(str(dummy_file_path), must_exist=True, allowed_extensions=[".txt"])
+        logger.info(f"Path '{dummy_file_path}': valid={res_path_valid.is_valid}, resolved_path={res_path_valid.details.get('resolved_path') if res_path_valid.details else 'N/A'}, errors={res_path_valid.errors}")
+        
+        res_path_noexist = validator.validate_file_path("non_existent_file.dat", must_exist=True)
+        logger.info(f"Path 'non_existent_file.dat': valid={res_path_noexist.is_valid}, resolved_path_attempt={res_path_noexist.details.get('resolved_path_attempt') if res_path_noexist.details else 'N/A'}, errors={res_path_noexist.errors}")
+    finally:
+        # Clean up dummy file
+        if dummy_file_path.exists():
+            os.remove(dummy_file_path)
 
     logger.info(f"Validator Stats: {validator._validation_stats}")
