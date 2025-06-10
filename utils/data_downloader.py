@@ -70,7 +70,10 @@ def fetch_daily_ohlcv(symbol: str, start: str, end: str) -> pd.DataFrame:
     if not df_result.is_valid:
         raise ValueError(f"Data for {symbol} failed validation: {df_result.errors}")
 
-    # MODIFIED: Access validated_data attribute
+    # MODIFIED: Access validated_data attribute and check for None
+    if df_result.validated_data is None:
+        logger.error(f"Validated data for {symbol} is None despite passing validation. This is unexpected.")
+        raise ValueError(f"Validated data for {symbol} is None despite passing validation.")
     return df_result.validated_data
 
 
@@ -155,8 +158,11 @@ def download_stock_data(
             for symbol, symbol_df in result.items():
                 df_val = validate_dataframe(symbol_df, required_cols=["open", "high", "low", "close", "volume"])
                 if df_val.is_valid:
-                    # MODIFIED: Access validated_data attribute
-                    cleaned_results[symbol] = df_val.validated_data
+                    # MODIFIED: Access validated_data attribute and check for None
+                    if df_val.validated_data is not None:
+                        cleaned_results[symbol] = df_val.validated_data
+                    else:
+                        logger.warning(f"Validated data for {symbol} is None despite passing validation. Skipping.")
                 else:
                     logger.warning(f"Data for {symbol} failed validation: {df_val.errors}")
             if cleaned_results:
@@ -188,10 +194,14 @@ def download_stock_data(
                 # DataFrame Validation
                 df_val = validate_dataframe(symbol_df, required_cols=["open", "high", "low", "close", "volume"])
                 if df_val.is_valid:
-                    # MODIFIED: Access validated_data attribute
-                    fallback_results[symbol] = df_val.validated_data
+                    # MODIFIED: Access validated_data attribute and check for None
+                    if df_val.validated_data is not None:
+                        fallback_results[symbol] = df_val.validated_data
+                    else:
+                        logger.warning(f"Validated data for {symbol} (fallback) is None despite passing validation. Skipping.")
                 else:
-                    logger.warning(f"Data for {symbol} failed validation: {df_val.errors}")
+                    # Ensure validation errors are logged in the fallback as well
+                    logger.warning(f"Data for {symbol} (fallback) failed validation: {df_val.errors}")
             except Exception as e:
                 logger.warning(f"Per-symbol history+slice failed for {symbol}: {e}")
 
