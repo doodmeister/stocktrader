@@ -21,20 +21,20 @@ def _validate_ohlc_logic(df_ohlc: pd.DataFrame) -> ValidationResult:
     stats = {'rows_checked': len(df_ohlc)}
 
     if df_ohlc.empty:
-        return ValidationResult(is_valid=True, errors=None, validated_data=stats)
+        return ValidationResult(is_valid=True, errors=None, details=stats)
 
     required_cols = ['Open', 'High', 'Low', 'Close']
     missing_cols = [col for col in required_cols if col not in df_ohlc.columns]
     if missing_cols:
         errors.append(f"Missing OHLC columns for detailed check: {', '.join(missing_cols)}")
-        return ValidationResult(is_valid=False, errors=errors, validated_data=stats)
+        return ValidationResult(is_valid=False, errors=errors, details=stats)
 
     # Ensure numeric types before comparison
     for col in required_cols:
         if not pd.api.types.is_numeric_dtype(df_ohlc[col]):
             errors.append(f"OHLC column '{col}' is not numeric.")
     if errors:
-            return ValidationResult(is_valid=False, errors=errors, validated_data=stats)
+            return ValidationResult(is_valid=False, errors=errors, details=stats)
 
     invalid_high_rows = df_ohlc[ (df_ohlc['High'] < df_ohlc['Open']) | \
                                      (df_ohlc['High'] < df_ohlc['Low'])  | \
@@ -50,10 +50,10 @@ def _validate_ohlc_logic(df_ohlc: pd.DataFrame) -> ValidationResult:
 
     if errors:
         logger.warning(f"OHLC data validation found inconsistencies. Errors: {errors}")
-        return ValidationResult(is_valid=False, errors=errors, validated_data=stats)
+        return ValidationResult(is_valid=False, errors=errors, details=stats)
     else:
         logger.debug("OHLC data consistency check passed.")
-        return ValidationResult(is_valid=True, errors=None, validated_data=stats)
+        return ValidationResult(is_valid=True, errors=None, details=stats)
 
 def _detect_anomalies_logic(df: pd.DataFrame, level: str = "basic",
                             target_cols: Optional[List[str]] = None) -> ValidationResult:
@@ -69,7 +69,7 @@ def _detect_anomalies_logic(df: pd.DataFrame, level: str = "basic",
     anomaly_stats: Dict[str, Any] = {'level': level, 'anomalies_found': 0, 'details': {}}
 
     if df.empty:
-        return ValidationResult(is_valid=True, errors=None, validated_data=anomaly_stats)
+        return ValidationResult(is_valid=True, errors=None, details=anomaly_stats)
 
     if target_cols is None:
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -81,7 +81,7 @@ def _detect_anomalies_logic(df: pd.DataFrame, level: str = "basic",
         anomaly_stats['message'] = "No numeric columns for detection."
         if warnings_log: # Log if any warnings were generated
             logger.info(f"Anomaly detection: {warnings_log}")
-        return ValidationResult(is_valid=True, errors=None, validated_data=anomaly_stats)
+        return ValidationResult(is_valid=True, errors=None, details=anomaly_stats)
 
     for col in numeric_cols:
         data_col = df[col].dropna()
@@ -123,9 +123,9 @@ def _detect_anomalies_logic(df: pd.DataFrame, level: str = "basic",
     # Decide if anomalies constitute an error based on configuration or severity (not implemented here)
     # For now, anomalies are treated as warnings, so is_valid is True unless other errors occur.
     if errors: # If any specific error conditions were added
-        return ValidationResult(is_valid=False, errors=errors, validated_data=anomaly_stats)
+        return ValidationResult(is_valid=False, errors=errors, details=anomaly_stats)
     
-    return ValidationResult(is_valid=True, errors=None, validated_data=anomaly_stats)
+    return ValidationResult(is_valid=True, errors=None, details=anomaly_stats)
 
 
 def perform_dataframe_validation_logic(
@@ -158,7 +158,7 @@ def perform_dataframe_validation_logic(
         if min_rows is not None and min_rows > 0:
             errors.append("DataFrame is empty.")
             logger.warning("DataFrame validation: DataFrame is empty.")
-            return DataFrameValidationResult(is_valid=False, errors=errors, validated_data=df.copy(), error_details=error_details)
+            return DataFrameValidationResult(is_valid=False, errors=errors, validated_data=df.copy(), error_details=error_details, details=None)
         else:
             warnings_log.append("DataFrame is empty, but this is acceptable by configuration (min_rows=0 or None).")
 
@@ -190,7 +190,7 @@ def perform_dataframe_validation_logic(
             if count > 0:
                 null_pct = count / row_count
                 if null_pct > max_null_percentage:
-                    err_msg = f"Column '{col_key}' has {count} nulls ({null_pct:.2%}), exceeding max of {max_null_percentage:.0%}._PERCENTAGE_." # Corrected placeholder
+                    err_msg = f"Column '{col_key}' has {count} nulls ({null_pct:.2%}), exceeding max of {max_null_percentage:.0%}." # Corrected placeholder
                     errors.append(err_msg)
                     if col_key not in error_details:
                         error_details[col_key] = []
@@ -217,8 +217,8 @@ def perform_dataframe_validation_logic(
             ohlc_result = _validate_ohlc_logic(df[ohlc_cols_present])
             if not ohlc_result.is_valid and ohlc_result.errors:
                 errors.extend(ohlc_result.errors)
-            if ohlc_result.validated_data and isinstance(ohlc_result.validated_data, dict):
-                ohlc_stats = ohlc_result.validated_data
+            if ohlc_result.details and isinstance(ohlc_result.details, dict):
+                ohlc_stats = ohlc_result.details
         else:
             warnings_log.append("Skipping detailed OHLC validation due to missing one or more of Open, High, Low, Close columns.")
 
@@ -228,8 +228,8 @@ def perform_dataframe_validation_logic(
         anomaly_result = _detect_anomalies_logic(df, level=detect_anomalies_level) # target_cols can be added if needed
         if not anomaly_result.is_valid and anomaly_result.errors:
             errors.extend(anomaly_result.errors)
-        if anomaly_result.validated_data and isinstance(anomaly_result.validated_data, dict):
-            anomaly_stats = anomaly_result.validated_data
+        if anomaly_result.details and isinstance(anomaly_result.details, dict):
+            anomaly_stats = anomaly_result.details
 
     logic_validation_time = pd.Timestamp.now().timestamp() - logic_start_time
     log_metadata = {
@@ -259,7 +259,8 @@ def perform_dataframe_validation_logic(
             is_valid=False, 
             errors=errors, 
             validated_data=df.copy(), 
-            error_details=error_details if error_details else None
+            error_details=error_details,
+            details=None
         )
     else:
         logger.info(f"DataFrame validation successful. Metadata: {log_metadata}")
@@ -267,5 +268,6 @@ def perform_dataframe_validation_logic(
             is_valid=True, 
             errors=None, 
             validated_data=df.copy(),
-            error_details=None
+            error_details=None,
+            details=None
         )

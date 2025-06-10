@@ -11,7 +11,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 try:
-    from train.feature_engineering import FeatureEngineer, HAS_TALIB, FeatureConfigValidator, ConfigurationError
+    from train.feature_engineering import FeatureEngineer, FeatureConfigValidator, ConfigurationError
     from patterns.pattern_utils import get_pattern_names
 except ImportError as e:
     print(f"Error importing necessary modules. Make sure PYTHONPATH is set correctly or run from project root.")
@@ -21,18 +21,39 @@ except ImportError as e:
 # Mock config for testing
 class MockFeatureConfig:
     def __init__(self):
-        self.ROLLING_WINDOWS = [5, 10]
+        self.use_technical_indicators = True
+        self.use_candlestick_patterns = True # This will now test custom patterns
+        self.use_rolling_window_features = True
+        self.rolling_windows = [5, 10]
+        self.ROLLING_WINDOWS = [5, 10, 20]
         self.TARGET_HORIZON = 1
-        self.use_technical_indicators = True  # General switch, may not directly use TA-Lib for this
-        self.use_candlestick_patterns = True  # This should trigger TA-Lib usage for patterns
-        # Define ohlcv_columns as FeatureEngineer might expect it from config
+        self.indicator_config = {
+            "rsi": {"enabled": True, "length": 14},
+            "macd": {"enabled": True, "fast": 12, "slow": 26, "signal": 9},
+            "bollinger_bands": {"enabled": True, "length": 20, "std_dev": 2},
+            "stochastic_oscillator": {"enabled": True, "k_period": 14, "d_period": 3, "slowing_period": 3},
+            "average_directional_index": {"enabled": True, "length": 14},
+            "average_true_range": {"enabled": True, "length": 14},
+            "williams_r": {"enabled": True, "length": 14},
+            "commodity_channel_index": {"enabled": True, "length": 20},
+            "on_balance_volume": {"enabled": True},
+            "vwap": {"enabled": True},
+            "money_flow_index": {"enabled": True, "length": 14},
+            "rate_of_change": {"enabled": True, "length": 10},
+        }
+        # selected_patterns can be empty to use all from patterns.py, or specify a list
+        self.selected_patterns = [] 
+        self.feature_flags = {
+            'sma': True, 'std_dev': True, 'min_max': True, 'pct_change': True,
+            'log_return': True, 'hl_range_pct': True, 'price_volume_corr': True,
+            'momentum': True, 'roc': True, 'ema_diff': True, 'ema_ratio': True,
+            'volatility': True, 'support_resistance': True, 'price_position': True
+        }
         self.ohlcv_columns = {
             'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close', 'volume': 'volume'
         }
-        # Add other attributes if FeatureConfigValidator or FeatureEngineer expects them
-        # self.datetime_column = 'timestamp' # If FeatureEngineer expects a named datetime column
 
-def create_sample_ohlcv_data(num_rows=30): # Increased rows for more pattern potential
+def create_sample_ohlcv_data(num_rows=30):
     """Creates a sample OHLCV DataFrame with a DatetimeIndex."""
     data = {
         'open':   [10, 11, 10, 12, 13, 11, 12, 14, 13, 15, 16, 14, 13, 12, 11, 10, 9, 10, 11, 12, 13, 14, 15, 13, 12, 14, 15, 16, 17, 18],
@@ -41,7 +62,6 @@ def create_sample_ohlcv_data(num_rows=30): # Increased rows for more pattern pot
         'close':  [11, 10, 11, 13, 12, 12, 13, 15, 14, 16, 15, 14, 12, 11, 10, 9, 10, 11, 12, 11, 13, 15, 14, 14, 13, 15, 16, 17, 18, 19],
         'volume': [100,110,105,120,130,115,125,140,135,150,160,145,130,120,110,100,90,100,110,120,130,140,150,130,120,140,150,160,170,180]
     }
-    # Ensure all lists have the same length as num_rows
     for key in data:
         data[key] = data[key][:num_rows]
 
@@ -53,125 +73,68 @@ def create_sample_ohlcv_data(num_rows=30): # Increased rows for more pattern pot
     df = df.set_index('timestamp')
     return df
 
-def test_feature_engineering_with_talib():
-    print("Starting test_feature_engineering_with_talib...")
+def test_feature_engineering_custom_patterns():
+    print("Starting test_feature_engineering_custom_patterns (formerly _with_talib)...")
 
     sample_df = create_sample_ohlcv_data()
     config = MockFeatureConfig()
+    config.use_candlestick_patterns = True # Ensure custom patterns are tested
 
-    if not HAS_TALIB:
-        print("TA-Lib is not installed. Verifying graceful handling for candlestick patterns.")
-        config.use_candlestick_patterns = True # Keep True to test resilience
-
-        try:
-            # Validate config (it might warn or pass if TA-Lib is missing but use_candlestick_patterns is True)
-            # The warning "Falling back to pure Python implementations" suggests it should proceed.
-            FeatureConfigValidator.validate_config(config)
-            engineer = FeatureEngineer(feature_config=config)
-            features_df = engineer.engineer_features(sample_df.copy())
-            print("Feature engineering ran without TA-Lib (as expected by fallback mechanism).")
-
-            talib_pattern_names = []
-            try:
-                talib_pattern_names = get_pattern_names()
-                if not isinstance(talib_pattern_names, list): talib_pattern_names = []
-            except Exception: # nosec
-                pass # Ignore if get_pattern_names itself fails or is not as expected
-
-            if talib_pattern_names:
-                for pattern_name in talib_pattern_names:
-                    assert pattern_name not in features_df.columns, \
-                        f"TA-Lib specific column {pattern_name} found when TA-Lib is not available."
-                print("Successfully verified no TA-Lib specific patterns generated when TA-Lib is unavailable.")
-            else:
-                print("Could not retrieve TA-Lib pattern names or list is empty; skipping check for their absence.")
-            
-        except ConfigurationError as e:
-            print(f"ConfigurationError encountered: {e}")
-            print("This might be acceptable if config validation is strict about TA-Lib for patterns.")
-            # Depending on expected behavior, this might not be a test failure.
-            # For now, let's assume the fallback mechanism should prevent this.
-            assert False, f"ConfigurationError when TA-Lib is missing but patterns requested: {e}"
-        except Exception as e:
-            print(f"Unexpected error during feature engineering without TA-Lib: {e}")
-            import traceback
-            traceback.print_exc()
-            assert False, f"Unexpected error when TA-Lib is missing: {e}"
-        print("TA-Lib not available test part finished.")
-        return
-
-    # This part runs if HAS_TALIB is True
-    print("TA-Lib is installed. Proceeding with TA-Lib specific tests.")
-    config.use_candlestick_patterns = True # Ensure it's set for the test
+    print("Verifying candlestick patterns are generated using custom logic (patterns.py).")
 
     try:
-        FeatureConfigValidator.validate_config(config)
+        FeatureConfigValidator.validate_config(config) # Should pass
         engineer = FeatureEngineer(feature_config=config)
-    except ConfigurationError as e:
-        print(f"Error initializing FeatureEngineer with TA-Lib enabled: {e}")
-        assert False, f"FeatureEngineer initialization failed: {e}"
-        return
-    except Exception as e:
-        print(f"Unexpected error initializing FeatureEngineer: {e}")
-        assert False, f"Unexpected error during FeatureEngineer initialization: {e}"
-        return
-
-    print(f"Input data for feature engineering (first 5 rows):\n{sample_df.head()}")
-
-    try:
         features_df = engineer.engineer_features(sample_df.copy())
+        print("Feature engineering ran with custom candlestick patterns.")
+
+        custom_pattern_names = []
+        try:
+            # These are the patterns expected from patterns.py
+            custom_pattern_names = get_pattern_names() 
+            if not isinstance(custom_pattern_names, list): custom_pattern_names = []
+        except Exception as e:
+            print(f"Could not retrieve custom pattern names: {e}")
+            pass 
+
+        if not custom_pattern_names:
+            warnings.warn("No custom pattern names found via get_pattern_names(). Cannot verify specific pattern columns.")
+        else:
+            print(f"Expecting custom pattern columns based on get_pattern_names() (e.g., {custom_pattern_names[:3]}...).")
+            found_custom_patterns = 0
+            missing_patterns = []
+            for pattern_name in custom_pattern_names:
+                # Column names in DataFrame might have spaces removed
+                df_pattern_col_name = pattern_name.replace(" ", "")
+                if df_pattern_col_name in features_df.columns:
+                    found_custom_patterns += 1
+                    assert pd.api.types.is_numeric_dtype(features_df[df_pattern_col_name]), \
+                        f"Custom pattern column {df_pattern_col_name} is not numeric."
+                    # Custom patterns should return 0 or 1 (or other integers if defined differently)
+                    # For this test, we assume they are binary (0 or 1)
+                    assert features_df[df_pattern_col_name].dropna().isin([0, 1]).all() or features_df[df_pattern_col_name].dropna().empty, \
+                       f"Values in {df_pattern_col_name} are not binary (0 or 1) as expected for custom patterns."
+                else:
+                    missing_patterns.append(df_pattern_col_name)
+            
+            assert found_custom_patterns > 0, \
+                f"No custom candlestick pattern columns were generated. Expected based on patterns.py: {custom_pattern_names}. Actual columns: {features_df.columns.tolist()}"
+            
+            if missing_patterns:
+                 print(f"Note: {len(missing_patterns)} expected custom patterns were not found (e.g., {missing_patterns[:3]}). This might be due to data length or specific pattern requirements in patterns.py.")
+
+            print(f"Successfully found and verified {found_custom_patterns} custom pattern columns.")
+
+    except ConfigurationError as e:
+        print(f"ConfigurationError encountered: {e}")
+        assert False, f"ConfigurationError during test: {e}"
     except Exception as e:
-        print(f"Error during engineer_features call: {e}")
+        print(f"Unexpected error during feature engineering with custom patterns: {e}")
         import traceback
         traceback.print_exc()
-        assert False, f"engineer_features call failed: {e}"
-        return
-
-    print(f"Engineered features DataFrame columns: {features_df.columns.tolist()}")
-    print(f"Engineered features DataFrame head (first 5 rows):\n{features_df.head()}")
-
-    talib_pattern_names = []
-    try:
-        talib_pattern_names = get_pattern_names()
-        if not isinstance(talib_pattern_names, list) or not all(isinstance(name, str) for name in talib_pattern_names):
-            print(f"Warning: get_pattern_names() did not return a list of strings. Returned: {talib_pattern_names}")
-            talib_pattern_names = [] 
-    except Exception as e:
-        print(f"Could not get pattern names from patterns.pattern_utils.get_pattern_names: {e}")
-        talib_pattern_names = []
-
-    if not talib_pattern_names:
-        warnings.warn("No TA-Lib pattern names found via get_pattern_names(). Cannot verify specific pattern columns.")
-        # Consider a basic check: did number of columns increase?
-        # For now, if no names, we can't assert specific columns.
-    else:
-        print(f"Expecting TA-Lib pattern columns based on get_pattern_names() (e.g., {talib_pattern_names[:3]}...).")
-        found_talib_patterns = 0
-        missing_patterns = []
-        for pattern_name in talib_pattern_names:
-            if pattern_name in features_df.columns:
-                found_talib_patterns += 1
-                # print(f"Found TA-Lib pattern column: {pattern_name}") # Can be verbose
-                assert pd.api.types.is_numeric_dtype(features_df[pattern_name]), \
-                    f"TA-Lib pattern column {pattern_name} is not numeric."
-                # TA-Lib patterns are typically integers (0, 100, -100).
-                # Check if values are in a typical range. Some patterns might produce NaN if not enough data.
-                # assert features_df[pattern_name].dropna().isin([0, 100, -100]).all(), \
-                #    f"Values in {pattern_name} are not typical for TA-Lib patterns (0, 100, -100)."
-            else:
-                missing_patterns.append(pattern_name)
-        
-        if found_talib_patterns > 0:
-            print(f"Successfully found {found_talib_patterns} TA-Lib pattern columns.")
-            if len(missing_patterns) < len(talib_pattern_names) and len(missing_patterns) > 0 : # Some found, some missing
-                 print(f"Note: {len(missing_patterns)} expected TA-Lib patterns were not found (e.g., {missing_patterns[:3]}). This might be due to data length or specific pattern requirements.")
-        else: # No patterns found at all
-            print(f"Error: TA-Lib is installed and use_candlestick_patterns is True, but NO expected TA-Lib pattern columns were found.")
-            print(f"Expected patterns (from get_pattern_names): {talib_pattern_names}")
-            print(f"Actual columns in features_df: {features_df.columns.tolist()}")
-            assert False, "No TA-Lib candlestick pattern columns were generated despite TA-Lib being available."
-            
-    print("test_feature_engineering_with_talib completed successfully.")
+        assert False, f"Unexpected error: {e}"
+    
+    print("test_feature_engineering_custom_patterns completed successfully.")
 
 if __name__ == "__main__":
-    test_feature_engineering_with_talib()
+    test_feature_engineering_custom_patterns()

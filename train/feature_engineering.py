@@ -8,7 +8,7 @@ Optimized for performance with vectorized operations, caching, and robust error 
 Features:
     - Rolling statistical features with configurable windows
     - Technical indicators (RSI, MACD, Bollinger Bands, etc.)
-    - Candlestick pattern detection with TA-Lib optimization
+    - Custom Candlestick Pattern detection from patterns.py
     - Price momentum and volatility features
     - Memory-efficient processing for large datasets
     - Comprehensive validation and error handling
@@ -43,15 +43,7 @@ import pandas as pd
 
 # Optional technical analysis libraries
 try:
-    import talib
-    HAS_TALIB = True
-except ImportError:
-    talib = None
-    HAS_TALIB = False
-    warnings.warn("TA-Lib not available. Falling back to pure Python implementations.")
-
-try:
-    import ta
+    import ta # This is pandas_ta
     HAS_TA = True
 except ImportError:
     ta = None
@@ -138,10 +130,6 @@ class FeatureConfigValidator:
                 if not HAS_TA:
                     logger.warning("Technical indicators requested but TA library not available")
             
-            if hasattr(config, 'use_candlestick_patterns') and config.use_candlestick_patterns:
-                if not HAS_TALIB:
-                    logger.warning("Candlestick patterns requested but TA-Lib not available")
-            
             logger.debug("Feature engineering configuration validated successfully")
             
         except Exception as e:
@@ -213,24 +201,8 @@ class FeatureEngineer:
         self._feature_cache: Dict[str, pd.DataFrame] = {}
         self._performance_stats: Dict[str, float] = {}
         
-        # Validate dependencies
-        self._validate_dependencies()
-        
         logger.info(f"FeatureEngineer initialized with {len(self.config.ROLLING_WINDOWS)} rolling windows")
         logger.debug(f"Memory limit: {max_memory_mb}MB, Cache limit: {cache_size_limit}")
-
-    def _validate_dependencies(self) -> None:
-        """Validate optional dependencies and log availability."""
-        dependencies = {
-            'TA-Lib': HAS_TALIB,
-            'TA': HAS_TA
-        }
-        
-        for name, available in dependencies.items():
-            if available:
-                logger.debug(f"{name} library available")
-            else:
-                logger.warning(f"{name} library not available - some features may be limited")
 
     def _validate_input_data(self, df: pd.DataFrame) -> None:
         """
@@ -247,7 +219,15 @@ class FeatureEngineer:
         
         # First run centralized validation
         try:
-            validation_result = validate_dataframe(df)
+            # Ensure columns are in the expected format for validation
+            df_renamed = df.rename(columns={
+                'open': 'Open',
+                'high': 'High',
+                'low': 'Low',
+                'close': 'Close',
+                'volume': 'Volume'
+            })
+            validation_result = validate_dataframe(df_renamed)
             if not validation_result.is_valid:
                 error_summary = "; ".join(validation_result.errors) if validation_result.errors else "Core validation failed without specific error messages."
                 logger.error(f"Core validation failed: {error_summary}")
@@ -395,7 +375,6 @@ class FeatureEngineer:
             
             # Add technical indicators if enabled and available
             if getattr(self.config, 'use_technical_indicators', False):
-                # The HAS_TA check is now inside _add_technical_indicators
                 logger.debug("Adding technical indicators...")
                 result_df = self._add_technical_indicators(result_df)
                 self._check_memory_usage(result_df, "technical_indicators")
@@ -556,8 +535,6 @@ class FeatureEngineer:
         Raises:
             FeatureGenerationError: If technical indicator generation fails
         """
-        # REMOVED: TA library check, as we are using our own implementations for core indicators
-        
         try:
             result_df = df.copy()
             
@@ -574,7 +551,6 @@ class FeatureEngineer:
 
             if len(df) < min_periods:
                 logger.warning(f"Insufficient data for core technical indicators: {len(df)} < {min_periods}")
-                # Still attempt to calculate other TA-lib indicators if HAS_TA
             
             indicators_added = 0
             
@@ -635,7 +611,7 @@ class FeatureEngineer:
             except Exception as e:
                 logger.warning(f"Failed to compute Bollinger Bands using core.indicators: {e}")
 
-            # Keep other TA-Lib indicators if HAS_TA (pandas_ta)
+            # Keep other TA indicators if HAS_TA (pandas_ta)
             if HAS_TA and ta is not None: # 'ta' here refers to 'pandas_ta'
                 logger.debug("Adding other technical indicators using pandas_ta...")
                 # Use df.ta strategy for pandas_ta
@@ -787,40 +763,9 @@ class FeatureEngineer:
                 get_pattern_names()
             )
             
-            # Use TA-Lib for faster pattern detection where available
-            open_prices = df['open'].values
-            high_prices = df['high'].values
-            low_prices = df['low'].values
-            close_prices = df['close'].values
-              # Initialize talib patterns dictionary only if TA-Lib is available
-            talib_patterns = {}
-            if HAS_TALIB and talib is not None:
-                talib_patterns = {
-                    'hammer': talib.CDLHAMMER,
-                    'hanging_man': talib.CDLHANGINGMAN,
-                    'doji': talib.CDLDOJI,
-                    'shooting_star': talib.CDLSHOOTINGSTAR,
-                    'engulfing_bullish': talib.CDLENGULFING,
-                    'morning_star': talib.CDLMORNINGSTAR,
-                    'evening_star': talib.CDLEVENINGSTAR,
-                    'harami': talib.CDLHARAMI,
-                    'piercing': talib.CDLPIERCING,
-                    'dark_cloud': talib.CDLDARKCLOUDCOVER
-                }
-            
             for pattern_name in pattern_names:
-                pattern_key = pattern_name.lower().replace(' ', '_')
-                
-                if HAS_TALIB and pattern_key in talib_patterns:
-                    # Use TA-Lib for supported patterns
-                    pattern_result = talib_patterns[pattern_key](
-                        open_prices, high_prices, low_prices, close_prices
-                    )
-                    # Convert to binary (TA-Lib returns -100, 0, 100)
-                    result_df[pattern_name.replace(" ", "")] = (pattern_result != 0).astype(int)
-                else:
-                    # Fall back to custom pattern detection
-                    result_df = self._add_custom_pattern(result_df, pattern_name)
+                # Always use custom pattern detection
+                result_df = self._add_custom_pattern(result_df, pattern_name)
             
         except Exception as e:
             logger.warning(f"Error adding candlestick patterns: {e}")
