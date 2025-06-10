@@ -37,7 +37,12 @@ def fetch_daily_ohlcv(symbol: str, start: str, end: str) -> pd.DataFrame:
     if not val_result.is_valid:
         raise ValueError(f"Invalid symbol: {symbol} - {val_result.errors}")
 
-    symbol = val_result.value
+    # MODIFIED: Access validated symbol from details
+    validated_symbol = val_result.details.get('validated_symbol') if val_result.details else symbol
+    if not validated_symbol:
+        # Fallback or raise if validated_symbol is crucial and not found
+        raise ValueError(f"Validated symbol not found in details for: {symbol}")
+
     start_date = datetime.strptime(start, "%Y-%m-%d").date()
     end_date = datetime.strptime(end, "%Y-%m-%d").date()
 
@@ -65,7 +70,8 @@ def fetch_daily_ohlcv(symbol: str, start: str, end: str) -> pd.DataFrame:
     if not df_result.is_valid:
         raise ValueError(f"Data for {symbol} failed validation: {df_result.errors}")
 
-    return df_result.value
+    # MODIFIED: Access validated_data attribute
+    return df_result.validated_data
 
 
 def _period_from_days(days: int) -> str:
@@ -102,7 +108,12 @@ def download_stock_data(
     for symbol in symbols:
         sym_result = validate_symbol(symbol)
         if sym_result.is_valid:
-            valid_symbols.append(sym_result.value)
+            # MODIFIED: Access validated symbol from details
+            validated_symbol_str = sym_result.details.get('validated_symbol') if sym_result.details else symbol
+            if validated_symbol_str:
+                valid_symbols.append(validated_symbol_str)
+            else:
+                logger.warning(f"Validated symbol not found in details for {symbol}, skipping.")
         else:
             logger.warning(f"Skipping invalid symbol: {symbol} - {sym_result.errors}")
 
@@ -144,7 +155,8 @@ def download_stock_data(
             for symbol, symbol_df in result.items():
                 df_val = validate_dataframe(symbol_df, required_cols=["open", "high", "low", "close", "volume"])
                 if df_val.is_valid:
-                    cleaned_results[symbol] = df_val.value
+                    # MODIFIED: Access validated_data attribute
+                    cleaned_results[symbol] = df_val.validated_data
                 else:
                     logger.warning(f"Data for {symbol} failed validation: {df_val.errors}")
             if cleaned_results:
@@ -176,7 +188,8 @@ def download_stock_data(
                 # DataFrame Validation
                 df_val = validate_dataframe(symbol_df, required_cols=["open", "high", "low", "close", "volume"])
                 if df_val.is_valid:
-                    fallback_results[symbol] = df_val.value
+                    # MODIFIED: Access validated_data attribute
+                    fallback_results[symbol] = df_val.validated_data
                 else:
                     logger.warning(f"Data for {symbol} failed validation: {df_val.errors}")
             except Exception as e:
