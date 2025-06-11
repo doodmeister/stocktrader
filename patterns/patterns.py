@@ -741,9 +741,6 @@ class BullishHaramiPattern(PatternDetector):
             min_rows_required=self.min_rows
         )
 
-# Add all remaining pattern implementations...
-# (Continuing with the same structure for all other patterns)
-
 class ThreeWhiteSoldiersPattern(PatternDetector):
     @property
     def name(self) -> str:
@@ -763,7 +760,6 @@ class ThreeWhiteSoldiersPattern(PatternDetector):
     
     def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-        
         detected = (
             first.close > first.open and
             second.close > second.open and
@@ -771,9 +767,11 @@ class ThreeWhiteSoldiersPattern(PatternDetector):
             second.open > first.open and
             third.open > second.open and
             second.close > first.close and
-            third.close > second.close
+            third.close > second.close and
+            is_long_body(first) and
+            is_long_body(second) and
+            is_long_body(third)
         )
-        
         confidence = 0.8 if detected else 0.0
         
         return PatternResult(
@@ -782,12 +780,9 @@ class ThreeWhiteSoldiersPattern(PatternDetector):
             confidence=confidence,
             pattern_type=self.pattern_type,
             strength=self.strength,
-            description="Three consecutive bullish candles with progressive higher opens and closes",
+            description="Three consecutive bullish candles with progressive higher opens and closes (all long bodies)",
             min_rows_required=self.min_rows
         )
-
-# Add remaining pattern implementations following similar structure...
-# (I'll continue with the remaining patterns in the same format)
 
 class InvertedHammerPattern(PatternDetector):
     @property
@@ -825,7 +820,6 @@ class InvertedHammerPattern(PatternDetector):
             min_rows_required=self.min_rows
         )
 
-# Continue with remaining patterns...
 class DojiPattern(PatternDetector):
     @property
     def name(self) -> str:
@@ -1147,7 +1141,6 @@ class ThreeBlackCrowsPattern(PatternDetector):
     
     def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-        
         detected = (
             first.close < first.open and
             second.close < second.open and
@@ -1155,9 +1148,11 @@ class ThreeBlackCrowsPattern(PatternDetector):
             second.open < first.open and
             third.open < second.open and
             second.close < first.close and
-            third.close < second.close
+            third.close < second.close and
+            is_long_body(first) and
+            is_long_body(second) and
+            is_long_body(third)
         )
-        
         confidence = 0.8 if detected else 0.0
         
         return PatternResult(
@@ -1166,7 +1161,7 @@ class ThreeBlackCrowsPattern(PatternDetector):
             confidence=confidence,
             pattern_type=self.pattern_type,
             strength=self.strength,
-            description="Three consecutive bearish candles with progressive lower opens and closes",
+            description="Three consecutive bearish candles with progressive lower opens and closes (all long bodies)",
             min_rows_required=self.min_rows
         )
 
@@ -1208,6 +1203,12 @@ class BearishHaramiPattern(PatternDetector):
             description="Two-candle pattern where small bearish candle is contained within previous bullish candle",
             min_rows_required=self.min_rows
         )
+
+# --- Add helper for long body detection (≥60% of range) ---
+def is_long_body(row) -> bool:
+    body = abs(row.close - row.open)
+    total_range = row.high - row.low
+    return total_range > 0 and body >= total_range * 0.6
 
 # Factory function for easy initialization
 def create_pattern_detector(confidence_threshold: float = 0.7, enable_caching: bool = True) -> CandlestickPatterns:

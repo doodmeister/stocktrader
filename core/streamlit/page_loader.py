@@ -123,7 +123,7 @@ class PageLoader:
                 ),
                 "data_analysis.py": PageConfig(
                     name="Technical Analysis Tools",
-                    file="data_analysis.py",
+                    file="data_analysis_v2.py",
                     description="Advanced technical analysis and pattern detection",
                     category="Analysis"
                 ),
