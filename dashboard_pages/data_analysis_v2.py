@@ -473,9 +473,9 @@ class DataAnalysisV2Dashboard:
                 if validation_result.is_valid:
                     display_technical_indicators(df)
                     display_candlestick_patterns(df)
-        # Always show summary and GPT UI if DataFrame is present
         df = st.session_state.get('uploaded_dataframe', None)
         detected_patterns = st.session_state.get('data_analysis_v2_detected_patterns', [])
+        # Always show summary and GPT UI if DataFrame is present
         if df is not None and isinstance(df, pd.DataFrame):
             display_summary_and_gpt(df, detected_patterns)
 
