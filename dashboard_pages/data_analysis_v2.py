@@ -409,15 +409,20 @@ def generate_dashboard_summary(df, detected_patterns):
 
 
 def display_summary_and_gpt(df: pd.DataFrame, detected_patterns):
-    """Display summary and handle ChatGPT review interactions."""
-    show_summary = bool(detected_patterns)
-    if not (show_summary and isinstance(df, pd.DataFrame)):
+    """Display summary and handle ChatGPT review interactions. Always show if DataFrame is present."""
+    if not (df is not None and isinstance(df, pd.DataFrame)):
         return
 
-    # Ensure summary exists
-    if not st.session_state.get('data_analysis_v2_summary'):
-        st.session_state['data_analysis_v2_summary'] = generate_dashboard_summary(df, detected_patterns)
-    summary = st.session_state['data_analysis_v2_summary']
+    # Ensure summary exists and is up to date
+    summary_key = 'data_analysis_v2_summary'
+    prev_summary = st.session_state.get(summary_key)
+    prev_df_id = st.session_state.get('data_analysis_v2_summary_df_id')
+    # Use id(df) to detect if the DataFrame has changed (new upload)
+    curr_df_id = id(df)
+    if prev_summary is None or prev_df_id != curr_df_id:
+        st.session_state[summary_key] = generate_dashboard_summary(df, detected_patterns)
+        st.session_state['data_analysis_v2_summary_df_id'] = curr_df_id
+    summary = st.session_state[summary_key]
 
     # Show summary text area
     st.text_area(
@@ -435,18 +440,18 @@ def display_summary_and_gpt(df: pd.DataFrame, detected_patterns):
     if send_btn and not st.session_state.get('data_analysis_v2_waiting_for_gpt', False):
         st.session_state['data_analysis_v2_waiting_for_gpt'] = True
         st.session_state.pop('data_analysis_v2_gpt_response', None)
-        st.experimental_rerun()  # type: ignore[attr-defined]  # trigger rerun to enter waiting state
+        st.experimental_rerun()  # type: ignore[attr-defined]
 
     # If waiting, call ChatGPT
     if st.session_state.get('data_analysis_v2_waiting_for_gpt', False):
         with st.spinner("Contacting ChatGPT..."):
             try:
-                response = get_chatgpt_insight(st.session_state['data_analysis_v2_summary'])
+                response = get_chatgpt_insight(st.session_state[summary_key])
             except Exception as e:
                 response = f"Failed to send summary to ChatGPT: {e}"
             st.session_state['data_analysis_v2_gpt_response'] = response
             st.session_state['data_analysis_v2_waiting_for_gpt'] = False
-            st.experimental_rerun()  # type: ignore[attr-defined]  # rerun to show response
+            st.experimental_rerun()  # type: ignore[attr-defined]
 
     # Always show response if present
     gpt_resp = st.session_state.get('data_analysis_v2_gpt_response')
@@ -468,9 +473,10 @@ class DataAnalysisV2Dashboard:
                 if validation_result.is_valid:
                     display_technical_indicators(df)
                     display_candlestick_patterns(df)
+        # Always show summary and GPT UI if DataFrame is present
         df = st.session_state.get('uploaded_dataframe', None)
         detected_patterns = st.session_state.get('data_analysis_v2_detected_patterns', [])
-        if detected_patterns and (df is not None and isinstance(df, pd.DataFrame)):
+        if df is not None and isinstance(df, pd.DataFrame):
             display_summary_and_gpt(df, detected_patterns)
 
 def main():
