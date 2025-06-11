@@ -1,0 +1,83 @@
+# ruff.toml
+
+# Enable Pyflakes (`F`), Pycodestyle (`E`, `W`), isort (`I`), pyupgrade (`UP`), 
+# pep8-naming (`N`), flake8-comprehensions (`C4`), flake8-simplify (`SIM`),
+# flake8-use-pathlib (`PTH`), and Pylint (`PL`) rules by default.
+# For a full list of available rules, see:
+# https://docs.astral.sh/ruff/rules/
+select = ["E", "F", "W", "I", "UP", "N", "C4", "SIM", "PTH", "PL"]
+
+ignore = [
+    "E501",  # Line too long (handled by formatter)
+]
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "P", "PL", "Q", "RUF", "S", "T", "W", "UP", "YTT"]
+unfixable = []
+
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "*/migrations/*", # Django migrations
+    "*/static/*",     # Static files
+    "docs/*",         # Documentation
+    "data/*",         # Data files
+    "logs/*",         # Log files
+    "models/*",       # ML models
+    # "tests/*",        # Consider linting tests, but can be excluded if noisy
+    "__pycache__/*"
+]
+
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.10.
+target-version = "py310"
+
+[lint.per-file-ignores]
+# Allow unused imports in __init__.py files if necessary
+# "__init__.py" = ["F401"] 
+# Example: ignore specific Pylint checks in a particular file
+# "core/streamlit/dashboard_utils.py" = ["PLR0913"] # Too many arguments
+
+[lint.isort]
+# Specify where your first-party modules reside.
+# This helps Ruff differentiate project modules from third-party libraries.
+known-first-party = ["core", "dashboard_pages", "utils", "security", "patterns", "train"]
+# If you have a top-level "src" directory, you might add it here:
+# src = ["src"] 
+force-sort-within-sections = true
+combine-as-imports = true
+
+[format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+# Like Black, respect magic trailing commas.
+magic-trailing-comma = "respect"
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+# Enable auto-formatting of code examples in docstrings (experimental).
+# format-code-in-docstrings = true

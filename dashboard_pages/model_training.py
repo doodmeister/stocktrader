@@ -42,7 +42,7 @@ from core.streamlit.dashboard_utils import (
     setup_page,
     handle_streamlit_error
 )
-from core.session_manager import create_session_manager, show_session_debug_info
+from core.streamlit.session_manager import create_session_manager, show_session_debug_info
 # Import centralized technical analysis modules
 from core.technical_indicators import (
     calculate_rsi, calculate_macd, calculate_bollinger_bands, 

@@ -227,23 +227,24 @@ class StockTraderMainDashboard:
             # Dependency validation
             if not self._validate_dependencies():
                 st.stop()
-              # Render system info in sidebar
+               # Render system info in sidebar
             self._render_system_info()
             
             # Always render header for navigation consistency
             self.ui_renderer.render_header(self.pages_config, self.state_manager)
             
             # Main content routing
-            current_page = st.session_state.get('current_page', 'home')
+            current_page_file = st.session_state.get('current_page', 'home') # Renamed for clarity
             
-            if current_page == 'home':
+            if current_page_file == 'home':
                 # Render additional home page content (description, navigation menu, footer)
                 self.ui_renderer.render_description()
                 self.ui_renderer.render_navigation_menu(self.pages_config)
                 self.ui_renderer.render_footer(self.pages_config)
             else:
-                # Load and execute the selected page
-                self.page_loader.load_and_execute_page(current_page)
+                # Always load and execute the selected page if it's not home
+                # This ensures its main() function runs on every Streamlit rerun
+                self.page_loader.load_and_execute_page(current_page_file)
             
             # Track performance
             load_time = time.time() - start_time

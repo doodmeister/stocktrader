@@ -368,14 +368,11 @@ class PageLoader:
             # Execute the page code with comprehensive error handling
             try:
                 exec(page_content, page_globals)
-                
-                # Auto-execute main function if available and not already executed
+                  # Auto-execute main function if available 
+                # Always execute main() to ensure pages respond to user interactions
                 if 'main' in page_globals and callable(page_globals['main']):
-                    execution_key = f"executed_{page_file}"
-                    if execution_key not in st.session_state:
-                        page_globals['main']()
-                        st.session_state[execution_key] = True
-                        self.logger.debug(f"Auto-executed main() for {page_file}")
+                    page_globals['main']()
+                    self.logger.debug(f"Executed main() for {page_file}")
                 
                 # Track successful page load
                 load_time = time.time() - page_start_time

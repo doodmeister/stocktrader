@@ -54,19 +54,27 @@ HealthChecker: Type[Any]
 configure_dashboard_logging: Callable[..., Any]
 
 
+# Ensure Streamlit is imported if not already
 try:
-    from utils.logger import configure_dashboard_logging as imported_configure_dashboard_logging, get_dashboard_logger
-    from security.authentication import validate_session_security as _original_validate_session_security
+    import streamlit as st
+except ImportError:
+    pass
+
+# Attempt to import core components
+try:
+    from utils.logger import configure_dashboard_logging
+    from core.streamlit.page_loader import PageLoader as ImportedPageLoader # MODIFIED
+    from core.streamlit.health_checks import HealthChecker as ImportedHealthChecker # MODIFIED
     from core.streamlit.dashboard_utils import DashboardStateManager as ImportedDashboardStateManager
+    from security.authentication import validate_session_security as ImportedValidateSessionSecurity
     from core.streamlit.dashboard_controller import StockTraderMainDashboard
-    from core.streamlit.page_loader import PageLoader as ImportedPageLoader
-    from core.streamlit.health_checks import HealthChecker as ImportedHealthChecker
-    
-    configure_dashboard_logging = imported_configure_dashboard_logging
+
+    # Assign to global scope variables
     logger = configure_dashboard_logging()
     DashboardStateManager = ImportedDashboardStateManager
     PageLoader = ImportedPageLoader
     HealthChecker = ImportedHealthChecker
+    _original_validate_session_security = ImportedValidateSessionSecurity # ADDED THIS LINE
 
     # Define the wrapper that conforms to the expected Literal[True] signature
     def validate_session_security_impl() -> Literal[True]:
