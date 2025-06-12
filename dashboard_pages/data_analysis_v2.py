@@ -440,7 +440,7 @@ def display_summary_and_gpt(df: pd.DataFrame, detected_patterns):
     if send_btn and not st.session_state.get('data_analysis_v2_waiting_for_gpt', False):
         st.session_state['data_analysis_v2_waiting_for_gpt'] = True
         st.session_state.pop('data_analysis_v2_gpt_response', None)
-        st.experimental_rerun()  # type: ignore[attr-defined]
+        st.rerun()
 
     # If waiting, call ChatGPT
     if st.session_state.get('data_analysis_v2_waiting_for_gpt', False):
@@ -451,7 +451,7 @@ def display_summary_and_gpt(df: pd.DataFrame, detected_patterns):
                 response = f"Failed to send summary to ChatGPT: {e}"
             st.session_state['data_analysis_v2_gpt_response'] = response
             st.session_state['data_analysis_v2_waiting_for_gpt'] = False
-            st.experimental_rerun()  # type: ignore[attr-defined]
+            st.rerun()
 
     # Always show response if present
     gpt_resp = st.session_state.get('data_analysis_v2_gpt_response')
@@ -479,13 +479,5 @@ class DataAnalysisV2Dashboard:
         if df is not None and isinstance(df, pd.DataFrame):
             display_summary_and_gpt(df, detected_patterns)
 
-def main():
-    dashboard = DataAnalysisV2Dashboard()
-    dashboard.run()
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        from core.streamlit.dashboard_utils import handle_streamlit_error
-        handle_streamlit_error(e, "Data Analysis V2")
+# --- Ensure dashboard runs when imported by main.py ---
+DataAnalysisV2Dashboard().run()

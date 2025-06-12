@@ -15,6 +15,7 @@ applyTo: '**'
 ### Terminal Command Standards
 - **Avoid emojis in bash commands**
 - **Avoid special characters in bash commands**
+- **No dashbaord pages will be run as a stand alone, only main.py will ever be run as a standalone script**
 - **Use `which python` and `which pip` to verify virtual environment activation**
 - **Always activate the virtual environment by running source venv/Scripts/activate before executing commands**
 - **Use absolute paths**
