@@ -37,6 +37,6 @@ def make_trade_decision(
     # Run inference
     with torch.no_grad():
         output = model(input_tensor)
-        predicted = torch.argmax(output, dim=1).item()
+        predicted = int(torch.argmax(output, dim=1).item())
 
     return ACTION_MAP.get(predicted, "hold")

@@ -9,7 +9,7 @@ from utils.logger import setup_logger
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple, Any
+from typing import Callable, Dict, List, Tuple, Any, Union # Added Union
 
 import numpy as np
 import pandas as pd
@@ -17,6 +17,9 @@ from pydantic import BaseModel, Field
 
 # Import the centralized data validator
 from core.data_validator import get_global_validator, validate_dataframe
+# Import core indicator functions
+from core.indicators.rsi import calculate_rsi
+from core.indicators.macd import calculate_macd
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -111,8 +114,8 @@ class Backtest:
             result = validator.validate_dataframe(
                 df, 
                 required_cols=required_columns,
-                validate_ohlc=True,
-                check_statistical_anomalies=True
+                check_ohlcv=True, # Renamed from validate_ohlc
+                detect_anomalies_level="basic" # Renamed from check_statistical_anomalies and passed a string value
             )
             
             # Check for DatetimeIndex specifically
@@ -121,16 +124,18 @@ class Backtest:
             
             # Handle validation errors
             if not result.is_valid:
-                raise ValueError(f"Invalid data for {symbol}: {', '.join(result.errors)}")
+                error_messages = result.errors if result.errors is not None else ["Unknown validation error"]
+                raise ValueError(f"Invalid data for {symbol}: {', '.join(error_messages)}")
             
             # Display warnings but don't halt execution
-            for warning in result.warnings:
-                logger.warning(f"{symbol}: {warning}")
+            if result.warnings:
+                for warning in result.warnings:
+                    logger.warning(f"{symbol}: {warning}")
 
     def simulate(
         self,
         data: Dict[str, pd.DataFrame],
-        strategy_fn: Callable[[pd.DataFrame], float]
+        strategy_fn: Callable[[pd.DataFrame], float] # Reverted to float, as simulate processes one signal at a time
     ) -> BacktestResults:
         try:
             self.validate_data(data)
@@ -146,13 +151,29 @@ class Backtest:
 
             for date in dates:
                 daily_value = self.capital
-                for symbol, df in data.items():
-                    if date in df.index:
+                for symbol, df_symbol_data in data.items(): # Renamed df to df_symbol_data to avoid conflict
+                    if date in df_symbol_data.index:
                         try:
-                            signal = strategy_fn(df.loc[:date])
-                            self._process_signal(date, symbol, signal, df.loc[date])
-                            current_price = df.loc[date]['close']
+                            # Get the market data for the current date. Ensure it's a Series.
+                            current_market_data_for_signal = df_symbol_data.loc[date]
+                            if isinstance(current_market_data_for_signal, pd.DataFrame):
+                                # If duplicate index, use the first row for signal processing and price
+                                current_market_data_for_signal = current_market_data_for_signal.iloc[0]
+                            
+                            # Pass historical data up to current date to strategy_fn
+                            signal = strategy_fn(df_symbol_data.loc[:date]) 
+                            self._process_signal(date, symbol, signal, current_market_data_for_signal)
+                            current_price = current_market_data_for_signal['close']
                             daily_value += self.positions[symbol] * current_price
+                        except IndexError: 
+                            logger.warning(f"Data slice possibly empty for {symbol} on {date} for strategy_fn. No action taken.")
+                            # Attempt to get current price for equity calculation even if no signal
+                            if date in df_symbol_data.index:
+                                current_price_data = df_symbol_data.loc[date]
+                                if isinstance(current_price_data, pd.DataFrame):
+                                    current_price_data = current_price_data.iloc[0]
+                                current_price = current_price_data['close']
+                                daily_value += self.positions[symbol] * current_price
                         except Exception as e:
                             logger.error(f"Error processing {symbol} on {date}: {e}")
                             continue
@@ -205,10 +226,10 @@ class Backtest:
             total_return=(self.equity_curve.iloc[-1] / self.config.initial_capital) - 1,
             sharpe_ratio=self._calculate_sharpe_ratio(returns),
             max_drawdown=self._calculate_max_drawdown(),
-            win_rate=profitable_trades / total_trades if total_trades > 0 else 0,
+            win_rate=profitable_trades / total_trades if total_trades > 0 else 0.0, # Ensure float
             profit_factor=self._calculate_profit_factor(),
             num_trades=total_trades,
-            avg_trade_return=np.mean(returns) if len(returns) > 0 else 0
+            avg_trade_return=float(np.mean(returns)) if len(returns) > 0 else 0.0 # Ensure float
         )
 
     def _calculate_sharpe_ratio(self, returns: pd.Series) -> float:
@@ -285,6 +306,8 @@ def load_ohlcv(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
     dates = pd.date_range(start, end, freq='B')
     np.random.seed(hash(symbol) % 2**32)
     price = np.cumsum(np.random.randn(len(dates))) + 100
+    # Define required_cols within the function scope
+    required_cols_list = ['open', 'high', 'low', 'close', 'volume'] 
     df = pd.DataFrame({
         'open':  price + np.random.uniform(-1, 1, len(dates)),
         'high':  price + np.random.uniform(0, 2, len(dates)),
@@ -295,11 +318,13 @@ def load_ohlcv(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
     df.index.name = 'date'
     
     # Validate the generated data using the centralized validator
-    required_cols = ['open', 'high', 'low', 'close', 'volume']
-    result = validate_dataframe(df, required_cols)
+    # required_cols = ['open', 'high', 'low', 'close', 'volume'] # This was defined locally
+    validator = get_global_validator()
+    result = validator.validate_dataframe(df, required_cols=required_cols_list, check_ohlcv=True, detect_anomalies_level='basic') # Use defined list
     
     if not result.is_valid:
-        logger.error(f"Generated data validation failed: {', '.join(result.errors)}")
+        error_messages = result.errors if result.errors is not None else ["Unknown validation error"]
+        logger.error(f"Generated data validation failed: {', '.join(error_messages)}")
         
     # Log statistics and warnings for monitoring
     if result.warnings:
@@ -310,17 +335,65 @@ def load_ohlcv(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
 
 def moving_average_crossover_strategy(df: pd.DataFrame, fast: int=10, slow: int=26) -> float:
     # existing implementation
-    ...
+    # Strategies should return a single float signal based on the input DataFrame slice
+    # The DataFrame passed here is historical data up to the current simulation point.
+    if df.empty:
+        return 0.0
+    # Example: simple signal if last close > 10-day SMA
+    sma_fast = df['close'].rolling(window=min(fast, len(df))).mean()
+    sma_slow = df['close'].rolling(window=min(slow, len(df))).mean()
+    if sma_fast.empty or sma_slow.empty or len(sma_fast) < 1 or len(sma_slow) < 1:
+        return 0.0
+    if sma_fast.iloc[-1] > sma_slow.iloc[-1]:
+        return 1.0 # Buy signal
+    elif sma_fast.iloc[-1] < sma_slow.iloc[-1]:
+        return -1.0 # Sell signal
+    return 0.0 # Hold signal
 
 def rsi_strategy(df: pd.DataFrame, period: int=14, overbought: float=70, oversold: float=30) -> float:
-    # existing implementation
-    ...
+    if df.empty or len(df) < period:
+        return 0.0
+    
+    try:
+        rsi_series = calculate_rsi(df, length=period, close_col='close')
+        if rsi_series.empty or pd.isna(rsi_series.iloc[-1]):
+            return 0.0 # Not enough data or NaN result
+        
+        current_rsi = rsi_series.iloc[-1]
+        
+        if current_rsi > overbought:
+            return -1.0  # Sell
+        elif current_rsi < oversold:
+            return 1.0   # Buy
+        return 0.0   # Hold
+    except Exception as e:
+        logger.warning(f"RSI calculation failed in strategy: {e}")
+        return 0.0
 
-def macd_strategy(df: pd.DataFrame, fast: int=12, slow: int=26, signal: int=9) -> float:
-    # existing implementation
-    ...
+def macd_strategy(df: pd.DataFrame, fast: int=12, slow: int=26, signal_line: int=9) -> float:
+    if df.empty or len(df) < slow + signal_line: # Ensure enough data for MACD calculation
+        return 0.0
+        
+    try:
+        macd_line_series, macd_signal_series, _ = calculate_macd(df, fast=fast, slow=slow, signal=signal_line, close_col='close')
+        
+        if macd_line_series.empty or macd_signal_series.empty or \
+           pd.isna(macd_line_series.iloc[-1]) or pd.isna(macd_signal_series.iloc[-1]):
+            return 0.0 # Not enough data or NaN result
 
-STRATEGIES: Dict[str, Callable[[pd.DataFrame], float]] = {
+        current_macd_line = macd_line_series.iloc[-1]
+        current_macd_signal = macd_signal_series.iloc[-1]
+
+        if current_macd_line > current_macd_signal:
+            return 1.0  # Buy
+        elif current_macd_line < current_macd_signal:
+            return -1.0 # Sell
+        return 0.0  # Hold
+    except Exception as e:
+        logger.warning(f"MACD calculation failed in strategy: {e}")
+        return 0.0
+
+STRATEGIES: Dict[str, Callable[[pd.DataFrame], float]] = { # Changed to float
     'Moving Average Crossover': moving_average_crossover_strategy,
     'SMA Crossover':            moving_average_crossover_strategy,
     'RSI Strategy':             rsi_strategy,
@@ -345,7 +418,8 @@ def run_backtest(
     )
     
     if not date_result.is_valid:
-        logger.error(f"Invalid date range: {', '.join(date_result.errors)}")
+        error_messages = date_result.errors if date_result.errors is not None else ["Unknown date validation error"]
+        logger.error(f"Invalid date range: {', '.join(error_messages)}")
         return {
             'metrics': empty_backtest_result(initial_capital)[0], 
             'equity_curve': empty_backtest_result(initial_capital)[1],
@@ -396,21 +470,18 @@ def run_backtest(
         # Pass kwargs to the strategy function if it accepts them
         import inspect
         sig = inspect.signature(strategy_fn)
-        if len(sig.parameters) > 1:
-            signals = strategy_fn(df, **kwargs)
+        strategy_params = {k: v for k, v in kwargs.items() if k in sig.parameters}
+
+        # The strategy_fn now directly returns a float signal when called with a data slice.
+        # It will be called inside bt.simulate for each time step.
+        # We need to create a partial function if kwargs are involved.
+        from functools import partial
+        if strategy_params:
+            final_strategy_fn_for_simulate = partial(strategy_fn, **strategy_params)
         else:
-            signals = strategy_fn(df)
+            final_strategy_fn_for_simulate = strategy_fn
 
-        # Normalize PatternNN outputs if needed
-        if signals.max() > 1 or signals.min() < -1:
-            signals = signals.map({0: 0, 1: 1, 2: -1})
-
-        # Define a lambda to fetch the signal for the current date
-        def signal_fn(d):
-            idx = d.index[-1]
-            return signals.loc[idx] if idx in signals.index else 0
-
-        results = bt.simulate(data, signal_fn)
+        results = bt.simulate(data, final_strategy_fn_for_simulate) 
         trades_df = pd.DataFrame([t.__dict__ for t in bt.trades])
 
     except ValueError as e:

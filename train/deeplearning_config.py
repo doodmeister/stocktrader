@@ -82,6 +82,7 @@ class TrainingConfig:
     # Data preprocessing
     normalize_features: bool = True
     feature_selection_threshold: float = 0.01
+    seed: Optional[int] = None  # Added seed
     
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -143,23 +144,50 @@ class TrainingConfig:
         valid_losses = {"cross_entropy", "mse", "mae", "binary_cross_entropy"}
         if self.loss_function.lower() not in valid_losses:
             raise ConfigurationError(f"loss_function must be one of {valid_losses}")
+        
+        # Validate seed
+        if self.seed is not None and not (0 <= self.seed <= 2**32 - 1):
+            raise ConfigurationError("seed must be a valid integer if provided")
     
     def _setup_device(self) -> None:
         """Auto-detect and setup training device."""
         if self.device is None:
             if torch.cuda.is_available():
                 self.device = "cuda"
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                self.device = "mps"  # Apple Silicon
+                # Optional: Configure cuDNN if CUDA is used and backends.cudnn is available
+                if hasattr(torch, 'backends'):
+                    backends = torch.backends
+                    if hasattr(backends, 'cudnn') and backends.cudnn.is_available():
+                        backends.cudnn.benchmark = True
+                        backends.cudnn.deterministic = False # Set to True for reproducibility if needed, but can impact performance
+            elif hasattr(torch, 'backends'):
+                backends = torch.backends
+                if hasattr(backends, 'mps') and backends.mps.is_available() and backends.mps.is_built():
+                    self.device = "mps"  # Apple Silicon
+                else:
+                    self.device = "cpu" # Fallback if mps not fully available
             else:
-                self.device = "cpu"
+                self.device = "cpu" # Fallback if torch.backends itself is not available
         
         # Validate device availability
         if self.device == "cuda" and not torch.cuda.is_available():
-            raise ConfigurationError("CUDA requested but not available")
+            # Fallback to CPU if CUDA was explicitly requested but not found
+            print("Warning: CUDA requested but not available. Falling back to CPU.")
+            self.device = "cpu"
         
-        if self.device == "mps" and not (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()):
-            raise ConfigurationError("MPS requested but not available")
+        if self.device == "mps":
+            mps_available = False
+            if hasattr(torch, 'backends'):
+                backends = torch.backends
+                if hasattr(backends, 'mps') and backends.mps.is_available() and backends.mps.is_built():
+                    mps_available = True
+            
+            if not mps_available:
+                # Fallback to CPU if MPS was explicitly requested but not found
+                print("Warning: MPS requested but not available. Falling back to CPU.")
+                self.device = "cpu"
+        
+        print(f"Using device: {self.device}")
     
     def _create_directories(self) -> None:
         """Create necessary directories."""

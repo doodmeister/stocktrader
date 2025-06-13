@@ -340,7 +340,7 @@ def generate_secure_filename(original_name: str, max_length: int = 255) -> str:
     return safe_name.strip()
 
 
-def validate_json_structure(data: Any, required_keys: Optional[List[str]] = None) -> bool:
+def validate_json_keys(data: Any, required_keys: Optional[List[str]] = None) -> bool:
     """
     Validate JSON data structure.
     

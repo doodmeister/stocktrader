@@ -15,7 +15,7 @@ Key Features:
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Tuple, Dict, Any, Union # Added Union
 from datetime import datetime
 import warnings
 
@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.metrics import (
@@ -34,7 +35,7 @@ from sklearn.metrics import (
 
 from utils.logger import setup_logger
 from train.deeplearning_config import TrainingConfig
-from patterns.patterns_nn import PatternNN
+from patterns.patterns_nn import PatternNN, PatternNNConfig # Added PatternNNConfig
 from patterns.patterns import create_pattern_detector
 from train.model_manager import ModelManager
 from utils.technicals.feature_engineering import compute_technical_features
@@ -94,8 +95,11 @@ def set_seed(seed: int) -> None:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
             # Additional CUDA determinism (may impact performance)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
+            if hasattr(torch, 'backends'):
+                backends_mod = torch.backends # type: ignore
+                if hasattr(backends_mod, 'cudnn') and backends_mod.cudnn.is_available():
+                    backends_mod.cudnn.deterministic = True
+                    backends_mod.cudnn.benchmark = False
         logger.debug(f"Random seed set to {seed} for reproducible training")
     except Exception as e:
         logger.warning(f"Failed to set random seed: {e}")
@@ -138,7 +142,7 @@ class PatternModelTrainer:
         self.model_manager = model_manager
         self.config = config
         self.selected_patterns = selected_patterns
-        self.scaler: Optional[StandardScaler] = None
+        self.scaler: Optional[Union[StandardScaler, RobustScaler]] = None # Changed type hint
         self._last_df: Optional[pd.DataFrame] = None
         
         # Validate inputs during initialization
@@ -199,12 +203,13 @@ class PatternModelTrainer:
             validation_result = validate_dataframe(
                 data,
                 required_cols=['open', 'high', 'low', 'close'],
-                validate_ohlc=True,
-                check_statistical_anomalies=True
+                check_ohlcv=True # Parameter kept
+                # detect_anomalies_level='basic' # Parameter removed
             )
             
             if not validation_result.is_valid:
-                error_msg = "; ".join(validation_result.errors)
+                error_messages = validation_result.errors if validation_result.errors is not None else []
+                error_msg = "; ".join(error_messages) if error_messages else "Core data validation failed without specific error messages."
                 logger.error(f"Core data validation failed: {error_msg}")
                 raise DataValidationError(f"Core validation failed: {error_msg}")
             
@@ -213,7 +218,11 @@ class PatternModelTrainer:
                 for warning in validation_result.warnings:
                     logger.warning(f"Core validation warning: {warning}")
                     
-            logger.debug(f"Core validation passed: {validation_result.row_count}x{validation_result.column_count} DataFrame")
+            if validation_result.dataframe_shape:
+                rows, cols = validation_result.dataframe_shape
+                logger.debug(f"Core validation passed: {rows}x{cols} DataFrame")
+            else:
+                logger.debug("Core validation passed, but DataFrame shape not available.")
             
         except Exception as e:
             if isinstance(e, DataValidationError):
@@ -320,10 +329,12 @@ class PatternModelTrainer:
         
         if data[existing_ohlc].isnull().any().any():
             logger.warning("Found missing OHLC data, applying forward fill")
-            data[existing_ohlc] = data[existing_ohlc].fillna(method='ffill')
+            # data[existing_ohlc] = data[existing_ohlc].fillna(method='ffill') # Deprecated
+            data.loc[:, existing_ohlc] = data.loc[:, existing_ohlc].ffill()
             
             # If still have NaN (at beginning), use backward fill
-            data[existing_ohlc] = data[existing_ohlc].fillna(method='bfill')
+            # data[existing_ohlc] = data[existing_ohlc].fillna(method='bfill') # Deprecated
+            data.loc[:, existing_ohlc] = data.loc[:, existing_ohlc].bfill()
         
         return data
 
@@ -587,16 +598,40 @@ class PatternModelTrainer:
     ) -> PatternNN:
         """Initialize or validate the neural network model."""
         if model is None:
-            model = PatternNN(
-                input_size=input_size,
-                output_size=len(self.selected_patterns)
-            )
-            logger.info(f"Initialized new PatternNN model: input_size={input_size}, output_size={len(self.selected_patterns)}")
+            # Map TrainingConfig to PatternNNConfig
+            nn_config_params = {
+                'input_size': input_size,
+                'output_size': len(self.selected_patterns),
+                'sequence_length': self.config.seq_len,
+                'dropout': self.config.dropout_rate,
+                'activation': self.config.activation_function
+            }
+            if self.config.hidden_layers:
+                if len(self.config.hidden_layers) > 0:
+                    nn_config_params['hidden_size'] = self.config.hidden_layers[0]
+                    nn_config_params['num_layers'] = len(self.config.hidden_layers)
+                else:
+                    logger.warning("TrainingConfig.hidden_layers is empty, relying on PatternNNConfig defaults for hidden_size and num_layers.")
+            else:
+                 logger.warning("TrainingConfig.hidden_layers not specified, relying on PatternNNConfig defaults for hidden_size and num_layers.")
+
+            # use_batch_norm and use_residual will use PatternNNConfig defaults 
+            # as TrainingConfig does not specify them.
+            
+            nn_config = PatternNNConfig(**nn_config_params)
+            model = PatternNN(config=nn_config)
+            logger.info(f"Initialized new PatternNN model with config: {nn_config.to_dict()}")
         else:
             # Validate existing model dimensions
-            if hasattr(model, 'input_size') and model.input_size != input_size:
+            if not hasattr(model, 'config'):
+                 raise TrainingError("Provided model does not have a 'config' attribute.")
+            if model.config.input_size != input_size:
                 raise TrainingError(
-                    f"Model input size mismatch: expected {input_size}, got {model.input_size}"
+                    f"Model input size mismatch: expected {input_size}, got {model.config.input_size}"
+                )
+            if model.config.output_size != len(self.selected_patterns):
+                raise TrainingError(
+                    f"Model output size mismatch: expected {len(self.selected_patterns)}, got {model.config.output_size}"
                 )
         
         return model
@@ -701,7 +736,7 @@ class PatternModelTrainer:
                 loss.backward()
                 
                 # Gradient clipping for stability
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                clip_grad_norm_(model.parameters(), max_norm=1.0) # Changed call
                 
                 optimizer.step()
                 
@@ -795,12 +830,25 @@ class PatternModelTrainer:
             f1 = f1_score(y_true, y_pred, average='macro', zero_division=0)
             
             # Classification report with proper handling
-            report = classification_report(
+            # Ensure report is a dictionary, even if sklearn typeshed is imperfect
+            _report_dict_or_str = classification_report(
                 y_true, y_pred, 
                 target_names=self.selected_patterns,
                 output_dict=True,
                 zero_division=0
             )
+            
+            report: Dict[str, Any]
+            if isinstance(_report_dict_or_str, str):
+                # This case should ideally not happen with output_dict=True,
+                # but handling defensively for type checker and robustness.
+                logger.warning("classification_report returned a string despite output_dict=True. Converting to basic dict.")
+                report = {"report_string": _report_dict_or_str} 
+            elif isinstance(_report_dict_or_str, dict):
+                report = _report_dict_or_str
+            else:
+                logger.error(f"Unexpected type for classification_report: {type(_report_dict_or_str)}. Using empty dict.")
+                report = {}
             
             # Confusion matrices for each label
             confusion_matrices = multilabel_confusion_matrix(y_true, y_pred)
@@ -808,18 +856,19 @@ class PatternModelTrainer:
             logger.info(f"Evaluation completed - Subset Accuracy: {subset_acc:.4f}, F1: {f1:.4f}")
             
             return TrainingMetrics(
-                subset_accuracy=subset_acc,
-                hamming_loss=ham_loss,
-                precision_macro=precision,
-                recall_macro=recall,
-                f1_macro=f1,
-                classification_report=report,
+                subset_accuracy=float(subset_acc), # Cast to float
+                hamming_loss=float(ham_loss),       # Cast to float
+                precision_macro=float(precision),   # Cast to float
+                recall_macro=float(recall),       # Cast to float
+                f1_macro=float(f1),               # Cast to float
+                classification_report=report, # Now ensured to be Dict[str, Any]
                 confusion_matrices=confusion_matrices
             )
             
         except Exception as e:
             logger.error(f"Metrics calculation failed: {e}")
-            return TrainingMetrics(0.0, 1.0, 0.0, 0.0, 0.0, {})
+            # Ensure a Dict[str, Any] is passed for classification_report even in error cases
+            return TrainingMetrics(0.0, 1.0, 0.0, 0.0, 0.0, {"error": str(e)})
 
     def _create_data_loader(
         self,
@@ -896,7 +945,7 @@ def train_pattern_model(
     epochs: int = 50,
     batch_size: int = 32,
     learning_rate: float = 0.001,
-    selected_patterns: List[str] = None,
+    selected_patterns: Optional[List[str]] = None, # Changed type hint
     **kwargs
 ) -> Tuple[PatternNN, TrainingMetrics]:
     """

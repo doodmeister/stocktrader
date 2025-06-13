@@ -28,7 +28,7 @@ import sys
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Tuple, Dict, Optional, Any
+from typing import Tuple, Dict, Optional, Any, List # Added List
 
 import torch
 import numpy as np
@@ -39,12 +39,13 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 from utils.logger import setup_logger
 from core.etrade_candlestick_bot import ETradeClient
 from patterns.patterns_nn import PatternNN
-from .model_manager import ModelManager, ModelMetadata
+from .model_manager import ModelManager, ModelMetadata, ModelManagerConfig # Added ModelManagerConfig
 from .ml_config import MLConfig
 from utils.notifier import Notifier
 from utils.technicals.feature_engineering import compute_technical_features
 from security.authentication import get_api_credentials
 from patterns.pattern_utils import add_candlestick_pattern_features
+from core.etrade_candlestick_bot import TradeConfig # Added TradeConfig
 
 # Configure structured logging
 logger = setup_logger(__name__)
@@ -157,12 +158,17 @@ class MLPipeline:
                 logger.error(f"Expected y to be 1D, got shape {y.shape}")
                 raise DatasetPreparationError(f"Expected y to be 1D, got shape {y.shape}")
             # Split and convert to tensors
-            splits = train_test_split(
+            X_train_np, X_val_np, y_train_np, y_val_np = train_test_split(
                 X, y,
                 test_size=self.config.test_size,
                 random_state=self.config.random_state
             )
-            return tuple(torch.from_numpy(arr) for arr in splits)
+            return (
+                torch.from_numpy(X_train_np),
+                torch.from_numpy(X_val_np),
+                torch.from_numpy(y_train_np),
+                torch.from_numpy(y_val_np)
+            )
         except Exception as e:
             logger.error(f"Dataset preparation failed: {e}")
             raise DatasetPreparationError(str(e)) from e
@@ -209,8 +215,9 @@ class MLPipeline:
             duration = datetime.now() - start_time
             logger.info(f"Training completed in {duration}. Accuracy: {metrics.get('accuracy', 0):.4f}")
             if self.notifier:
-                self.notifier.send_message(
-                    f"Training completed successfully. Accuracy: {metrics.get('accuracy', 0):.4f}"
+                self.notifier.send_notification( # Changed to send_notification
+                    subject="Training Pipeline Status",
+                    message=f"Training completed successfully. Accuracy: {metrics.get('accuracy', 0):.4f}"
                 )
             # Explicitly free GPU memory if used
             if self.device.type == 'cuda':
@@ -219,7 +226,10 @@ class MLPipeline:
         except Exception as e:
             logger.error(f"Training pipeline failed: {e}")
             if self.notifier:
-                self.notifier.send_message(f"Training pipeline failed: {e}", level="error")
+                self.notifier.send_notification(
+                    subject="Training Pipeline Failure", 
+                    message=f"Training pipeline failed: {e}"
+                ) # Changed to send_notification
             raise TrainingPipelineError(str(e)) from e
 
     def _normalize_features(self, values: np.ndarray) -> np.ndarray:
@@ -345,14 +355,25 @@ class MLPipeline:
             with open(metrics_path, 'w', encoding='utf-8') as f:
                 json.dump(metrics, f, indent=2)
             # Save preprocessing config (feature order and normalization)
-            feature_order = self._last_df.columns.tolist() if hasattr(self, "_last_df") else []
-            min_vals = self._last_min_vals if hasattr(self, "_last_min_vals") else []
-            max_vals = self._last_max_vals if hasattr(self, "_last_max_vals") else []
+            feature_order: List[str] = []
+            if hasattr(self, "_last_df") and self._last_df is not None: # Check _last_df is not None
+                feature_order = self._last_df.columns.tolist()
+
+            min_vals_list: List[Any] = []
+            # Ensure _last_min_vals is a numpy array before calling tolist
+            if hasattr(self, "_last_min_vals") and isinstance(self._last_min_vals, np.ndarray):
+                min_vals_list = self._last_min_vals.tolist()
+
+            max_vals_list: List[Any] = []
+            # Ensure _last_max_vals is a numpy array before calling tolist
+            if hasattr(self, "_last_max_vals") and isinstance(self._last_max_vals, np.ndarray):
+                max_vals_list = self._last_max_vals.tolist()
+            
             preprocessing = {
                 "feature_order": feature_order,
                 "normalization": {
-                    "min": min_vals.tolist() if hasattr(min_vals, "tolist") else [],
-                    "max": max_vals.tolist() if hasattr(max_vals, "tolist") else []
+                    "min": min_vals_list,
+                    "max": max_vals_list
                 }
             }
             with open(Path(self.config.model_dir) / f"preprocessing_{timestamp}.json", 'w', encoding='utf-8') as f:

@@ -213,8 +213,15 @@ def get_streamlit_logger(
     """
     if name is None:
         import inspect
-        frame = inspect.currentframe().f_back
-        name = frame.f_globals.get('__name__', 'streamlit_app')
+        frame = inspect.currentframe()
+        if frame is not None and frame.f_back is not None:
+            name = frame.f_back.f_globals.get('__name__', 'streamlit_app')
+        else:
+            name = 'streamlit_app'
+    
+    # Ensure name is never None at this point
+    if name is None:
+        name = 'streamlit_app'
     
     return get_dashboard_logger(
         module_name=name,
