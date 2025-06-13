@@ -22,7 +22,7 @@ Architecture:
 
 import hashlib
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional, Protocol, List
 from dataclasses import dataclass, field
@@ -31,13 +31,15 @@ from enum import Enum
 import numpy as np
 import pandas as pd
 import streamlit as st
+import plotly.graph_objects as go
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 
 # Project imports
 from core.streamlit.dashboard_utils import (
     initialize_dashboard_session_state,
-    handle_streamlit_error
+    handle_streamlit_error,
+    get_model_info
 )
 from core.etrade_client import ETradeClient
 from core.etrade_auth_ui import (
@@ -49,6 +51,7 @@ from patterns.patterns import create_pattern_detector
 from patterns.patterns_nn import PatternNN
 from train.model_manager import ModelManager as CoreModelManager
 from core.data_validator import (
+    DataValidator, 
     get_global_validator, 
     validate_symbol, 
     validate_symbols
@@ -63,8 +66,7 @@ from core.technical_indicators import (
 from utils.technicals.analysis import TechnicalAnalysis
 
 from core.streamlit.decorators import handle_exceptions
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from core.streamlit.session_manager import SessionManager
 
 # Import SessionManager to solve button key conflicts and session state issues
 from core.streamlit.session_manager import create_session_manager

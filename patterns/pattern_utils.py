@@ -1,5 +1,3 @@
-# stocktrader/pattern_utils.py
-
 """
 Production-grade candlestick pattern utilities.
 
@@ -70,7 +68,7 @@ class PatternUtilsError(Exception):
         self.error_code = error_code
         self.details = details or {}
 
-def performance_monitor(func_name: str = None):
+def performance_monitor(func_name: Optional[str] = None):
     """Decorator to monitor function performance."""
     def decorator(func):
         @functools.wraps(func)

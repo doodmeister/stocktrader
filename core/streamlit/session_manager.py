@@ -1,4 +1,3 @@
-# filepath: c:\\dev\\stocktrader\\core\\session_manager.py
 """
 Session State Management System for StockTrader Dashboards
 

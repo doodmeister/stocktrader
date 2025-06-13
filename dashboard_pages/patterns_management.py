@@ -26,8 +26,9 @@ from patterns.pattern_utils import (
     read_patterns_file,
     get_pattern_names, 
     get_pattern_method,
-    validate_python_code
+    validate_python_code,
 )
+from utils.file_io_utils import safe_file_write # Updated import
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
@@ -175,7 +176,7 @@ class PatternsManagementUI:
 
     def __init__(self, page_name: str = "patterns_management", tab: Optional[str] = None):
         self.manager = PatternsManager()
-        self.session_manager = SessionManager(page_name=page_name, tab=tab)  # Pass tab context for tab-safe keys
+        self.session_manager = SessionManager(namespace_prefix=page_name, tab=tab)  # Pass tab context for tab-safe keys
 
     def render_patterns_viewer(self):
         """Render individual pattern viewer section."""
@@ -323,7 +324,7 @@ class PatternsManagementUI:
         with col1:
             st.subheader("JSON Export")
             st.markdown("Complete pattern data with descriptions and metadata")
-            if self.session_manager.create_button("📄 Download JSON", button_name=f"{self.session_manager.page_name}_download_json"):
+            if self.session_manager.create_button("📄 Download JSON", button_name=f"{self.session_manager.namespace_prefix}_download_json"):
                 json_data = self.manager.export_patterns_data('json')
                 if json_data:
                     st.download_button(
@@ -331,14 +332,14 @@ class PatternsManagementUI:
                         data=json_data,
                         file_name=f"patterns_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                         mime="application/json",
-                        key=f"{self.session_manager.page_name}_save_json"
+                        key=f"{self.session_manager.namespace_prefix}_save_json"
                     )
                 else:
                     st.error("Failed to export JSON data")
         with col2:
             st.subheader("CSV Export")
             st.markdown("Simplified pattern data for spreadsheet analysis")
-            if self.session_manager.create_button("📊 Download CSV", button_name=f"{self.session_manager.page_name}_download_csv"):
+            if self.session_manager.create_button("📊 Download CSV", button_name=f"{self.session_manager.namespace_prefix}_download_csv"):
                 csv_data = self.manager.export_patterns_data('csv')
                 if csv_data:
                     st.download_button(
@@ -346,14 +347,14 @@ class PatternsManagementUI:
                         data=csv_data,
                         file_name=f"patterns_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv",
-                        key=f"{self.session_manager.page_name}_save_csv"
+                        key=f"{self.session_manager.namespace_prefix}_save_csv"
                     )
                 else:
                     st.error("Failed to export CSV data")
         with col3:
             st.subheader("Source Code")
             st.markdown("Complete patterns.py source code")
-            if self.session_manager.create_button("💻 Download Source", button_name=f"{self.session_manager.page_name}_download_source"):
+            if self.session_manager.create_button("💻 Download Source", button_name=f"{self.session_manager.namespace_prefix}_download_source"):
                 source_code = self.manager.get_patterns_source_code()
                 if source_code:
                     st.download_button(
@@ -361,7 +362,7 @@ class PatternsManagementUI:
                         data=source_code,
                         file_name=f"patterns_source_{datetime.now().strftime('%Y%m%d_%H%M%S')}.py",
                         mime="text/python",
-                        key=f"{self.session_manager.page_name}_save_source"
+                        key=f"{self.session_manager.namespace_prefix}_save_source"
                     )
                 else:
                     st.error("Failed to get source code")

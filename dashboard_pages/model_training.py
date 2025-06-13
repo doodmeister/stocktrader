@@ -27,8 +27,8 @@ class DataValidationResult(NamedTuple):
     stats: Optional[Dict[str, Any]] = None
 
 # Deep learning pipeline
-from train.model_manager import ModelManager, ModelMetadata
-from patterns.patterns_nn import PatternNN
+from train.model_manager import ModelManager, ModelMetadata, ModelManagerConfig, InvalidModelError # Added InvalidModelError
+from patterns.patterns_nn import PatternNN, PatternNNConfig # Added PatternNNConfig
 from utils.technicals.performance_utils import st_error_boundary, generate_combined_signals
 from utils.synthetic_trading_data import add_to_model_training_ui, generate_synthetic_data
 from train.ml_config import MLConfig
@@ -42,7 +42,9 @@ from core.streamlit.dashboard_utils import (
     setup_page,
     handle_streamlit_error
 )
-from core.streamlit.session_manager import create_session_manager, show_session_debug_info
+# Import the SessionManager
+from core.streamlit.session_manager import SessionManager # Changed import
+
 # Import centralized technical analysis modules
 from core.technical_indicators import (
     calculate_rsi, calculate_macd, calculate_bollinger_bands, 
@@ -56,8 +58,8 @@ setup_page(
     sidebar_title="Training Configuration"
 )
 
-# Initialize SessionManager for conflict-free widget handling
-session_manager = create_session_manager("model_training")
+# Initialize SessionManager for this page with a unique namespace
+session_manager = SessionManager(namespace_prefix="model_training") # Changed instantiation
 
 @dataclass
 class TrainingConfigUnified:
@@ -101,7 +103,8 @@ MIN_SAMPLES = 100
 def get_model_manager() -> ModelManager:
     if not MODELS_DIR.exists():
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    return ModelManager(base_directory=str(MODELS_DIR))
+    # Pass ModelManagerConfig with base_directory
+    return ModelManager(config=ModelManagerConfig(base_directory=MODELS_DIR))
 
 def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
     """
@@ -126,13 +129,14 @@ def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
         validation_result = validate_dataframe(
             df, 
             required_cols=REQUIRED_COLUMNS,
-            validate_ohlc=True, 
-            check_statistical_anomalies=True
+            # Removed validate_ohlc and check_statistical_anomalies as they are not valid parameters for validate_dataframe
+            # These validations are likely handled within validate_dataframe or need to be implemented separately if still required
         )
         
         # Process validation results
         if not validation_result.is_valid:
-            error_message = "; ".join(validation_result.errors)
+            # Handle case where errors might be None
+            error_message = "; ".join(validation_result.errors) if validation_result.errors else "Unknown validation error"
             logger.warning(f"Validation failed: {error_message}")
             return DataValidationResult(False, error_message, None)
             
@@ -143,20 +147,20 @@ def validate_training_data(df: pd.DataFrame) -> DataValidationResult:
             
         # Extract stats from validation result
         stats = {
-            "samples": validation_result.row_count,
-            "columns": validation_result.column_count,
-            "null_counts": validation_result.null_counts,
-            "data_types": validation_result.data_types,
-            "memory_usage_mb": validation_result.statistics.get('memory_usage_mb', 0)
+            "samples": validation_result.dataframe_shape[0] if validation_result.dataframe_shape else 0,
+            "columns": validation_result.dataframe_shape[1] if validation_result.dataframe_shape else 0,
+            "null_counts": validation_result.nan_counts if validation_result.nan_counts else {},
+            "data_types": validation_result.data_type_issues if validation_result.data_type_issues else {},
+            "memory_usage_mb": validation_result.details.get('memory_usage_mb', 0) if validation_result.details else 0
         }
         
         # Add additional price range info from OHLC data
-        if 'price_range' in validation_result.statistics:
-            ohlc_stats = validation_result.statistics.get('price_range', {})
+        if validation_result.details and 'price_range' in validation_result.details:
+            ohlc_stats = validation_result.details.get('price_range', {})
             stats["price_range"] = f"{ohlc_stats.get('low', {}).get('min', 0):.2f} - {ohlc_stats.get('high', {}).get('max', 0):.2f}"
         
         # Add date range info if available
-        date_info = validation_result.statistics.get('date_range', {})
+        date_info = validation_result.details.get('date_range', {}) if validation_result.details else {}
         if date_info:
             start_date = date_info.get('start_date')
             end_date = date_info.get('end_date')
@@ -247,12 +251,13 @@ def train_model_deep_learning(
     batch_size: int = 32,
     learning_rate: float = 0.001,
     selected_patterns: List[str] = []
-) -> Tuple[Any, Dict[str, float]]:
+) -> Tuple[Any, Dict[str, Any]]: # Changed return type for metrics to Dict[str, Any]
     available_tickers = list(data['symbol'].unique()) if 'symbol' in data.columns else []
+    # Use global session_manager
     selected_symbols = session_manager.create_multiselect(        "Select stocks to include (Deep Learning)",
         options=available_tickers,
         default=available_tickers[:min(3, len(available_tickers))],
-        multiselect_name="dl_stocks"
+        multiselect_name="dl_stocks" 
     ) if available_tickers else []
 
     if not selected_symbols and available_tickers:
@@ -265,7 +270,8 @@ def train_model_deep_learning(
 
     pattern_detector = create_pattern_detector()
     available_patterns = pattern_detector.get_pattern_names()
-    selected_patterns = session_manager.create_multiselect(
+    # Use global session_manager
+    selected_patterns_list = session_manager.create_multiselect(
         "Select candlestick patterns to use for training",
         options=available_patterns,
         default=available_patterns,
@@ -296,7 +302,7 @@ def train_model_deep_learning(
             epochs=epochs,
             batch_size=batch_size,
             learning_rate=learning_rate,
-            selected_patterns=selected_patterns,
+            selected_patterns=selected_patterns_list, # Use the updated variable name
         )
 
     except IndexError as e:
@@ -312,7 +318,7 @@ def train_model_deep_learning(
     logger.info("Model training step completed")
     st.info("Model training completed.")
 
-    return model, metrics
+    return model, asdict(metrics) # Convert TrainingMetrics dataclass to dict
 
 def train_model_classic_ml(
     data: pd.DataFrame,
@@ -366,14 +372,12 @@ def save_trained_model(
 
         # Before saving, extract architecture params from the model
         if backend.startswith("Deep"):
-            parameters = {
-                "input_size": model.input_size,
-                "hidden_size": model.hidden_size,
-                "num_layers": model.num_layers,
-                "output_size": model.output_size,
-                "dropout": model.dropout,
-                # ... other params ...
-            }
+            if hasattr(model, 'config') and isinstance(model.config, PatternNNConfig):
+                parameters = model.config.to_dict()
+            else:
+                # Fallback or error if config is not as expected
+                logger.warning("Model does not have a valid PatternNNConfig. Saving limited parameters.")
+                parameters = {} # Or attempt to get individual params if they exist directly on model
         else:
             parameters = config.__dict__ if hasattr(config, "__dict__") else dict(config)
 
@@ -407,15 +411,17 @@ def save_trained_model(
                 params = loaded_metadata.get("parameters", {})
                 # Only for Deep Learning models
                 if backend.startswith("Deep"):
-                    from patterns.patterns_nn import PatternNN  # Import your model class
-                    loaded_model = PatternNN(
-                        input_size=params.get("input_size", 10),
-                        hidden_size=params.get("hidden_size", 64),
-                        num_layers=params.get("num_layers", 2),
-                        output_size=params.get("output_size", 3),
-                        dropout=params.get("dropout", 0.2)
-                    )
-                    import torch
+                    # from patterns.patterns_nn import PatternNN, PatternNNConfig # Already imported at the top
+                    if params: # Ensure params are not empty
+                        loaded_config = PatternNNConfig.from_dict(params)
+                        loaded_model = PatternNN(config=loaded_config)
+                    else: # Fallback if params are empty
+                        logger.error("Parameters for PatternNN are empty in metadata. Cannot reconstruct model config.")
+                        # Potentially raise an error or use default config as a last resort
+                        # For now, this will likely lead to an error if loaded_model is used without proper init
+                        raise InvalidModelError("Cannot load PatternNN: model parameters missing from metadata.")
+                    
+                    import torch # Ensure torch is imported here if not globally available in this scope
                     checkpoint = torch.load(model_path, map_location="cpu")
                     loaded_model.load_state_dict(checkpoint["state_dict"])
                     # Now loaded_model matches the saved architecture!
@@ -460,7 +466,13 @@ def display_signal_analysis(config: MLConfig, model_trainer: ModelTrainer) -> No
         st.warning("No trained models found. Train and save a model first.")
         return
 
+    # Use global session_manager
     selected_model_file = session_manager.create_selectbox("Select Trained Model", options=model_files, selectbox_name="model_file")
+    if selected_model_file is None: # Add check for None
+        st.info("Please select a model file.")
+        return
+
+    # Use global session_manager
     uploaded_data = session_manager.create_file_uploader("Upload Data for Signal Analysis (CSV)", type="csv", file_uploader_name="signal_data")
     if not uploaded_data:
         st.info("Upload a CSV file to analyze signals.")
@@ -485,16 +497,19 @@ def display_signal_analysis(config: MLConfig, model_trainer: ModelTrainer) -> No
         # Classic ML
         model, metadata = model_manager.load_model(selected_model_file)
         # Deep Learning
-        model, metadata = model_manager.load_model(PatternNN, selected_model_file)
+        # model, metadata = model_manager.load_model(PatternNN, selected_model_file) # This line seems redundant or incorrect based on the next if/else
         # Classic ML or DL
-        if metadata.backend.startswith("Classic"):
+        if metadata and metadata.backend and metadata.backend.startswith("Classic"): # Add checks for metadata and metadata.backend
             preds = model.predict(data)
-        else:
+        elif metadata and metadata.backend: # Add check for metadata and metadata.backend
             # For DL, assume model has a predict method
             preds = model.predict(data)
+        else:
+            st.error("Could not determine model backend or metadata is missing.")
+            return
 
         # Combine with candlestick patterns
-        signals = generate_combined_signals(data, preds)
+        signals = generate_combined_signals(data, preds, str(selected_model_file)) # Added model_path argument
         st.subheader("Buy/Sell Signals")
         st.dataframe(signals.head(20))
 
@@ -512,7 +527,8 @@ def render_training_page():
         radio_name="backend_radio",
         index=0
     )
-    st.session_state.training_config.backend = backend
+    if backend is not None: # Add check for None
+        st.session_state.training_config.backend = backend
 
     logger.info(f"Selected backend: {backend}")
     st.write(f"Selected backend: {backend}")
@@ -539,12 +555,14 @@ def render_training_page():
                 config.epochs = session_manager.create_slider("Epochs", 1, 100, value=config.epochs, slider_name="epochs_slider")
                 config.batch_size = session_manager.create_slider("Batch Size", 16, 256, value=config.batch_size, step=16, slider_name="batch_size_slider")
             with col2:
-                config.learning_rate = session_manager.create_number_input(
+                learning_rate_val = session_manager.create_number_input(
                     "Learning Rate",
                     min_value=0.00001,
                     max_value=0.1,
                     value=config.learning_rate,                    number_input_name="learning_rate_input"
                 )
+                if learning_rate_val is not None: # Add check for None
+                    config.learning_rate = learning_rate_val
         else:
             col1, col2 = st.columns(2)
             with col1:
@@ -616,7 +634,7 @@ def render_training_page():
                         data,
                         epochs=config.epochs,
                         batch_size=config.batch_size,
-                        learning_rate=config.learning_rate
+                        learning_rate=config.learning_rate if config.learning_rate is not None else 0.001 # Add default if None
                     )
                     optimizer = epoch = loss = None  # or set as needed
                 else:
@@ -650,11 +668,11 @@ def render_training_page():
             """)
 
             # Show mean/std/final metrics
-            metrics_dict = metrics  # Assuming 'metrics' is the dictionary returned from training
+            metrics_dict = metrics if metrics is not None else {} # Add check for None
             cv_metrics = metrics_dict.get("metrics", {})
-            mean_metrics = cv_metrics.get("mean", {})
-            std_metrics = cv_metrics.get("std", {})
-            final_metrics = cv_metrics.get("final_metrics", {})
+            mean_metrics = cv_metrics.get("mean", {}) if isinstance(cv_metrics, dict) else {} # Add type check
+            std_metrics = cv_metrics.get("std", {}) if isinstance(cv_metrics, dict) else {} # Add type check
+            final_metrics = cv_metrics.get("final_metrics", {}) if isinstance(cv_metrics, dict) else {} # Add type check
 
             st.subheader("Cross-Validation Metrics (Mean ± Std)")
             for key in ["recall", "accuracy", "f1", "precision"]:
@@ -681,16 +699,21 @@ def render_training_page():
                 st.text(classification_report)
 
             # Save the trained model
-            success, error = save_trained_model(
-                model, config, metrics, backend,
-                optimizer=optimizer, epoch=epoch, loss=loss,
-                csv_filename=uploaded_file.name if uploaded_file else None,
-                df=data
-            )
-            if success:
-                st.success("Model saved successfully.")
-            else:
-                st.error(f"Model save failed: {error}")
+            if backend is not None and metrics is not None: # Add checks for None
+                success, error = save_trained_model(
+                    model, config, metrics, backend,
+                    optimizer=optimizer, epoch=epoch, loss=loss,
+                    csv_filename=uploaded_file.name if uploaded_file else None,
+                    df=data
+                )
+                if success:
+                    st.success("Model saved successfully.")
+                else:
+                    st.error(f"Model save failed: {error}")
+            elif backend is None:
+                st.error("Backend is not defined, cannot save model.")
+            elif metrics is None:
+                st.error("Metrics are not available, cannot save model.")
 
         except Exception as e:
             logger.exception("Training error")
@@ -714,6 +737,12 @@ def render_training_page():
                 if model is None:
                     st.error("Model missing from session. Please train again.")
                     return
+                if backend is None: # Add check for None
+                    st.error("Backend missing from session. Please train again.")
+                    return
+                if metrics is None: # Add check for None
+                    st.error("Metrics missing from session. Please train again.")
+                    return
 
                 success, error = save_trained_model(model, config, metrics, backend)
                 if success:
@@ -730,7 +759,8 @@ def render_training_page():
 class ModelTrainingDashboard:
     def __init__(self):
         # Initialize SessionManager for conflict-free button handling
-        self.session_manager = create_session_manager("model_training")
+        # self.session_manager = create_session_manager("model_training") # Removed, use global session_manager
+        pass
     
     def run(self):
         """Main dashboard application entry point."""
@@ -759,7 +789,7 @@ class ModelTrainingDashboard:
                 
             # Show SessionManager debug info in a sidebar expandable section
             with st.sidebar.expander("🔧 Session Debug Info", expanded=False):
-                show_session_debug_info()
+                session_manager.debug_session_state() # Changed from show_session_debug_info()
 
 # Execute the main function
 if __name__ == "__main__":

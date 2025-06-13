@@ -11,17 +11,16 @@ page change detection mechanism that integrates with the dashboard controller's
 navigation system.
 
 HOW IT WORKS:
-1. Uses st.session_state.current_page from dashboard_controller.py for navigation tracking
-2. Implements _check_and_clear_on_page_return() to detect page transitions
-3. Clears uploaded data when user navigates away and returns
-4. Integrates seamlessly with the existing dashboard architecture
+1. Uses SessionManager for all session state and widget key management.
+2. SessionManager.has_navigated_to_page() detects page transitions.
+3. Clears uploaded data when user navigates away and returns, managed by SessionManager and _init_template_state.
+4. Integrates seamlessly with the existing dashboard architecture.
 
 USAGE FOR FUTURE AI:
-1. Copy this template for any new dashboard page
-2. Update the page_name in session_manager creation
-3. Update the current_page variable in _check_and_clear_on_page_return()
-4. Customize the file upload and display logic as needed
-5. Keep the page change detection logic unchanged
+1. Copy this template for any new dashboard page.
+2. Update the namespace_prefix in SessionManager instantiation.
+3. Customize the file upload and display logic as needed.
+4. Rely on SessionManager and the _init_template_state pattern for state management.
 
 TESTED SOLUTION:
 This pattern has been successfully implemented and tested in data_analysis_v2.py
@@ -31,13 +30,12 @@ and resolves the critical data persistence issue across page navigation.
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import time
 from typing import Optional, Dict, Any
 
 # Import core modules
 from utils.logger import get_dashboard_logger
 from core.streamlit.dashboard_utils import setup_page
-from core.streamlit.session_manager import create_session_manager
+from core.streamlit.session_manager import SessionManager # Updated import
 from core.data_validator import validate_dataframe as core_validate_dataframe
 from core.validation.validation_results import DataFrameValidationResult
 
@@ -51,167 +49,120 @@ setup_page(
     sidebar_title="Dashboard Controls"
 )
 
-# Create session manager instance (UPDATE PAGE NAME FOR YOUR PAGE)
-session_manager = create_session_manager(page_name="dashboard_template")
+# Create session manager instance (UPDATE NAMESPACE_PREFIX FOR YOUR PAGE)
+session_manager = SessionManager(namespace_prefix="dashboard_template")
 
 
-def _check_and_clear_on_page_return():
+def _init_template_state():
     """
-    Page Change Detection and Data Clearing Mechanism
-    
-    CRITICAL FUNCTION: This solves the data persistence issue across page navigation.
-    
-    PROBLEM SOLVED:
-    - User uploads CSV file on page A
-    - User navigates to Home page  
-    - User returns to page A
-    - Previously uploaded data should be cleared (but wasn't before this fix)
-    
-    HOW IT WORKS:
-    1. Integrates with dashboard_controller.py's navigation tracking system
-    2. Uses st.session_state.current_page to detect the active page
-    3. Tracks the last visited page in a page-specific session key
-    4. Clears uploaded data when navigation away and back is detected
-    5. Uses timestamp-based logic to ensure proper clearing timing
-    
-    INTEGRATION POINTS:
-    - dashboard_controller.py sets st.session_state.current_page
-    - This function reads that value to detect page changes
-    - Works with the existing page loader and UI renderer system
-    
-    CUSTOMIZATION FOR NEW PAGES:
-    1. Update 'current_page' variable to match your page's filename
-    2. Update session state keys to be unique for your page
-    3. Add any additional data keys that need clearing on navigation
-    
-    TESTED: This pattern successfully resolves data persistence issues.
+    Initialize session state for the dashboard template page.
+    Uses SessionManager.has_navigated_to_page() to determine if page-specific state
+    (non-namespaced keys like 'uploaded_dataframe') should be cleared.
+    SessionManager handles its own namespaced keys (clears them on navigation).
+    This function ensures all necessary keys (namespaced and non-namespaced) have defaults.
     """
-    # UPDATE THIS: Use your page's actual filename as used by dashboard controller
-    current_page = "dashboard_template.py"  # Change this for your specific page
-    
-    # Get the current page from dashboard controller's navigation system
-    dashboard_current_page = st.session_state.get('current_page', 'home')
-    
-    # Create a unique session key for tracking this page's navigation history
-    # UPDATE THIS: Use your page's name in the session key
-    last_visit_key = 'dashboard_template_last_visit_page'
-    navigation_timestamp_key = 'dashboard_template_navigation_timestamp'
-    
-    # Get current timestamp for navigation timing
-    current_time = time.time()
-    
-    # If we're currently on this page (according to dashboard controller)
-    if dashboard_current_page == current_page or dashboard_current_page == 'dashboard_template.py':
-        # Check if we were previously on a different page
-        last_visited_page = st.session_state.get(last_visit_key, current_page)
-        last_navigation_time = st.session_state.get(navigation_timestamp_key, current_time)
-        
-        # If the last visit was from a different page and enough time has passed
-        # (prevents clearing during normal page refresh/rerun)
-        if (last_visited_page != current_page and 
-            last_visited_page != 'dashboard_template.py' and
-            current_time - last_navigation_time > 1.0):  # 1 second threshold
-            
-            # Clear uploaded data - ADD YOUR DATA KEYS HERE
-            data_keys_to_clear = [
-                'uploaded_dataframe',
-                'uploaded_file_name',
-                # Add any other session state keys that should be cleared
-                # when users navigate away and return
-            ]
-            
-            cleared_keys = []
-            for key in data_keys_to_clear:
-                if key in st.session_state:
-                    del st.session_state[key]
-                    cleared_keys.append(key)
-            
-            if cleared_keys:
-                logger.info(f"Cleared uploaded data due to page navigation from {last_visited_page} to {current_page}. Cleared keys: {cleared_keys}")
-        
-        # Update navigation tracking
-        st.session_state[last_visit_key] = current_page
-        st.session_state[navigation_timestamp_key] = current_time
+    is_new_page_navigation = session_manager.has_navigated_to_page()
+
+    if is_new_page_navigation:
+        logger.info(
+            f"DashboardTemplate: Navigation to page detected by SessionManager for namespace '{session_manager.namespace}'. "
+            f"Clearing additional page-specific (non-namespaced) state."
+        )
+        # These are keys not automatically managed by SessionManager's namespace clearing
+        # because they are not prefixed with the namespace.
+        non_namespaced_keys_to_clear = [
+            'uploaded_dataframe', # Example: still using a non-namespaced key for the main data
+            'uploaded_file_name',
+            'template_last_file_id' # Important for new file upload detection
+        ]
+        for k in non_namespaced_keys_to_clear:
+            if k in st.session_state:
+                del st.session_state[k]
+                logger.debug(f"Cleared non-namespaced key: {k}")
     else:
-        # We're visiting from another page, record where we came from
-        st.session_state[last_visit_key] = dashboard_current_page
-        st.session_state[navigation_timestamp_key] = current_time
+        logger.info(
+            f"DashboardTemplate: In-page rerun for namespace '{session_manager.namespace}'. Not clearing non-namespaced state."
+        )
+
+    # Define non-namespaced state and their defaults (if any)
+    # These are typically for data that might be large or shared across components without SM prefixing.
+    # Ensure their absence is handled gracefully if they are cleared on navigation.
+    # For this template, 'uploaded_dataframe' and 'uploaded_file_name' are set by file upload logic.
+
+    # Define page-specific state (managed by SessionManager) and their defaults
+    page_state_definitions = { # key_suffix: default_value
+        'analysis_summary': '',
+        'show_debug_info_template': False,
+        'new_file_uploaded_this_run': False,
+    }
+
+    for key_suffix, default_value in page_state_definitions.items():
+        _unique_sentinel = object()
+        current_sm_value = session_manager.get_page_state(key_suffix, _unique_sentinel)
+        if is_new_page_navigation or current_sm_value is _unique_sentinel:
+            session_manager.set_page_state(key_suffix, default_value)
+            logger.debug(f"SM state '{key_suffix}' set to default '{default_value}' (new page or missing).")
+
+_init_template_state() # Call initialization
 
 
 def display_uploaded_data():
     """
-    Complete File Upload Example with Page Change Detection Integration
-    
-    This function demonstrates the proper way to implement file upload
-    functionality that integrates with the page change detection system.
-    
-    FEATURES:
-    - Unique widget keys to prevent Streamlit conflicts
-    - Immediate data processing and session state storage
-    - Error handling with proper cleanup
-    - Integration with page change detection
-    - Chart display for uploaded data
-    
-    CUSTOMIZATION:
-    1. Update the file_uploader key to be unique for your page
-    2. Modify file types and processing logic as needed
-    3. Customize the data display and charting logic
-    4. Add additional validation or processing steps
+    Complete File Upload Example with SessionManager Integration.
     """
-    # File uploader with unique key (UPDATE THE KEY FOR YOUR PAGE)
-    uploaded_file = st.file_uploader(
+    session_manager.set_page_state('new_file_uploaded_this_run', False)
+
+    uploaded_file = session_manager.create_file_uploader(
         label="Upload your CSV file",
         type=["csv"],
-        key="dashboard_template_csv_uploader",  # UNIQUE KEY - change for your page
+        file_uploader_name="template_csv_uploader",
         help="Upload a CSV file containing your data for analysis"
     )
     
-    # Process the uploaded file immediately and store in session state
     if uploaded_file is not None:
-        try:
-            # Read the CSV and store in session state
-            df = pd.read_csv(uploaded_file)
-            st.session_state['uploaded_dataframe'] = df
-            st.session_state['uploaded_file_name'] = uploaded_file.name
-            logger.info(f"Successfully uploaded file: {uploaded_file.name}")
-            
-            # Optional: Add data validation here
-            # validation_result = core_validate_dataframe(df)
-            # if not validation_result.is_valid:
-            #     st.warning("Data validation warnings detected")
-            
-        except Exception as e:
-            st.error(f"Error reading file: {e}")
-            logger.error(f"File upload error: {e}")
-            
-            # Clear any existing data on error
-            for key in ['uploaded_dataframe', 'uploaded_file_name']:
-                if key in st.session_state:
-                    del st.session_state[key]
-            return
+        current_file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+        previous_file_id = st.session_state.get('template_last_file_id', '')
+        
+        if current_file_id != previous_file_id:
+            try:
+                df = pd.read_csv(uploaded_file)
+                st.session_state['uploaded_dataframe'] = df # Store raw DataFrame (non-namespaced for example)
+                st.session_state['uploaded_file_name'] = uploaded_file.name
+                st.session_state['template_last_file_id'] = current_file_id
+                logger.info(f"Successfully uploaded file: {uploaded_file.name}")
+                
+                # Clear relevant SessionManager-managed states on new file upload
+                sm_keys_to_clear_on_new_file = ['analysis_summary']
+                for key_suffix in sm_keys_to_clear_on_new_file:
+                    session_manager.clear_page_state(key_suffix)
+                    logger.debug(f"Cleared SM state '{key_suffix}' due to new file upload.")
+                
+                session_manager.set_page_state('new_file_uploaded_this_run', True)
+                st.success("File uploaded successfully. Previous analysis results cleared.")
+                
+            except Exception as e:
+                st.error(f"Error reading file: {e}")
+                logger.error(f"File upload error: {e}")
+                st.session_state.pop('uploaded_dataframe', None)
+                st.session_state.pop('uploaded_file_name', None)
+                return
 
-    # Display the uploaded data if it exists in session state
     if 'uploaded_dataframe' in st.session_state and st.session_state.get('uploaded_dataframe') is not None:
         df_display = st.session_state['uploaded_dataframe']
         file_name = st.session_state.get('uploaded_file_name', 'Unknown file')
         
         st.subheader("Uploaded Data")
         st.info(f"📁 File: **{file_name}** | Shape: {df_display.shape[0]} rows × {df_display.shape[1]} columns")
-        
-        # Display data table
         st.dataframe(df_display)
         
-        # Display chart if data is available
         if not df_display.empty:
             _display_chart(df_display)
             
-        # Show data summary
         with st.expander("Data Summary", expanded=False):
             st.write("**Column Information:**")
             st.write(df_display.dtypes)
             st.write("**Statistical Summary:**")
             st.write(df_display.describe())
-            
     else:
         st.info("Please upload a CSV file to see the data and analysis.")
 
@@ -236,7 +187,10 @@ def _display_chart(df: pd.DataFrame):
             try:
                 df = df.copy()
                 df[date_col] = pd.to_datetime(df[date_col])
-                st.session_state['uploaded_dataframe'] = df
+                # If 'uploaded_dataframe' is the source, update it. 
+                # Be cautious if df is a copy made for local modification.
+                if 'uploaded_dataframe' in st.session_state and st.session_state['uploaded_dataframe'] is df:
+                    st.session_state['uploaded_dataframe'] = df
             except Exception:
                 st.warning(f"Could not convert '{date_col}' column to datetime. Chart may not display correctly.")
         
@@ -283,84 +237,68 @@ def _find_column(df: pd.DataFrame, column_names: list) -> Optional[str]:
 def main():
     """
     Main Function - Entry Point for Dashboard Page
-    
-    CRITICAL: This function is called by the dashboard controller's page loader.
-    The page change detection MUST be called at the very beginning before any
-    widgets are created to ensure proper data clearing.
-    
-    TEMPLATE STRUCTURE:
-    1. Page change detection (FIRST - before any widgets)
-    2. Page header and description
-    3. Main functionality sections
-    4. Additional features and analysis
-    
-    CUSTOMIZATION:
-    1. Update page titles and descriptions
-    2. Add your specific functionality sections
-    3. Modify the layout and components as needed
-    4. Keep the page change detection call at the beginning
+    The _init_template_state() call handles page change detection and state initialization.
     """
-    # CRITICAL: Check for page changes and clear data BEFORE creating any widgets
-    _check_and_clear_on_page_return()
-    
     # Page header
-    st.header("Dashboard Template with Page Change Detection")
+    st.header("Dashboard Template with Updated Session Management")
     
     st.markdown("""
     This template demonstrates the complete solution for dashboard pages with file upload
-    functionality that properly clears data when users navigate away and return.
+    functionality using the new SessionManager for robust state handling.
     
     **Key Features:**
-    - ✅ File upload with session state persistence
-    - ✅ Page change detection and data clearing
+    - ✅ File upload with session state persistence via SessionManager
+    - ✅ Page change detection and data clearing handled by SessionManager and _init_template_state
     - ✅ Error handling and data validation
     - ✅ Adaptive charting and data display
     - ✅ Integration with dashboard controller
     """)
 
-    # Main file upload section
     with st.expander("📁 File Upload Section", expanded=True):
         display_uploaded_data()
 
-    # Additional sections for future functionality
     with st.expander("🔍 Data Analysis Section", expanded=False):
         if 'uploaded_dataframe' in st.session_state and st.session_state.get('uploaded_dataframe') is not None:
             df = st.session_state['uploaded_dataframe']
-            
-            # Example analysis functionality
             st.subheader("Data Analysis")
-            
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Total Rows", len(df))
                 st.metric("Total Columns", len(df.columns))
-            
             with col2:
                 numeric_cols = len(df.select_dtypes(include=['number']).columns)
                 text_cols = len(df.select_dtypes(include=['object']).columns)
                 st.metric("Numeric Columns", numeric_cols)
                 st.metric("Text Columns", text_cols)
-                
         else:
             st.info("Upload data to enable analysis features")
     
     with st.expander("⚙️ Configuration & Settings", expanded=False):
         st.info("Additional configuration options can be added here")
-          # Example configuration options
         st.subheader("Display Settings")
-        show_debug = st.checkbox("Show Debug Information", key="dashboard_template_debug_checkbox")
+        # Use SessionManager for widget key and state
+        show_debug = session_manager.create_checkbox(
+            "Show Debug Information", 
+            checkbox_name="template_debug_checkbox", # SM will namespace this
+            # Default value for checkbox can be set via session_manager.get_page_state in _init_template_state
+            # or directly here if not managed in _init_template_state
+            value=session_manager.get_page_state('show_debug_info_template', False) 
+        )
+        session_manager.set_page_state('show_debug_info_template', show_debug)
         
         if show_debug:
-            st.subheader("Debug Information")
-            st.write("**Session State Keys:**")
-            relevant_keys = [k for k in st.session_state.keys() if isinstance(k, str) and ('template' in k.lower() or 'upload' in k.lower())]
-            for key in relevant_keys:
-                st.write(f"- {key}: {type(st.session_state.get(key, 'Not Set'))}")
-            
-            st.write("**Current Page:** ", st.session_state.get('current_page', 'Unknown'))
+            session_manager.debug_session_state() # Use SessionManager's debug display
+            st.subheader("Additional Non-Namespaced Debug Info")
+            st.write("**Non-Namespaced Session State Keys (Example):**")
+            non_namespaced_to_show = ['uploaded_dataframe', 'uploaded_file_name', 'template_last_file_id']
+            for key in non_namespaced_to_show:
+                if key in st.session_state:
+                    st.write(f"- {key}: ({type(st.session_state[key])}) - Present")
+                else:
+                    st.write(f"- {key}: Not Set")
+            st.write("**Current Page (from dashboard_controller):** ", st.session_state.get('current_page', 'Unknown'))
 
 
-# Template Usage Instructions (for future AI)
 """
 INSTRUCTIONS FOR FUTURE AI:
 
@@ -369,32 +307,32 @@ To use this template for a new dashboard page:
 1. COPY THIS FILE to dashboard_pages/your_new_page.py
 
 2. UPDATE THESE REQUIRED SECTIONS:
-   - Line ~35: logger name ('dashboard_template' -> 'your_page_name')
-   - Line ~40: page title and setup_page parameters
-   - Line ~45: session_manager page_name
-   - Line ~85: current_page variable in _check_and_clear_on_page_return()
-   - Line ~91: last_visit_key and navigation_timestamp_key names
-   - Line ~170: file_uploader key to be unique
-   - All widget keys to be unique for your page
+   - Logger name (e.g., 'dashboard_template' -> 'your_page_name')
+   - `setup_page` parameters (title, etc.)
+   - `SessionManager` instantiation: `SessionManager(namespace_prefix="your_page_name")`
+   - `_init_template_state` function name to `_init_your_page_name_state` and update its internal logging/keys if necessary.
+   - All specific widget names passed to `session_manager.create_widget_type()` methods to be descriptive for your page.
+   - If using non-namespaced keys (like 'uploaded_dataframe'), ensure their names are unique if necessary or managed carefully.
 
 3. CUSTOMIZE FUNCTIONALITY:
-   - Modify display_uploaded_data() for your specific file processing needs
-   - Update _display_chart() for your charting requirements
-   - Add your specific analysis and processing sections
-   - Modify the main() function layout as needed
+   - Modify `display_uploaded_data()` for your specific file processing needs.
+   - Update `_display_chart()` for your charting requirements.
+   - Add your specific analysis and processing sections.
+   - Modify the `main()` function layout as needed.
 
-4. KEEP UNCHANGED:
-   - The _check_and_clear_on_page_return() logic (except for naming updates)
-   - The overall structure and error handling patterns
-   - The session state management approach
+4. KEY PATTERNS TO MAINTAIN:
+   - Instantiate `SessionManager` at the top with a unique `namespace_prefix`.
+   - Call an `_init_your_page_name_state()` function at the beginning of your script (after SM instantiation) that uses `session_manager.has_navigated_to_page()` to clear non-namespaced state and initialize SM-managed state.
+   - Use `session_manager.create_widget_type()` for all Streamlit widgets to ensure unique keys.
+   - Use `session_manager.get_page_state()` and `session_manager.set_page_state()` for managing state that needs to be namespaced and automatically handled by SessionManager.
 
 5. TEST THOROUGHLY:
-   - Upload a file on your page
-   - Navigate to Home page
-   - Return to your page
-   - Verify the uploaded data is cleared
+   - Upload a file on your page.
+   - Navigate to another page (e.g., Home).
+   - Return to your page.
+   - Verify that non-namespaced data (like 'uploaded_dataframe') is cleared and SM-managed state is reset as expected.
 
-This template solves the critical data persistence issue and provides a robust
-foundation for any dashboard page that needs file upload functionality.
+This template uses the new SessionManager for robust state and widget key management,
+solving data persistence issues and simplifying development.
 """
 

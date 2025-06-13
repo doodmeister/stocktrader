@@ -25,6 +25,10 @@ import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
+# Add numpy import for array handling
+import numpy as np
+from pandas.api.extensions import ExtensionArray # Add this import
+
 # Optional imports
 try:
     import ta
@@ -45,8 +49,8 @@ from core.streamlit.dashboard_utils import (
     safe_streamlit_metric  # Add this import
 )
 
-# Import the SessionManager to solve button key conflicts and session state issues
-from core.streamlit.session_manager import create_session_manager, show_session_debug_info
+# Import the SessionManager
+from core.streamlit.session_manager import SessionManager # Changed import
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
@@ -85,6 +89,8 @@ def validate_timeframe(period: str) -> bool:
 # Initialize logger
 logger = get_dashboard_logger(__name__)
 
+# Initialize SessionManager for this page
+session_manager = SessionManager(namespace_prefix="realtime_dashboard")
 
 class DataProcessor:
     """Handles stock data processing and validation."""
@@ -102,9 +108,9 @@ class DataProcessor:
         """
         try:
             if isinstance(series_or_df, pd.DataFrame):
+                # Only use iloc[:, 0] if it's a DataFrame
                 return series_or_df.iloc[:, 0]  # type: ignore
             elif hasattr(series_or_df, 'values') and series_or_df.values.ndim == 2:
-                # Handle 2D arrays by taking the first column
                 values = series_or_df.values
                 try:
                     # Try multiple methods to flatten the array
@@ -113,12 +119,43 @@ class DataProcessor:
                     elif hasattr(values, 'ravel'):
                         flattened_values = values.ravel()  # type: ignore
                     else:
-                        # Fall back to taking first column
-                        flattened_values = values[:, 0] if values.ndim == 2 else values
+                        # Fix: Only use .iloc[:, 0] if it's a DataFrame, otherwise use [:, 0] for numpy arrays
+                        if isinstance(series_or_df, pd.DataFrame):
+                            flattened_values = series_or_df.iloc[:, 0].values  # type: ignore
+                        elif isinstance(values, np.ndarray) and values.ndim == 2:
+                            flattened_values = values[:, 0]
+                        else:
+                            # Handle ExtensionArray and other types
+                            if isinstance(values, ExtensionArray):
+                                np_values = values.to_numpy()
+                                if np_values.ndim > 1:
+                                    flattened_values = np_values.flatten()
+                                else:
+                                    flattened_values = np_values
+                            else:
+                                # Fallback for other unknown 2D types without flatten/ravel
+                                try:
+                                    np_values = np.asarray(values)
+                                    if np_values.ndim > 1:
+                                        flattened_values = np_values.flatten()
+                                    else:
+                                        flattened_values = np_values
+                                except Exception:
+                                    # If conversion to NumPy array fails, keep original values.
+                                    # This might lead to an error in pd.Series if 'values' is 2D.
+                                    flattened_values = values
                     return pd.Series(flattened_values, index=series_or_df.index)
                 except Exception:
                     # If all else fails, just take the first column
-                    return series_or_df.iloc[:, 0] if hasattr(series_or_df, 'iloc') else series_or_df  # type: ignore
+                    if isinstance(series_or_df, pd.DataFrame):
+                        return series_or_df.iloc[:, 0]  # type: ignore
+                    elif isinstance(series_or_df, pd.Series):
+                        return series_or_df
+                    elif hasattr(series_or_df, 'values') and isinstance(series_or_df.values, np.ndarray) and series_or_df.values.ndim == 2:
+                        # Use numpy slicing for 2D arrays
+                        return pd.Series(series_or_df.values[:, 0], index=series_or_df.index)
+                    else:
+                        return pd.Series(series_or_df)
             return series_or_df
         except Exception as e:
             logger.error(f"Error flattening column: {e}")
@@ -747,7 +784,7 @@ def render_sidebar_prices():
     st.session_state['sidebar_price_cache'] = sidebar_cache
 
 
-def render_main_dashboard(session_manager):
+def render_main_dashboard(): # Removed session_manager argument
     """Render the main dashboard content."""
     # Initialize components
     processor = DataProcessor()
@@ -760,24 +797,24 @@ def render_main_dashboard(session_manager):
     # Initialize session state
     state_manager.initialize_session_state()
       # Move form to sidebar with SessionManager for proper placement and key management
-    with session_manager.form_container("chart_parameters_form", location="sidebar"):
+    with session_manager.form_container("chart_parameters_form", location="sidebar"): # Use global session_manager
         st.header('Chart Parameters')
-        ticker = session_manager.create_text_input(
+        ticker = session_manager.create_text_input( # Use global session_manager
             'Ticker',
             value='ADBE',
             text_input_name='ticker_input'
         ).upper().strip()
-        time_period = session_manager.create_selectbox(
+        time_period = session_manager.create_selectbox( # Use global session_manager
             'Time Period',
             options=VALID_TIME_PERIODS,
             selectbox_name='time_period_select'
         )
-        chart_type = session_manager.create_selectbox(
+        chart_type = session_manager.create_selectbox( # Use global session_manager
             'Chart Type',
             options=VALID_CHART_TYPES,
             selectbox_name='chart_type_select'
         )
-        indicators = session_manager.create_multiselect(
+        indicators = session_manager.create_multiselect( # Use global session_manager
             'Technical Indicators',
             options=VALID_INDICATORS,
             multiselect_name='indicators_select'
@@ -786,7 +823,7 @@ def render_main_dashboard(session_manager):
         try:
             patterns_instance = CandlestickPatterns()
             pattern_names = patterns_instance.get_pattern_names()
-            selected_patterns = session_manager.create_multiselect(
+            selected_patterns = session_manager.create_multiselect( # Use global session_manager
                 "Patterns to scan for",
                 options=pattern_names,
                 default=pattern_names[:6] if len(pattern_names) >= 6 else pattern_names,
@@ -800,7 +837,7 @@ def render_main_dashboard(session_manager):
         submitted = st.form_submit_button("Update")
       # Debug information for troubleshooting
     with st.sidebar:
-        if session_manager.create_checkbox("Show Form Debug", "form_debug", value=False):
+        if session_manager.create_checkbox("Show Form Debug", "form_debug", value=False): # Use global session_manager
             st.write(f"Form submitted: {submitted}")
             st.write(f"Ticker: {ticker if 'ticker' in locals() else 'Not set'}")
             st.write(f"Time period: {time_period if 'time_period' in locals() else 'Not set'}")
@@ -812,11 +849,13 @@ def render_main_dashboard(session_manager):
             st.success(f"Processing request for {ticker} ({time_period})...")
             with st.spinner(f"Loading data for {ticker}..."):
                 # Fetch and process data
-                interval = INTERVAL_MAPPING.get(time_period, '1d')
-                raw_data = processor.fetch_stock_data(ticker, time_period, interval)
+                # Ensure time_period is not None before using it in INTERVAL_MAPPING.get
+                current_time_period = time_period if time_period is not None else VALID_TIME_PERIODS[0] # Default to first valid period
+                interval = INTERVAL_MAPPING.get(current_time_period, '1d')
+                raw_data = processor.fetch_stock_data(ticker, current_time_period, interval)
                 
                 if raw_data.empty:
-                    st.error(f"No data available for {ticker} in the {time_period} period.")
+                    st.error(f"No data available for {ticker} in the {current_time_period} period.")
                     return
                     
                 data = processor.process_data(raw_data)
@@ -859,15 +898,19 @@ def render_main_dashboard(session_manager):
                 else:
                     st.info("No selected patterns detected in this data.")
                   # Create and display chart
+                # Ensure chart_type and time_period are not None
+                current_chart_type = chart_type if chart_type is not None else VALID_CHART_TYPES[0] # Default to first valid chart type
+                current_display_time_period = time_period if time_period is not None else VALID_TIME_PERIODS[0]
+
                 fig = chart_builder.create_chart(
-                    data, chart_type, indicators, detected_patterns, ticker, time_period
+                    data, current_chart_type, indicators, detected_patterns, ticker, current_display_time_period
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # Store analysis data for AI section using SessionManager
                 analysis_data = {
                     'ticker': ticker,
-                    'time_period': time_period,
+                    'time_period': current_display_time_period, # Use the potentially defaulted time_period
                     'detected_patterns': detected_patterns
                 }
                 session_manager.set_page_state('realtime_dashboard_analysis_data', analysis_data)
@@ -905,7 +948,7 @@ def render_main_dashboard(session_manager):
     # Use SessionManager for button creation to prevent key conflicts
     col1, col2 = st.columns([3, 1])
     with col2:
-        if session_manager.create_button("🗑️ Clear Data", "clear_data", help="Clear cached analysis data"):
+        if session_manager.create_button("🗑️ Clear Data", "clear_data", help="Clear cached analysis data"): # Use global session_manager
             session_manager.set_page_state('realtime_dashboard_analysis_data', None)
             st.rerun()
     
@@ -926,7 +969,7 @@ def render_main_dashboard(session_manager):
     st.text_area("Copyable Analysis Summary", summary_text, height=200)
     
     # AI Insight button - use SessionManager
-    if session_manager.create_button("Get ChatGPT Insight", "chatgpt_insight"):
+    if session_manager.create_button("Get ChatGPT Insight", "chatgpt_insight"): # Use global session_manager
         if not analysis_data:
             st.warning("Please submit the form first to generate analysis data.")
         else:
@@ -939,7 +982,7 @@ def render_main_dashboard(session_manager):
 def main():
     """Main dashboard function."""
     try:        # Create SessionManager for this function scope
-        session_manager = create_session_manager("realtime_dashboard")
+        # session_manager = create_session_manager("realtime_dashboard") # Removed, use global
         
         # Only setup page if we're not being loaded by the main dashboard
         # The main dashboard handles page configuration
@@ -952,7 +995,7 @@ def main():
         else:            # When loaded by main dashboard, just set the title
             st.title('📊 Real-Time Stock Dashboard')
           # Render main dashboard with shared session manager
-        render_main_dashboard(session_manager)
+        render_main_dashboard() # Removed session_manager argument
         
         # Render sidebar content - temporarily disabled due to rate limiting
         # render_sidebar_prices()
@@ -964,7 +1007,7 @@ def main():
             'Use the sidebar to customize your view and get AI-powered insights.'
         )        # Display debug info in development
         with st.sidebar:
-            if session_manager.create_checkbox("Show Debug Info", "debug_info", value=False):
+            if session_manager.create_checkbox("Show Debug Info", "debug_info", value=False): # Use global session_manager
                 st.subheader("Debug Information")
                 st.json({
                     "Session State Keys": list(st.session_state.keys()),
@@ -972,7 +1015,7 @@ def main():
                     "Last Update": str(st.session_state.get('last_update', 'Never'))
                 })
           # Show SessionManager debug info to help troubleshoot conflicts
-        show_session_debug_info(session_manager)
+        session_manager.debug_session_state() # Use global session_manager
             
     except Exception as e:
         st.error(f"Critical dashboard error: {e}")

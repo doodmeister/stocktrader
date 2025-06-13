@@ -32,7 +32,7 @@ from utils.config.config import DashboardConfig
 from utils.data_downloader import download_stock_data
 from utils.logger import get_dashboard_logger
 from utils.notifier import Notifier
-from utils.io import (
+from utils.file_io_utils import (
     create_zip_archive,
     save_dataframe_with_metadata,
     get_file_info,

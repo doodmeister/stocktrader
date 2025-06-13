@@ -246,15 +246,14 @@ class PatternNN(nn.Module):
             if self.config.use_batch_norm and hasattr(self, 'lstm_bn'):
                 last_hidden = self.lstm_bn(last_hidden)
             
-            # Store residual for potential skip connection
-            residual = last_hidden if self.residual_projection is not None else None
-            
             # Classifier forward pass
             output = self.classifier(last_hidden)
             
             # Add residual connection if configured
-            if residual is not None:
-                output = output + self.residual_projection(residual)
+            if self.residual_projection is not None:
+                # last_hidden is the input to the residual projection
+                projected_residual = self.residual_projection(last_hidden)
+                output = output + projected_residual
             
             return output
             
