@@ -16,6 +16,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from core.streamlit.session_manager import SessionManager # Added import
 from core.streamlit.dashboard_utils import (
     DashboardStateManager,
     handle_streamlit_error,
@@ -27,7 +28,6 @@ from core.data_validator import (
     get_global_validator,
     validate_symbols
 )
-from core.streamlit.session_manager import create_session_manager, show_session_debug_info
 from utils.config.config import DashboardConfig
 from utils.data_downloader import download_stock_data
 from utils.logger import get_dashboard_logger
@@ -43,6 +43,13 @@ from utils.io import (
 
 # Module-level logger
 logger = get_dashboard_logger(__name__)
+
+# Initialize SessionManager for this page
+# This should be done once at the top of the script
+# Use a unique namespace for this page, e.g., 'data_dashboard'
+# Ensure this is instantiated *before* setup_page or any other Streamlit calls
+# that might rely on session state being properly managed.
+session_manager = SessionManager(namespace_prefix="data_dashboard")
 
 # Initialize page configuration
 setup_page(
@@ -404,7 +411,7 @@ class DataDashboard:
         self.notifier = notifier or Notifier()
         
         # Initialize managers
-        self.session_manager = create_session_manager("data_dashboard")
+        # self.session_manager = create_session_manager("data_dashboard") # Replaced by global session_manager
         self.state_manager = DashboardStateManager()
         self.export_manager = ExportManager(self.config, logger)
         self.download_manager = DataDownloadManager(self.config, self.notifier, logger)
@@ -483,8 +490,8 @@ class DataDashboard:
                 self._render_session_export()
                 
                 # Debug information (if enabled)
-                if st.checkbox("🔧 Debug Info", key="show_debug"):
-                    show_session_debug_info()
+                if session_manager.create_checkbox("🔧 Debug Info", "show_debug"): # Use global session_manager
+                    session_manager.debug_session_state() # Use SessionManager's method
                     
         except Exception as e:
             handle_streamlit_error(e, "running dashboard")
@@ -536,7 +543,7 @@ class DataDashboard:
         col1, col2 = st.columns([3, 1])
         
         with col1:
-            symbols_input = self.session_manager.create_text_input(
+            symbols_input = session_manager.create_text_input( # Use global session_manager
                 "🎯 Stock Symbols",
                 value=", ".join(self.config.DEFAULT_SYMBOLS),
                 help="Enter stock symbols separated by commas (e.g., AAPL, MSFT, GOOGL)",
@@ -545,7 +552,7 @@ class DataDashboard:
             )
         
         with col2:
-            if self.session_manager.create_button("🔍 Validate", "validate_symbols"):
+            if session_manager.create_button("🔍 Validate", "validate_symbols"): # Use global session_manager
                 self._validate_symbols_realtime(symbols_input)
         
         # Process symbol input
@@ -592,7 +599,7 @@ class DataDashboard:
                 if result.is_valid:
                     st.success(f"✅ Valid symbols: {symbols_input}")
                 else:
-                    st.error(f"❌ Validation errors: {', '.join(result.errors)}")
+                    st.error(f"❌ Validation errors: {', '.join(result.errors or [])}")
             except Exception as e:
                 logger.error(f"Symbol validation error: {e}")
                 st.error(f"❌ Validation failed: {str(e)}")
@@ -636,7 +643,7 @@ class DataDashboard:
     
     def _render_interval_selection(self) -> None:
         """Render interval selection control."""
-        interval_selected = self.session_manager.create_selectbox(
+        interval_selected = session_manager.create_selectbox( # Use global session_manager
             "📅 Data Interval",
             options=self.config.VALID_INTERVALS,
             index=0,
@@ -660,7 +667,7 @@ class DataDashboard:
         col1, col2 = st.columns(2)
         
         with col1:
-            new_start = self.session_manager.create_date_input(
+            new_start = session_manager.create_date_input( # Use global session_manager
                 "Start Date",
                 value=self.start_date,
                 max_value=date.today(),
@@ -669,7 +676,7 @@ class DataDashboard:
             )
         
         with col2:
-            new_end = self.session_manager.create_date_input(
+            new_end = session_manager.create_date_input( # Use global session_manager
                 "End Date", 
                 value=self.end_date,
                 max_value=date.today(),
@@ -705,7 +712,7 @@ class DataDashboard:
         
         for label, days, col in presets:
             with col:
-                if self.session_manager.create_button(
+                if session_manager.create_button( # Use global session_manager
                     f"📅 {label}",
                     f"preset_{days}days",
                     help=f"Set range to last {days} days"
@@ -731,7 +738,7 @@ class DataDashboard:
         """Render additional options."""
         col1, _ = st.columns(2)
         with col1:
-            self.clean_old = self.session_manager.create_checkbox(
+            self.clean_old = session_manager.create_checkbox( # Use global session_manager
                 "🗑️ Clean old files before download",
                 "clean_old_csvs",
                 value=self.clean_old,

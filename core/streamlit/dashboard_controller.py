@@ -14,6 +14,7 @@ from core.streamlit.page_loader import PageLoader
 from core.streamlit.health_checks import HealthChecker
 from core.streamlit.ui_renderer import UIRenderer
 from utils.logger import get_dashboard_logger
+from core.streamlit.session_manager import SessionManager # Add this import
 
 
 class StockTraderMainDashboard:
@@ -34,6 +35,11 @@ class StockTraderMainDashboard:
         self.page_loader = PageLoader(self.logger)
         self.health_checker = HealthChecker()
         self.ui_renderer = UIRenderer(self.logger)
+        
+        # Instantiate a SessionManager for the 'home' or default context
+        # This will run once when the dashboard controller is initialized.
+        # We use a distinct namespace for the main dashboard/home view.
+        self.home_session_manager = SessionManager("dashboard_home_stable") # Explicitly setting correct namespace
         
         # Initialize state manager
         self.state_manager = self._initialize_state_manager()
@@ -237,6 +243,10 @@ class StockTraderMainDashboard:
             current_page_file = st.session_state.get('current_page', 'home') # Renamed for clarity
             
             if current_page_file == 'home':
+                # Ensure the 'home' namespace is active when on the home page
+                # This call is important to update _sm_last_active_namespace
+                self.home_session_manager.has_navigated_to_page() # Corrected call
+
                 # Render additional home page content (description, navigation menu, footer)
                 self.ui_renderer.render_description()
                 self.ui_renderer.render_navigation_menu(self.pages_config)

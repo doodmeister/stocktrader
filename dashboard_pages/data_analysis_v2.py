@@ -19,7 +19,7 @@ import hashlib
 # Existing imports (preserved per your requirements)
 from utils.logger import get_dashboard_logger
 from core.streamlit.dashboard_utils import setup_page
-from core.streamlit.session_manager import create_session_manager
+from core.streamlit.session_manager import SessionManager
 from core.data_validator import DataValidator
 from core.validation.validation_results import DataFrameValidationResult
 from core.indicators.rsi import calculate_rsi
@@ -37,7 +37,7 @@ setup_page(
     sidebar_title="Dashboard Controls"
 )
 
-session_manager = SessionManager(page_name="data_analysis_v2")
+session_manager = SessionManager(namespace_prefix="data_analysis_v2")
 
 data_validator = DataValidator(enable_api_validation=False)
 

@@ -180,6 +180,8 @@ stocktrader/
 
 ## Key Guidelines
 
+- **All dashboard pages must import `SessionManager` from `core.streamlit.session_manager` and instantiate it at the top of the script with a unique `namespace_prefix` argument.**
+  - _Example:_ `session_manager = SessionManager(namespace_prefix="data_dashboard")`
 - **All widget keys must be unique and namespaced by page and tab.**
   - Use `SessionManager(page_name, tab=...)` for widget creation.
   - Never reuse SessionManager or keys across tabs or pages.

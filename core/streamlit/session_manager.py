@@ -1,4 +1,4 @@
-# filepath: c:\dev\stocktrader\core\session_manager.py
+# filepath: c:\\dev\\stocktrader\\core\\session_manager.py
 """
 Session State Management System for StockTrader Dashboards
 
@@ -34,7 +34,7 @@ _SM_LAST_ACTIVE_NAMESPACE_KEY = "_sm_last_active_page_namespace"
 @dataclass
 class PageContext:
     """Context information for a dashboard page."""
-    page_name: str
+    page_name: str  # This will be derived from namespace_prefix
     namespace: str
     session_id: str
     created_at: datetime = field(default_factory=datetime.now)
@@ -49,38 +49,52 @@ class SessionManager:
     Now supports optional tab context for widget key namespacing and
     detects navigation to a new page to signal state clearing.
     """
-    
-    _SM_LAST_ACTIVE_NAMESPACE_KEY = "_sm_last_active_page_namespace" # Class attribute for clarity
 
-    def __init__(self, page_name: str = "main", tab: Optional[str] = None):
-        """
-        Initialize the session manager for a specific dashboard page and optional tab.
-        
+    def __init__(self, namespace_prefix: str, tab: Optional[str] = None, debug_mode: bool = False):
+        """Initialize the SessionManager with a unique namespace for the page.
+
         Args:
-            page_name: Name of the dashboard page (auto-detected if None)
-            tab: Optional tab context for further key namespacing
+            namespace_prefix: A unique identifier for the page (e.g., 'data_analysis_v2').
+            tab: Optional tab identifier for namespacing keys within a tab.
+            debug_mode: Enable verbose logging for debugging.
         """
-        self.page_name = page_name or self._detect_page_name()
-        self.namespace = self._generate_namespace() # e.g., "data_analysis_v2_stable"
-        self.session_id = self._get_or_create_session_id()
-        self.tab = tab
-        
-        self.is_new_page_entry = False
-        last_active_namespace = st.session_state.get(SessionManager._SM_LAST_ACTIVE_NAMESPACE_KEY)
-
-        if self.namespace != last_active_namespace:
-            logger.info(f"SessionManager: New page entry or navigation detected for namespace '{self.namespace}'. Last active was '{last_active_namespace}'.")
-            self.is_new_page_entry = True
-            self._clear_all_sm_managed_state_for_namespace()
-            st.session_state[SessionManager._SM_LAST_ACTIVE_NAMESPACE_KEY] = self.namespace
+        self.namespace_prefix = namespace_prefix
+        self.tab_context = f"_{tab}" if tab else ""
+        # Ensure '_stable' suffix is applied correctly
+        if namespace_prefix.endswith('_stable'):
+            self.namespace = f"{namespace_prefix}{self.tab_context}"
         else:
-            logger.debug(f"SessionManager: In-page rerun for namespace '{self.namespace}'.")
-            self.is_new_page_entry = False
-            
-        # Initialize page context (will be fresh if cleared above)
-        self._initialize_page_context()
+            self.namespace = f"{namespace_prefix}{self.tab_context}_stable"
+
+        self.debug_mode = debug_mode
+        self.logger = get_dashboard_logger(f"session_manager_{self.namespace}")
+
+        if self.debug_mode:
+            self.logger.info(f"SessionManager initialized for namespace: {self.namespace}")
+            self.logger.info(f"Current _SM_LAST_ACTIVE_NAMESPACE_KEY before init logic: {st.session_state.get(_SM_LAST_ACTIVE_NAMESPACE_KEY)}")
+
+        # Initialize session state for this namespace if it doesn't exist
+        if self.namespace not in st.session_state:
+            st.session_state[self.namespace] = {}
+            if self.debug_mode:
+                self.logger.info(f"Initialized new session state for {self.namespace}")
+
+        # Initialize a set to keep track of keys managed by this SM instance
+        self._managed_keys_key = f"_sm_managed_keys_{self.namespace}"
+        if self._managed_keys_key not in st.session_state:
+            st.session_state[self._managed_keys_key] = set()
+            if self.debug_mode:
+                self.logger.info(f"Initialized managed keys set for {self.namespace}")
         
-        logger.debug(f"SessionManager initialized for {self.page_name} (tab={self.tab}) with namespace {self.namespace}. New entry: {self.is_new_page_entry}")
+        self._initialize_page_context() # Ensure page context is initialized
+
+        # Log the current value of _SM_LAST_ACTIVE_NAMESPACE_KEY at the end of init
+        self.logger.info(f"SessionManager __init__ for '{self.namespace}'. _SM_LAST_ACTIVE_NAMESPACE_KEY is currently: '{st.session_state.get(_SM_LAST_ACTIVE_NAMESPACE_KEY)}'")
+
+    def _log_debug(self, message: str):
+        """Log a debug message if debug mode is enabled."""
+        if self.debug_mode:
+            self.logger.debug(message)
 
     def _clear_all_sm_managed_state_for_namespace(self):
         """
@@ -106,11 +120,29 @@ class SessionManager:
 
     def has_navigated_to_page(self) -> bool:
         """
-        Returns True if this SessionManager instance's initialization detected
-        a navigation to its page (i.e., it's not an in-page rerun).
-        """
-        return self.is_new_page_entry
+        Detects if navigation to a new page has occurred.
 
+        This should be called once at thebeginning of each page's script.
+        It updates the global last active namespace tracker.
+
+        Returns:
+            bool: True if navigation to this page is new or if it's a different page,
+                  False otherwise.
+        """
+        last_active_namespace = st.session_state.get(_SM_LAST_ACTIVE_NAMESPACE_KEY)
+        self.logger.info(f"has_navigated_to_page called for '{self.namespace}'. Previous last_active_namespace: '{last_active_namespace}'")
+
+        if last_active_namespace != self.namespace:
+            self.logger.info(f"SessionManager: New page entry or navigation detected for namespace '{self.namespace}'. Last active was '{last_active_namespace}'.")
+            st.session_state[_SM_LAST_ACTIVE_NAMESPACE_KEY] = self.namespace
+            self.logger.info(f"Updated _SM_LAST_ACTIVE_NAMESPACE_KEY to '{self.namespace}'")
+            # Clear all SM-managed state for this namespace upon new entry/navigation
+            self._clear_all_sm_managed_state_for_namespace() # Corrected method call
+            return True
+        
+        self.logger.info(f"has_navigated_to_page: No navigation detected for '{self.namespace}'. _SM_LAST_ACTIVE_NAMESPACE_KEY remains '{st.session_state.get(_SM_LAST_ACTIVE_NAMESPACE_KEY)}'.")
+        return False
+    
     def _detect_page_name(self) -> str:
         """Automatically detect the current page name from the call stack."""
         import inspect
@@ -128,7 +160,8 @@ class SessionManager:
         """Generate a stable namespace for this page."""
         # Create a stable namespace based only on page name for consistency
         # This ensures buttons maintain their keys across page refreshes
-        return f"{self.page_name}_stable"
+        # Use namespace_prefix as the base for the page name part of the namespace
+        return f"{self.namespace_prefix}_stable"
     
     def _get_or_create_session_id(self) -> str:
         """Get or create a unique session ID."""
@@ -142,14 +175,15 @@ class SessionManager:
         
         if context_key not in st.session_state:
             st.session_state[context_key] = PageContext(
-                page_name=self.page_name,
+                page_name=self.namespace_prefix, # Use namespace_prefix for page_name
                 namespace=self.namespace,
-                session_id=self.session_id
+                session_id=self._get_or_create_session_id() # Use method to get session_id
             )
     
     def _tab_prefix(self) -> str:
         """Return tab prefix for key if tab context is set."""
-        return f"{self.tab}_" if self.tab else ""
+        # self.tab is not an attribute, use self.tab_context which is derived from tab
+        return self.tab_context + "_" if self.tab_context else ""
 
     def get_unique_key(self, base_key: str, key_type: str = "button") -> str:
         """
@@ -264,7 +298,7 @@ class SessionManager:
         if context_key in st.session_state:
             del st.session_state[context_key]
         
-        logger.info(f"Cleaned up session state for page: {self.page_name}")
+        logger.info(f"Cleaned up session state for namespace: {self.namespace}") # Log with namespace
     
     @contextmanager
     def form_container(self, form_name: str = "main", location: Optional[str] = None, **form_kwargs):
@@ -610,15 +644,66 @@ class SessionManager:
             logger.error(f"Error creating color picker {color_picker_key}: {e}")
             return value
             
+    def debug_session_state(self) -> None:
+        """
+        Displays detailed session state information for debugging purposes,
+        focusing on the current namespace.
+        """
+        self.logger.info(f"Displaying session debug info for namespace: {self.namespace}")
+        st.subheader(f"Session State Debug: Namespace '{self.namespace}'")
+
+        st.write("Page Context:")
+        context_key = f"_page_context_{self.namespace}"
+        if context_key in st.session_state:
+            # Safely convert to dict if it's a dataclass instance
+            context_data = st.session_state[context_key]
+            if hasattr(context_data, '__dict__'):
+                st.json(context_data.__dict__)
+            elif isinstance(context_data, dict):
+                 st.json(context_data)
+            else:
+                st.write(str(context_data))
+        else:
+            st.warning("No PageContext found for this namespace.")
+
+        st.write(f"Managed Keys for '{self.namespace}':")
+        managed_keys_key = f"_sm_managed_keys_{self.namespace}"
+        if managed_keys_key in st.session_state and st.session_state[managed_keys_key]:
+            st.json(list(st.session_state[managed_keys_key]))
+        else:
+            st.info(f"No keys explicitly managed by this SessionManager instance for this namespace.")
+
+        st.write(f"All Session State Keys Starting with '{self.namespace}_':")
+        namespaced_keys = {
+            k: str(type(v))
+            for k, v in st.session_state.items()
+            if isinstance(k, str) and k.startswith(self.namespace + "_")
+        }
+        if namespaced_keys:
+            st.json(namespaced_keys)
+        else:
+            st.info(f"No session state keys found starting with '{self.namespace}_'.")
+        
+        st.write(f"Raw st.session_state['{self.namespace}'] (if exists):")
+        if self.namespace in st.session_state:
+            st.json(st.session_state[self.namespace])
+        else:
+            st.info(f"No direct entry for st.session_state['{self.namespace}'].");
+
+        st.write("Global Session Manager Info:")
+        st.text(f"_SM_LAST_ACTIVE_NAMESPACE_KEY: {st.session_state.get(_SM_LAST_ACTIVE_NAMESPACE_KEY)}")
+        if 'global_session_id' in st.session_state:
+            st.text(f"Global Session ID: {st.session_state.global_session_id}")
+
     def get_debug_info(self) -> Dict[str, Any]:
         """Get debug information about the current session state."""
         context_key = f"_page_context_{self.namespace}"
         context = st.session_state.get(context_key)
         
         return {
-            "page_name": self.page_name,
+            "page_name": self.namespace_prefix, # Use namespace_prefix
             "namespace": self.namespace,
-            "session_id": self.session_id,
+            "session_id": self._get_or_create_session_id(), # Use method
             "context_exists": context is not None,
             "button_count": context.button_count if context else 0,
             "form_count": context.form_count if context else 0,
@@ -634,9 +719,13 @@ class SessionManager:
         """
         first_load_key = f"{self.namespace}_first_load_done"
         if not st.session_state.get(first_load_key, False):
-            self.clear_page_state()
+            self.clear_page_state() # This clears keys starting with self.namespace + "_"
+            # Additionally, clear the specific namespace dict if it exists (for non-widget state)
+            if self.namespace in st.session_state and isinstance(st.session_state[self.namespace], dict):
+                 st.session_state[self.namespace] = {}
+
             st.session_state[first_load_key] = True
-            logger.info(f"SessionManager: Reset page state for {self.page_name} on first load.")
+            logger.info(f"SessionManager: Reset page state for namespace {self.namespace} on first load.")
 
 
 class GlobalSessionManager:
@@ -713,8 +802,11 @@ class GlobalSessionManager:
 # Convenience functions for common usage patterns
 def create_session_manager(page_name: Optional[str] = None) -> SessionManager:
     """Create a session manager for the current page."""
-    manager = SessionManager(page_name if page_name is not None else "main")
-    GlobalSessionManager.register_page(manager.page_name, manager.namespace)
+    # Use a default page_name if None is provided, e.g., "main_dashboard"
+    actual_page_name = page_name if page_name is not None else "main_dashboard_page"
+    manager = SessionManager(actual_page_name) # Pass actual_page_name as namespace_prefix
+    # Register with namespace_prefix, as page_name in PageContext is derived from it
+    GlobalSessionManager.register_page(manager.namespace_prefix, manager.namespace) 
     return manager
 
 
