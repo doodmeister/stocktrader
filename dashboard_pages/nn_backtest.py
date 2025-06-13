@@ -13,7 +13,7 @@ from core.streamlit.dashboard_utils import (
     setup_page,
     handle_streamlit_error
 )
-from core.session_manager import create_session_manager
+from core.streamlit.session_manager import SessionManager # Add this import
 from utils.backtester import run_backtest_wrapper
 
 # Dashboard logger setup
@@ -28,7 +28,7 @@ setup_page(
 )
 
 # Initialize SessionManager for conflict-free widget handling
-session_manager = create_session_manager("nn_backtest")
+session_manager = SessionManager(namespace_prefix="nn_backtest") # Instantiate SessionManager
 
 # --- Model Loading Utilities ---
 
@@ -169,10 +169,14 @@ def initialize_backtest_state():
     defaults = {
         "results": None,
         "backtest_triggered": False,
-        "selected_strategy": "Pattern NN"    }
+        "selected_strategy": "Pattern NN",
+        "trade_log_downloaded": False,
+        "equity_curve_downloaded": False
+    }
     for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
+        # Use set_page_state with if_not_exists logic handled manually for now
+        if session_manager.get_page_state(k) is None:
+            session_manager.set_page_state(k, v)
 
 class NeuralNetworkBacktester:
     def __init__(self):
@@ -221,12 +225,14 @@ def main():
         run_button = st.form_submit_button("Run Backtest")
 
     if run_button:
-        st.session_state["symbol"] = symbol
-        st.session_state["start_date"] = start_date
-        st.session_state["end_date"] = end_date
-        st.session_state["strategy"] = strategy
-        st.session_state["selected_classic_model"] = selected_classic_model
-        st.session_state["selected_patternnn_model"] = selected_patternnn_model        # Validate dates
+        # Values from session_manager.create_* are directly available
+        # No need to set them back into session_state manually here if using form_submit_button
+        # st.session_state["symbol"] = symbol
+        # st.session_state["start_date"] = start_date
+        # st.session_state["end_date"] = end_date
+        # st.session_state["strategy"] = strategy
+        # st.session_state["selected_classic_model"] = selected_classic_model
+        # st.session_state["selected_patternnn_model"] = selected_patternnn_model        # Validate dates
         if not start_date or not end_date:
             st.error("Please select both a start and end date.")
             return
@@ -251,33 +257,37 @@ def main():
             
             if strategy == "Pattern NN" and selected_patternnn_model:
                 fn = lambda df: pattern_nn_predict(df, selected_patternnn_model)
-                st.session_state["results"] = run_custom_strategy(
+                results = run_custom_strategy(
                     symbol, start_date, end_date, fn, initial_capital, risk_per_trade / 100, model_type=strategy
                 )
+                session_manager.set_page_state("results", results)
             elif strategy == "Classic ML Model" and selected_classic_model:
                 fn = lambda df: classic_ml_predict(df, selected_classic_model)
-                st.session_state["results"] = run_custom_strategy(
+                results = run_custom_strategy(
                     symbol, start_date, end_date, fn, initial_capital, risk_per_trade / 100, model_type=strategy
                 )
+                session_manager.set_page_state("results", results)
             else:
-                st.session_state["results"] = run_backtest_wrapper(
+                results = run_backtest_wrapper(
                     symbol, start_datetime, end_datetime, "SMA Crossover", initial_capital, risk_per_trade / 100
                 )
-                if st.session_state["results"] is not None:
-                    st.session_state["results"]["model_type"] = "SMA Crossover"
+                if results is not None:
+                    results["model_type"] = "SMA Crossover"
+                session_manager.set_page_state("results", results)
 
         # Display results
-        if not st.session_state.get("results"):
+        current_results = session_manager.get_page_state("results")
+        if not current_results:
             st.warning("No results to display. Please check your configuration and data.")
             return
 
-        if "metrics" in st.session_state["results"] and st.session_state["results"]["metrics"].get("num_trades", 0) == 0:
+        if "metrics" in current_results and current_results["metrics"].get("num_trades", 0) == 0:
             st.warning("⚠️ No trades executed—try broadening your date range or adjusting strategy parameters")
         else:
             st.success("✅ Backtest completed")
 
             st.subheader("📊 Performance Metrics")
-            metrics = st.session_state["results"]["metrics"]
+            metrics = current_results["metrics"]
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Return", f"{metrics.get('total_return', 0) * 100:.2f}%")
             col2.metric("Sharpe Ratio", f"{metrics.get('sharpe_ratio', 0):.2f}")
@@ -286,43 +296,46 @@ def main():
             st.subheader("📈 Equity Curve")
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=st.session_state["results"]['equity_curve']['date'],
-                y=st.session_state["results"]['equity_curve']['equity'],
+                x=current_results['equity_curve']['date'],
+                y=current_results['equity_curve']['equity'],
                 mode='lines'
             ))
             fig.update_layout(margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig, use_container_width=True)
 
-            if st.session_state.get("results"):
-                results = st.session_state["results"]
+            current_results_from_state = session_manager.get_page_state("results")
+            if current_results_from_state:
+                # results = st.session_state["results"] # Already have current_results
                 st.subheader("📄 Trade Log")
-                st.dataframe(results["trade_log"])
+                st.dataframe(current_results_from_state["trade_log"])
 
                 # Download Trade Log
                 if st.download_button(
                     "Download Trade Log",
-                    results["trade_log"].to_csv(index=False).encode(),
+                    current_results_from_state["trade_log"].to_csv(index=False).encode(),
                     "trade_log.csv",
                     "text/csv",
-                    key="download_trade_log"
+                    key=session_manager.get_unique_key("download_trade_log", "button")
                 ):
-                    st.session_state["trade_log_downloaded"] = True
+                    session_manager.set_page_state("trade_log_downloaded", True)
 
-                if st.session_state.get("trade_log_downloaded"):
+                if session_manager.get_page_state("trade_log_downloaded"):
                     st.info("✅ Trade log download started!")
+                    session_manager.set_page_state("trade_log_downloaded", False) # Reset after showing message
 
                 # Download Equity Curve
                 if st.download_button(
                     "Download Equity Curve",
-                    results["equity_curve"].to_csv(index=False).encode(),
+                    current_results_from_state["equity_curve"].to_csv(index=False).encode(),
                     "equity_curve.csv",
                     "text/csv",
-                    key="download_equity_curve"
+                    key=session_manager.get_unique_key("download_equity_curve", "button")
                 ):
-                    st.session_state["equity_curve_downloaded"] = True
+                    session_manager.set_page_state("equity_curve_downloaded", True)
 
-                if st.session_state.get("equity_curve_downloaded"):
+                if session_manager.get_page_state("equity_curve_downloaded"):
                     st.info("✅ Equity curve download started!")
+                    session_manager.set_page_state("equity_curve_downloaded", False) # Reset after showing message
 
 # Execute the main function
 if __name__ == "__main__":
