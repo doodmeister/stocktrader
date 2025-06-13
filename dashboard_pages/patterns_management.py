@@ -1,4 +1,3 @@
-# filepath: c:\dev\stocktrader\dashboard_pages\patterns_management.py
 """
 Patterns Management - Focused interface for pattern viewing, description, download, and addition.
 Core functionalities:
@@ -15,6 +14,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 import streamlit as st
 import pandas as pd
+from enum import Enum
 
 # Import existing business logic
 from core.streamlit.dashboard_utils import (
@@ -24,11 +24,13 @@ from core.streamlit.session_manager import SessionManager # Add this import
 
 from patterns.pattern_utils import (
     read_patterns_file,
-    get_pattern_names, 
-    get_pattern_method,
+    get_pattern_names,
     validate_python_code,
 )
 from utils.file_io_utils import safe_file_write # Updated import
+
+# Import CandlestickPatterns and its enums if not already
+from patterns.patterns import CandlestickPatterns, PatternType, PatternStrength, create_pattern_detector # Add Enums if needed for type checking
 
 # Dashboard logger setup
 from utils.logger import get_dashboard_logger
@@ -63,36 +65,76 @@ class PatternsManager:
     @st.cache_data  # Cache the results of this method
     def get_all_patterns(_self) -> List[Dict[str, Any]]:  # Changed self to _self
         """Get all patterns with their metadata."""
-        patterns = []
+        patterns_data = []  # Renamed for clarity
         try:
-            # Access attributes using _self.patterns_file_path if needed, though not used here
-            pattern_names = get_pattern_names()
+            # Create an instance of the main pattern engine
+            # create_pattern_detector() is from patterns.patterns
+            # It likely returns a CandlestickPatterns instance
+            pattern_engine = create_pattern_detector() 
+            pattern_names = pattern_engine.get_pattern_names()
 
             for name in pattern_names:
-                pattern_info = {
-                    'name': name,
-                    'description': 'No description available',
-                    'source_code': '',
-                    'pattern_type': 'Unknown',
-                    'strength': 'Unknown',
-                    'min_rows': 'Unknown'
-                }
+                # Get the actual PatternDetector instance
+                # Assuming CandlestickPatterns has a way to get a detector by name
+                # This might be: pattern_engine._patterns.get(name)
+                # Or a public method: pattern_engine.get_detector(name)
+                
+                # Option 1: If CandlestickPatterns has get_detector(name)
+                pattern_instance = pattern_engine.get_detector_by_name(name)
 
-                # Get method and documentation
-                method = get_pattern_method(name)
-                if method:
-                    pattern_info['description'] = method.__doc__ or 'No description available'
+                # Option 2: Accessing the internal _patterns dictionary (less ideal but might be necessary)
+                # This requires _patterns to be accessible and map names to detector instances
+                # pattern_instance = pattern_engine._patterns.get(name)
+
+                if pattern_instance:
+                    # Description from the detect method's docstring
+                    description = inspect.getdoc(pattern_instance.detect) or 'No description available'
+                    
+                    source_code = 'Source code not available'
                     try:
-                        pattern_info['source_code'] = inspect.getsource(method)
+                        # Source code of the detect method
+                        source_code = inspect.getsource(pattern_instance.detect)
                     except Exception:
-                        pattern_info['source_code'] = 'Source code not available'
+                        pass # Keep 'Source code not available'
 
-                patterns.append(pattern_info)
+                    # Get pattern_type, convert to value if enum
+                    ptype_attr = getattr(pattern_instance, 'pattern_type', 'Unknown')
+                    if isinstance(ptype_attr, Enum):
+                        pattern_type_value = ptype_attr.value
+                    else:
+                        pattern_type_value = str(ptype_attr)
 
+                    # Get strength, convert to value if enum
+                    strength_attr = getattr(pattern_instance, 'strength', 'Unknown')
+                    if isinstance(strength_attr, Enum): # Check if it's an Enum instance
+                        if hasattr(strength_attr, 'value'): # e.g., IntEnum
+                            strength_display_value = strength_attr.value
+                        else: # e.g., basic Enum, use name
+                            strength_display_value = strength_attr.name 
+                    else: # Fallback to string if not an Enum
+                        strength_display_value = str(strength_attr)
+                    
+                    # Get min_rows
+                    min_rows_value = getattr(pattern_instance, 'min_rows', 'Unknown')
+
+                    patterns_data.append({
+                        'name': pattern_instance.name, # Use name from instance
+                        'description': description,
+                        'source_code': source_code,
+                        'pattern_type': pattern_type_value,
+                        'strength': strength_display_value,
+                        'min_rows': min_rows_value
+                    })
+                else:
+                    # Fallback if pattern method/instance isn't found
+                    patterns_data.append({
+                        'name': name,
+                        'description': f'Details for {name} not found via instance.',
+                        'source_code': '', 'pattern_type': 'Unknown', 'strength': 'Unknown', 'min_rows': 'Unknown'
+                    })
         except Exception as e:
-            logger.error(f"Error getting patterns: {e}")
-
-        return patterns
+            logger.error(f"Error in get_all_patterns: {e}", exc_info=True) # Add exc_info for more details
+        return patterns_data
 
     @st.cache_data
     def export_patterns_data(_self, format_type: str = 'json') -> Optional[str]:  # Changed self to _self

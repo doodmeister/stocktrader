@@ -35,7 +35,7 @@ Example:
 import functools
 import gc
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Callable
 import warnings
 
 import numpy as np
@@ -50,7 +50,8 @@ except ImportError:
     HAS_TA = False
     warnings.warn("TA library not available. Technical indicators will be limited.")
 
-from patterns.pattern_utils import get_pattern_names, get_pattern_method
+from patterns.pattern_utils import get_pattern_names # Removed get_pattern_method
+from patterns.patterns import CandlestickPatterns # Added import for CandlestickPatterns
 from utils.logger import setup_logger
 
 # Centralized validation imports
@@ -773,50 +774,89 @@ class FeatureEngineer:
         return result_df
     
     def _add_custom_pattern(self, df: pd.DataFrame, pattern_name: str) -> pd.DataFrame:
-        """Add custom pattern using pattern_utils."""
+        """Add custom pattern using CandlestickPatterns instance."""
         try:
-            method = get_pattern_method(pattern_name)
-            if method is None:
+            # Instantiate CandlestickPatterns to access detectors
+            pattern_engine = CandlestickPatterns() 
+            detector = pattern_engine.get_detector_by_name(pattern_name)
+
+            if detector is None:
+                logger.warning(f"Pattern detector for '{pattern_name}' not found.")
                 return df
             
+            # The 'method' is the 'detect' method of the detector instance
+            method_to_call = detector.detect 
+
             # Use caching for repeated pattern detection
+            # Cache key should be robust; consider hash of df if memory allows, or key parts
+            # For simplicity, using len and last close, but could be more specific
             cache_key = (pattern_name, len(df), df['close'].iloc[-1] if len(df) > 0 else 0)
             
             if cache_key in self._pattern_cache:
                 pattern_series = self._pattern_cache[cache_key]
             else:
-                # Vectorized pattern detection
-                pattern_series = self._vectorized_pattern_detection(df, method)
+                # Vectorized pattern detection requires the 'detect' method
+                pattern_series = self._vectorized_pattern_detection(df, method_to_call) 
                 self._pattern_cache[cache_key] = pattern_series
             
-            df[pattern_name.replace(" ", "")] = pattern_series
+            # Sanitize pattern_name for column name (e.g., remove spaces, special chars)
+            # Example: 'Bullish Harami' -> 'BullishHarami'
+            column_name = ''.join(filter(str.isalnum, pattern_name))
+            df[column_name] = pattern_series
             
         except Exception as e:
-            logger.debug(f"Failed to add pattern {pattern_name}: {e}")
+            logger.warning(f"Failed to add pattern {pattern_name}: {e}", exc_info=True) # Add exc_info
         
         return df
     
-    def _vectorized_pattern_detection(self, df: pd.DataFrame, method) -> pd.Series:
+    def _vectorized_pattern_detection(self, df: pd.DataFrame, method: Callable) -> pd.Series:
         """Vectorized pattern detection for better performance."""
-        results = np.zeros(len(df), dtype=int)
+        # This method applies the pattern detection function row by row (or by applying to rolling windows).
+        # The `method` (e.g., `BullishHaramiPattern.detect`) expects a DataFrame window.
+        # We need to simulate applying this to each possible end-point in the DataFrame.
+
+        # Example: if a pattern needs `min_rows` (e.g., 3), then for each row `i` >= `min_rows -1`,
+        # we pass `df.iloc[i - min_rows + 1 : i + 1]` to `method`.
         
-        # Determine minimum window size
-        min_rows = 3  # Default minimum
+        # Get min_rows from the method's instance if possible, or assume a default.
+        # This is tricky because `method` is just the bound `detect` function.
+        # We'd ideally have the detector instance here or its `min_rows` property.
+        # For now, let's assume a common small window or try to infer if possible.
+        # This part might need refinement based on how PatternDetector.detect is structured
+        # and what `min_rows` it implies.
+
+        # Placeholder: This simplified version assumes the method can be applied to the whole df
+        # or that the method itself handles windowing. This is often NOT the case for
+        # candlestick patterns that look at a small, fixed number of recent candles.
+        # A more robust implementation would iterate with rolling windows.
+
+        # If the pattern detector's `detect` method is designed to take the full historical DataFrame
+        # and return a Series of booleans (same length as df) indicating detections, that's ideal.
+        # Otherwise, we must apply it on a rolling basis.
+
+        # Assuming `method` is like `pattern_instance.detect(sub_df)` which returns a single boolean.
+        # We need to apply this for each row.
         
-        # Process in chunks for memory efficiency
-        chunk_size = 1000
-        for start_idx in range(min_rows - 1, len(df), chunk_size):
-            end_idx = min(start_idx + chunk_size, len(df))
-            
-            for i in range(start_idx, end_idx):
-                window_start = max(0, i + 1 - min_rows)
-                window = df.iloc[window_start:i + 1]
-                
-                try:
-                    detected = int(method(window)) if method else 0
-                    results[i] = detected
-                except Exception:
-                    results[i] = 0
+        # Try to get min_rows from the detector instance if `method` is bound to one
+        min_rows = 1 # Default
+        if hasattr(method, '__self__') and hasattr(method.__self__, 'min_rows'):
+            min_rows = method.__self__.min_rows
+        else:
+            logger.warning(f"Could not determine min_rows for {method.__name__ if hasattr(method, '__name__') else 'pattern method'}. Defaulting to {min_rows}. This may affect pattern detection.")
+
+        if len(df) < min_rows:
+            return pd.Series([False] * len(df), index=df.index)
+
+        results = [False] * (min_rows -1) # Pad for initial rows where pattern can't form
+
+        for i in range(min_rows -1, len(df)):
+            window_df = df.iloc[i - min_rows + 1 : i + 1]
+            try:
+                detected = method(window_df) # Call the pattern's detect method
+                results.append(bool(detected))
+            except Exception as e:
+                logger.error(f"Error detecting pattern {method.__name__ if hasattr(method, '__name__') else ''} at index {i}: {e}", exc_info=False) # exc_info=False to avoid flooding logs
+                results.append(False)
         
         return pd.Series(results, index=df.index)
     

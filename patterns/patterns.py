@@ -248,6 +248,18 @@ class PatternDetector(ABC):
         """Minimum rows required for detection."""
         pass
 
+    @property
+    @abstractmethod
+    def pattern_type(self) -> PatternType:
+        """Type of the pattern (e.g., bullish reversal, bearish reversal)."""
+        pass
+
+    @property
+    @abstractmethod
+    def strength(self) -> PatternStrength:
+        """Reliability strength of the pattern."""
+        pass
+
 class CandlestickPatterns:
     """
     Production-grade candlestick pattern detection engine.
@@ -330,28 +342,39 @@ class CandlestickPatterns:
             logger.info(f"Registered pattern: {pattern.name}")
     
     def get_pattern_names(self) -> List[str]:
-        """Get list of all registered pattern names."""
-        with self._lock:
-            return list(self._patterns.keys())
+        """Returns a list of registered pattern names."""
+        return list(self._patterns.keys())
+
+    def get_detector_by_name(self, name: str) -> Optional[PatternDetector]:
+        """
+        Retrieves a registered pattern detector instance by its name.
+
+        Args:
+            name: The name of the pattern detector.
+
+        Returns:
+            The PatternDetector instance or None if not found.
+        """
+        return self._patterns.get(name)
     
-    def get_pattern_info(self, pattern_name: str) -> Dict[str, Any]:
-        """Get detailed information about a specific pattern."""
-        with self._lock:
-            if pattern_name not in self._patterns:
-                raise PatternDetectionError(
-                    f"Pattern '{pattern_name}' not found",
-                    pattern_name=pattern_name,
-                    error_code="PATTERN_NOT_FOUND"
-                )
+    def detect_all_patterns(
+        self, 
+        df: pd.DataFrame, 
+        pattern_names: Optional[List[str]] = None,
+        parallel: bool = False
+    ) -> List[PatternResult]:
+        """
+        Detect all patterns in the given DataFrame.
+        
+        Args:
+            df: DataFrame with OHLC data
+            pattern_names: Specific patterns to detect (None for all)
+            parallel: Whether to use parallel processing
             
-            pattern = self._patterns[pattern_name]
-            return {
-                "name": pattern.name,
-                "min_rows": pattern.min_rows,
-                "description": getattr(pattern, 'description', 'No description available'),
-                "pattern_type": getattr(pattern, 'pattern_type', PatternType.BULLISH_REVERSAL),
-                "strength": getattr(pattern, 'strength', PatternStrength.MODERATE)
-            }
+        Returns:
+            List of PatternResult objects for detected patterns
+        """
+        return self.detect_patterns(df, pattern_names=pattern_names, parallel=parallel)
     
     @validate_dataframe
     @performance_monitor
@@ -504,6 +527,7 @@ class HammerPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.MODERATE
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         """
         Detect Hammer pattern with confidence scoring.
@@ -561,15 +585,16 @@ class BullishEngulfingPattern(PatternDetector):
     @property
     def min_rows(self) -> int:
         return 2
-    
+        
     @property
     def pattern_type(self) -> PatternType:
         return PatternType.BULLISH_REVERSAL
-    
+
     @property
     def strength(self) -> PatternStrength:
         return PatternStrength.STRONG
-    
+
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         """Detect Bullish Engulfing pattern with confidence scoring."""
         prev, last = df.iloc[-2], df.iloc[-1]
@@ -619,11 +644,12 @@ class MorningStarPattern(PatternDetector):
     @property
     def pattern_type(self) -> PatternType:
         return PatternType.BULLISH_REVERSAL
-    
+
     @property
     def strength(self) -> PatternStrength:
-        return PatternStrength.VERY_STRONG
-    
+        return PatternStrength.STRONG
+
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         """Detect Morning Star pattern."""
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
@@ -661,6 +687,8 @@ class MorningStarPattern(PatternDetector):
         )
 
 class PiercingPatternDetector(PatternDetector):
+    """Piercing pattern detector."""
+    
     @property
     def name(self) -> str:
         return "Piercing Pattern"
@@ -672,11 +700,12 @@ class PiercingPatternDetector(PatternDetector):
     @property
     def pattern_type(self) -> PatternType:
         return PatternType.BULLISH_REVERSAL
-    
+
     @property
     def strength(self) -> PatternStrength:
         return PatternStrength.MODERATE
-    
+
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         prev, last = df.iloc[-2], df.iloc[-1]
         midpoint = (prev.open + prev.close) / 2
@@ -701,6 +730,8 @@ class PiercingPatternDetector(PatternDetector):
         )
 
 class BullishHaramiPattern(PatternDetector):
+    """Bullish Harami pattern detector."""
+    
     @property
     def name(self) -> str:
         return "Bullish Harami"
@@ -712,11 +743,12 @@ class BullishHaramiPattern(PatternDetector):
     @property
     def pattern_type(self) -> PatternType:
         return PatternType.BULLISH_REVERSAL
-    
+
     @property
     def strength(self) -> PatternStrength:
         return PatternStrength.MODERATE
-    
+
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         prev, last = df.iloc[-2], df.iloc[-1]
         
@@ -740,6 +772,8 @@ class BullishHaramiPattern(PatternDetector):
         )
 
 class ThreeWhiteSoldiersPattern(PatternDetector):
+    """Three White Soldiers pattern detector."""
+    
     @property
     def name(self) -> str:
         return "Three White Soldiers"
@@ -751,11 +785,12 @@ class ThreeWhiteSoldiersPattern(PatternDetector):
     @property
     def pattern_type(self) -> PatternType:
         return PatternType.BULLISH_REVERSAL
-    
+
     @property
     def strength(self) -> PatternStrength:
         return PatternStrength.STRONG
-    
+
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         detected = (
@@ -799,14 +834,43 @@ class InvertedHammerPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.MODERATE
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
+        """
+        Detect Inverted Hammer pattern with confidence scoring.
+        
+        The Inverted Hammer is a bullish reversal pattern with:
+        - Small body at the bottom
+        - Long upper shadow (>= 2x body size)
+        - Little to no lower shadow
+        """
         row = df.iloc[-1]
+        
         body = abs(row.close - row.open)
         upper_wick = row.high - max(row.open, row.close)
         lower_wick = min(row.open, row.close) - row.low
         
-        detected = body > 0 and (upper_wick > 2 * body) and (lower_wick < body)
-        confidence = 0.6 if detected else 0.0
+        if body == 0:  # Avoid division by zero
+            confidence = 0.0
+            detected = False
+        else:
+            # Calculate confidence based on pattern quality
+            upper_wick_ratio = upper_wick / body if body > 0 else 0
+            lower_wick_ratio = lower_wick / body if body > 0 else 0
+            
+            # Core pattern requirements
+            has_long_upper_wick = upper_wick_ratio >= 2.0
+            has_small_lower_wick = lower_wick_ratio <= 1.0
+            
+            detected = has_long_upper_wick and has_small_lower_wick
+            
+            if detected:
+                # Calculate confidence (0.5 to 1.0 for valid patterns)
+                wick_quality = min(upper_wick_ratio / 3.0, 1.0)  # Normalize to max 1.0
+                shadow_quality = max(0.0, 1.0 - lower_wick_ratio)
+                confidence = 0.5 + 0.5 * (wick_quality * 0.7 + shadow_quality * 0.3)
+            else:
+                confidence = 0.0
         
         return PatternResult(
             name=self.name,
@@ -835,6 +899,7 @@ class DojiPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.MODERATE
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         row = df.iloc[-1]
         detected = abs(row.open - row.close) <= (row.high - row.low) * 0.1
@@ -868,6 +933,7 @@ class MorningDojiStarPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.VERY_STRONG
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         second_open_close_diff = abs(second.open - second.close)
@@ -909,6 +975,7 @@ class BullishAbandonedBabyPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.VERY_STRONG
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         
@@ -948,6 +1015,7 @@ class BullishBeltHoldPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.MODERATE
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         row = df.iloc[-1]
         
@@ -986,6 +1054,7 @@ class ThreeInsideUpPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.STRONG
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         
@@ -1020,12 +1089,13 @@ class RisingWindowPattern(PatternDetector):
     
     @property
     def pattern_type(self) -> PatternType:
-        return PatternType.CONTINUATION
+        return PatternType.CONTINUATION # Bullish continuation
     
     @property
     def strength(self) -> PatternStrength:
         return PatternStrength.MODERATE
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         prev, last = df.iloc[-2], df.iloc[-1]
         detected = prev.high < last.low
@@ -1059,6 +1129,7 @@ class BearishEngulfingPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.STRONG
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         prev, last = df.iloc[-2], df.iloc[-1]
         
@@ -1098,6 +1169,7 @@ class EveningStarPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.VERY_STRONG
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         
@@ -1137,6 +1209,7 @@ class ThreeBlackCrowsPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.STRONG
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
         detected = (
@@ -1180,6 +1253,7 @@ class BearishHaramiPattern(PatternDetector):
     def strength(self) -> PatternStrength:
         return PatternStrength.MODERATE
     
+    @validate_dataframe
     def detect(self, df: pd.DataFrame) -> PatternResult:
         prev, last = df.iloc[-2], df.iloc[-1]
         

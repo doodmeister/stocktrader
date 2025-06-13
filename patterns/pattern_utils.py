@@ -31,7 +31,10 @@ from patterns.patterns import (
     CandlestickPatterns, 
     create_pattern_detector,
     PatternDetectionError,
-    DataValidationError
+    DataValidationError,
+    PatternDetector, # Added import
+    PatternType,     # Added import for type hint if needed later
+    PatternStrength  # Added import for type hint if needed later
 )
 from utils.logger import setup_logger
 
@@ -508,11 +511,30 @@ def get_cache_stats() -> Dict[str, Any]:
 def get_pattern_info(pattern_name: str) -> Dict[str, Any]:
     """Get pattern information - wrapper for new system."""
     try:
-        detector = create_pattern_detector()
-        return detector.get_pattern_info(pattern_name)
+        patterns_instance = create_pattern_detector() # CandlestickPatterns instance
+        detector: Optional[PatternDetector] = patterns_instance.get_detector_by_name(pattern_name) # Explicit type hint
+        if detector is None:
+            raise PatternUtilsError(f"Pattern detector '{pattern_name}' not found.", error_code="DETECTOR_NOT_FOUND")
+
+        description = inspect.getdoc(detector.detect)
+
+        # Ensure detector is not None before accessing attributes (already handled by the check above)
+        # but this reinforces for the type checker
+        if not isinstance(detector, PatternDetector): 
+            # This case should ideally not be reached if the above check is sufficient
+            # and get_detector_by_name returns PatternDetector or None
+            raise PatternUtilsError(f"Invalid detector type for '{pattern_name}'.", error_code="INVALID_DETECTOR_TYPE")
+
+        return {
+            "name": detector.name,
+            "pattern_type": detector.pattern_type,
+            "strength": detector.strength,
+            "min_rows": detector.min_rows,
+            "description": description or "No description available."
+        }
     except Exception as e:
         logger.error(f"Failed to get pattern info for {pattern_name}: {e}")
-        return {"error": str(e)}
+        return {"error": str(e), "name": pattern_name}
 
 @validate_dataframe_input
 @performance_monitor("vectorized_pattern_detection")
@@ -579,7 +601,6 @@ __all__ = [
     'read_patterns_file', 
     'write_patterns_file',
     'get_pattern_names',
-    'get_pattern_method',  # Deprecated but maintained for compatibility
     'get_pattern_source_and_doc',
     'validate_python_code',
     'add_candlestick_pattern_features',  # Main function - completely rewritten

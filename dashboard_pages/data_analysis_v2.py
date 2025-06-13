@@ -27,6 +27,7 @@ from core.indicators.macd import calculate_macd
 from core.indicators.bollinger_bands import calculate_bollinger_bands
 from core.technical_indicators import calculate_sma, calculate_ema
 from patterns.patterns import create_pattern_detector, PatternResult
+from patterns.pattern_utils import get_pattern_info
 
 
 logger = get_dashboard_logger('data_analysis_v2_dashboard')
@@ -482,7 +483,7 @@ def display_candlestick_patterns(df: pd.DataFrame):
             df_reset = df.reset_index(drop=True)
             current_detected_patterns = []
             for pattern_name in selected_patterns:
-                min_rows = patterns_detector.get_pattern_info(pattern_name).get('min_rows', 1)
+                min_rows = get_pattern_info(pattern_name).get('min_rows', 1)
                 for i in range(min_rows - 1, len(df_reset)):
                     window = df_reset.iloc[i - min_rows + 1:i + 1]
                     detection_results = patterns_detector.detect_patterns(window, pattern_names=[pattern_name])

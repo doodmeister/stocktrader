@@ -92,6 +92,58 @@ logger = get_dashboard_logger(__name__)
 # Initialize SessionManager for this page
 session_manager = SessionManager(namespace_prefix="realtime_dashboard")
 
+
+def _init_realtime_dashboard_state():
+    """
+    Initialize session state for the realtime dashboard page.
+    Uses SessionManager.has_navigated_to_page() to determine if page-specific state
+    should be cleared when navigating to this page.
+    """
+    is_new_page_navigation = session_manager.has_navigated_to_page()
+
+    if is_new_page_navigation:
+        logger.info(
+            f"RealtimeDashboard: Navigation to page detected by SessionManager for namespace '{session_manager.namespace}'. "
+            f"Clearing additional page-specific state."
+        )
+        # Clear non-namespaced keys that should be reset on page navigation
+        non_namespaced_keys_to_clear = [
+            'realtime_dashboard_analysis_data',
+            'detected_patterns',
+            'last_update',
+            'error_count'
+        ]
+        for k in non_namespaced_keys_to_clear:
+            if k in st.session_state:
+                del st.session_state[k]
+                logger.debug(f"Cleared non-namespaced key: {k}")
+    else:
+        logger.info(
+            f"RealtimeDashboard: In-page rerun for namespace '{session_manager.namespace}'. Not clearing state."
+        )
+
+    # Define page-specific state managed by SessionManager
+    page_state_definitions = {
+        'show_debug_info': False,
+        'show_form_debug': False,
+        'form_submitted': False,
+        'ticker_symbol': 'ADBE',
+        'time_period': VALID_TIME_PERIODS[0],
+        'chart_type': VALID_CHART_TYPES[0],
+        'selected_indicators': [],
+        'selected_patterns': []
+    }
+
+    for key_suffix, default_value in page_state_definitions.items():
+        _unique_sentinel = object()
+        current_value = session_manager.get_page_state(key_suffix, _unique_sentinel)
+        if is_new_page_navigation or current_value is _unique_sentinel:
+            session_manager.set_page_state(key_suffix, default_value)
+            logger.debug(f"SM state '{key_suffix}' set to default '{default_value}'")
+
+# Initialize state
+_init_realtime_dashboard_state()
+
 class DataProcessor:
     """Handles stock data processing and validation."""
     
@@ -784,7 +836,7 @@ def render_sidebar_prices():
     st.session_state['sidebar_price_cache'] = sidebar_cache
 
 
-def render_main_dashboard(): # Removed session_manager argument
+def render_main_dashboard():
     """Render the main dashboard content."""
     # Initialize components
     processor = DataProcessor()
@@ -796,66 +848,82 @@ def render_main_dashboard(): # Removed session_manager argument
     
     # Initialize session state
     state_manager.initialize_session_state()
-      # Move form to sidebar with SessionManager for proper placement and key management
-    with session_manager.form_container("chart_parameters_form", location="sidebar"): # Use global session_manager
+    
+    # Use SessionManager form container for sidebar form
+    with session_manager.form_container("chart_params", location="sidebar", clear_on_submit=False):
         st.header('Chart Parameters')
-        ticker = session_manager.create_text_input( # Use global session_manager
-            'Ticker',
-            value='ADBE',
-            text_input_name='ticker_input'
+        
+        # Use SessionManager for all form widgets
+        ticker = session_manager.create_text_input(
+            'Ticker', 
+            value=session_manager.get_page_state('ticker_symbol', 'ADBE'),
+            text_input_name="ticker_input"
         ).upper().strip()
-        time_period = session_manager.create_selectbox( # Use global session_manager
-            'Time Period',
+        
+        time_period = session_manager.create_selectbox(
+            'Time Period', 
             options=VALID_TIME_PERIODS,
-            selectbox_name='time_period_select'
+            selectbox_name="time_period_select",
+            index=VALID_TIME_PERIODS.index(session_manager.get_page_state('time_period', VALID_TIME_PERIODS[0]))
         )
-        chart_type = session_manager.create_selectbox( # Use global session_manager
-            'Chart Type',
+        
+        chart_type = session_manager.create_selectbox(
+            'Chart Type', 
             options=VALID_CHART_TYPES,
-            selectbox_name='chart_type_select'
+            selectbox_name="chart_type_select",
+            index=VALID_CHART_TYPES.index(session_manager.get_page_state('chart_type', VALID_CHART_TYPES[0]))
         )
-        indicators = session_manager.create_multiselect( # Use global session_manager
-            'Technical Indicators',
+        
+        indicators = session_manager.create_multiselect(
+            'Technical Indicators', 
             options=VALID_INDICATORS,
-            multiselect_name='indicators_select'
+            multiselect_name="indicators_select",
+            default=session_manager.get_page_state('selected_indicators', [])
         )
-          # Pattern selection - fix: create instance of CandlestickPatterns
+        
+        # Pattern selection - create instance of CandlestickPatterns
         try:
             patterns_instance = CandlestickPatterns()
             pattern_names = patterns_instance.get_pattern_names()
-            selected_patterns = session_manager.create_multiselect( # Use global session_manager
+            default_patterns = pattern_names[:6] if len(pattern_names) >= 6 else pattern_names
+            selected_patterns = session_manager.create_multiselect(
                 "Patterns to scan for",
                 options=pattern_names,
-                default=pattern_names[:6] if len(pattern_names) >= 6 else pattern_names,
-                multiselect_name="patterns_select"
+                multiselect_name="patterns_select",
+                default=session_manager.get_page_state('selected_patterns', default_patterns)
             )
         except Exception as e:
             st.error(f"Error loading patterns: {e}")
             selected_patterns = []
-            
-        # Use SessionManager for button creation to prevent conflicts
+        
+        # Use st.form_submit_button for forms (SessionManager create_button doesn't work in forms)
         submitted = st.form_submit_button("Update")
-      # Debug information for troubleshooting
-    with st.sidebar:
-        if session_manager.create_checkbox("Show Form Debug", "form_debug", value=False): # Use global session_manager
-            st.write(f"Form submitted: {submitted}")
-            st.write(f"Ticker: {ticker if 'ticker' in locals() else 'Not set'}")
-            st.write(f"Time period: {time_period if 'time_period' in locals() else 'Not set'}")
-    # Main content area
-    analysis_data = None  # Track if we have analysis data
     
-    if submitted and ticker:
+    # Update session state with form values if submitted
+    if submitted:
+        session_manager.set_page_state('ticker_symbol', ticker)
+        session_manager.set_page_state('time_period', time_period)
+        session_manager.set_page_state('chart_type', chart_type)
+        session_manager.set_page_state('selected_indicators', indicators)
+        session_manager.set_page_state('selected_patterns', selected_patterns)
+        session_manager.set_page_state('form_submitted', True)
+    
+    # Get current values from session state for processing
+    ticker = session_manager.get_page_state('ticker_symbol', 'ADBE')
+    time_period = session_manager.get_page_state('time_period', VALID_TIME_PERIODS[0])
+    chart_type = session_manager.get_page_state('chart_type', VALID_CHART_TYPES[0])
+    indicators = session_manager.get_page_state('selected_indicators', [])    
+    # Main content area - Process data based on current state
+    if session_manager.get_page_state('form_submitted', False) and ticker:
         try:
             st.success(f"Processing request for {ticker} ({time_period})...")
             with st.spinner(f"Loading data for {ticker}..."):
                 # Fetch and process data
-                # Ensure time_period is not None before using it in INTERVAL_MAPPING.get
-                current_time_period = time_period if time_period is not None else VALID_TIME_PERIODS[0] # Default to first valid period
-                interval = INTERVAL_MAPPING.get(current_time_period, '1d')
-                raw_data = processor.fetch_stock_data(ticker, current_time_period, interval)
+                interval = INTERVAL_MAPPING.get(time_period, '1d')
+                raw_data = processor.fetch_stock_data(ticker, time_period, interval)
                 
                 if raw_data.empty:
-                    st.error(f"No data available for {ticker} in the {current_time_period} period.")
+                    st.error(f"No data available for {ticker} in the {time_period} period.")
                     return
                     
                 data = processor.process_data(raw_data)
@@ -913,7 +981,7 @@ def render_main_dashboard(): # Removed session_manager argument
                     'time_period': current_display_time_period, # Use the potentially defaulted time_period
                     'detected_patterns': detected_patterns
                 }
-                session_manager.set_page_state('realtime_dashboard_analysis_data', analysis_data)
+                st.session_state['realtime_dashboard_analysis_data'] = analysis_data
                 
         except Exception as e:            # Use centralized error handling
             handle_streamlit_error(e, f"processing {ticker}")
@@ -944,17 +1012,16 @@ def render_main_dashboard(): # Removed session_manager argument
 
     # AI Analysis Section
     st.subheader("AI-Powered Analysis")
-    
-    # Use SessionManager for button creation to prevent key conflicts
+      # Use SessionManager for button creation to prevent key conflicts
     col1, col2 = st.columns([3, 1])
     with col2:
-        if session_manager.create_button("🗑️ Clear Data", "clear_data", help="Clear cached analysis data"): # Use global session_manager
-            session_manager.set_page_state('realtime_dashboard_analysis_data', None)
+        if session_manager.create_button("🗑️ Clear Data", button_name="clear_data_btn", help="Clear cached analysis data"):
+            st.session_state['realtime_dashboard_analysis_data'] = None
             st.rerun()
     
     # Get analysis data - either from current execution or session state
     if 'analysis_data' not in locals() or analysis_data is None:
-        analysis_data = session_manager.get_page_state('realtime_dashboard_analysis_data', None)
+        analysis_data = st.session_state.get('realtime_dashboard_analysis_data', None)
     
     # Generate summary only if we have analysis data
     if analysis_data:
@@ -967,9 +1034,8 @@ def render_main_dashboard(): # Removed session_manager argument
         summary_text = "No analysis data available. Please submit the form above to load stock data."
     
     st.text_area("Copyable Analysis Summary", summary_text, height=200)
-    
-    # AI Insight button - use SessionManager
-    if session_manager.create_button("Get ChatGPT Insight", "chatgpt_insight"): # Use global session_manager
+      # AI Insight button - use SessionManager
+    if session_manager.create_button("Get ChatGPT Insight", button_name="chatgpt_insight_btn"):
         if not analysis_data:
             st.warning("Please submit the form first to generate analysis data.")
         else:
@@ -981,9 +1047,7 @@ def render_main_dashboard(): # Removed session_manager argument
 
 def main():
     """Main dashboard function."""
-    try:        # Create SessionManager for this function scope
-        # session_manager = create_session_manager("realtime_dashboard") # Removed, use global
-        
+    try:
         # Only setup page if we're not being loaded by the main dashboard
         # The main dashboard handles page configuration
         if '__main__' in str(globals().get('__name__', '')):
@@ -992,34 +1056,42 @@ def main():
                 logger_name=__name__,
                 sidebar_title="Dashboard Controls"
             )
-        else:            # When loaded by main dashboard, just set the title
+        else:
+            # When loaded by main dashboard, just set the title
             st.title('📊 Real-Time Stock Dashboard')
-          # Render main dashboard with shared session manager
-        render_main_dashboard() # Removed session_manager argument
         
-        # Render sidebar content - temporarily disabled due to rate limiting
-        # render_sidebar_prices()
+        # Render main dashboard content
+        render_main_dashboard()
         
         # Sidebar information
         st.sidebar.subheader('About')
         st.sidebar.info(
             'This dashboard provides stock data and technical indicators for various time periods. '
             'Use the sidebar to customize your view and get AI-powered insights.'
-        )        # Display debug info in development
+        )
+        
+        # Display debug info using SessionManager
         with st.sidebar:
-            if session_manager.create_checkbox("Show Debug Info", "debug_info", value=False): # Use global session_manager
-                st.subheader("Debug Information")
+            show_debug = session_manager.create_checkbox(
+                "Show Debug Info",
+                checkbox_name="debug_info_checkbox",
+                value=session_manager.get_page_state('show_debug_info', False)
+            )
+            session_manager.set_page_state('show_debug_info', show_debug)
+            
+            if show_debug:
+                session_manager.debug_session_state()
+                st.subheader("Additional Debug Info")
                 st.json({
-                    "Session State Keys": list(st.session_state.keys()),
                     "Error Count": st.session_state.get('error_count', 0),
-                    "Last Update": str(st.session_state.get('last_update', 'Never'))
+                    "Last Update": str(st.session_state.get('last_update', 'Never')),
+                    "Form Submitted": session_manager.get_page_state('form_submitted', False)
                 })
-          # Show SessionManager debug info to help troubleshoot conflicts
-        session_manager.debug_session_state() # Use global session_manager
             
     except Exception as e:
         st.error(f"Critical dashboard error: {e}")
         logger.critical(f"Critical dashboard error: {e}\n{traceback.format_exc()}")
+
 
 class RealtimeDashboard:
     def __init__(self):

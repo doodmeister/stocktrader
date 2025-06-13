@@ -5,6 +5,7 @@ Tests all four core functionalities without Streamlit dependencies.
 """
 
 import sys
+import inspect # Added inspect import
 from pathlib import Path
 
 # Add the project root to the Python path
@@ -18,7 +19,8 @@ def test_core_functionality():
     
     # Test 1: Pattern Utils Import
     try:
-        from patterns.pattern_utils import get_pattern_names, get_pattern_method, read_patterns_file
+        from patterns.pattern_utils import get_pattern_names, read_patterns_file # Removed get_pattern_method
+        from patterns.patterns import CandlestickPatterns # Added CandlestickPatterns
         print("✅ Successfully imported pattern utilities")
     except Exception as e:
         print(f"❌ Failed to import pattern utilities: {e}")
@@ -37,14 +39,17 @@ def test_core_functionality():
     # Test 3: Test Pattern Methods
     try:
         if pattern_names:
-            first_pattern = pattern_names[0]
-            method = get_pattern_method(first_pattern)
-            if method:
-                print(f"✅ Successfully retrieved method for '{first_pattern}'")
-                doc = method.__doc__ or "No documentation"
-                print(f"   Description: {doc[:100]}...")
+            first_pattern_name = pattern_names[0]
+            # Use CandlestickPatterns to get detector instance
+            pattern_engine = CandlestickPatterns()
+            detector = pattern_engine.get_detector_by_name(first_pattern_name)
+            if detector:
+                print(f"✅ Successfully retrieved detector for '{first_pattern_name}'")
+                # Access description from detector or its detect method's docstring
+                description = inspect.getdoc(detector.detect) or "No documentation"
+                print(f"   Description: {description[:100]}...")
             else:
-                print(f"⚠️  No method found for '{first_pattern}'")
+                print(f"⚠️  No detector found for '{first_pattern_name}'")
     except Exception as e:
         print(f"❌ Failed to get pattern method: {e}")
         return False
@@ -69,18 +74,23 @@ def test_core_functionality():
         
         # Simulate the core functionality
         pattern_data = []
+        pattern_engine = CandlestickPatterns() # Instantiate once
         for name in pattern_names[:5]:  # Test first 5 patterns
-            method = get_pattern_method(name)
+            detector = pattern_engine.get_detector_by_name(name)
+            description = "No description"
+            if detector:
+                description = inspect.getdoc(detector.detect) or "No description"
+
             pattern_info = {
                 'name': name,
-                'description': method.__doc__ if method else 'No description',
-                'has_method': method is not None
+                'description': description,
+                'has_detector': detector is not None
             }
             pattern_data.append(pattern_info)
         
         print(f"✅ Successfully processed {len(pattern_data)} patterns")
         for p in pattern_data:
-            print(f"   - {p['name']}: {'✓' if p['has_method'] else '✗'}")
+            print(f"   - {p['name']}: {'✓' if p['has_detector'] else '✗'}")
             
     except Exception as e:
         print(f"❌ Failed to process patterns: {e}")
