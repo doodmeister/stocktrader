@@ -23,9 +23,7 @@ applyTo: '**'
 - **Wait at least 30-60 seconds for package installation commands (pip install) to complete**
 - **Wait at least 10-15 seconds for Python import commands to complete**
 - **Python module imports (especially Streamlit, pandas, plotly) can take 5-10 seconds to load**
-- **Always check current working directory with `pwd` before executing commands**
 - **Use `cd /c/dev/stocktrader` to ensure correct project directory**
-- **For long-running processes, provide status updates or progress indicators when possible**
 - **Handle file path separators correctly for Windows (use forward slashes in GitBash)**
 - **Escape spaces in file paths or use quotes when necessary**
 
@@ -174,116 +172,43 @@ stocktrader/
 ## Security & Best Practices
 - **Security Functionality**: Use `core/security.py` for security-related functions
 - **Sensitive Data**: Never hard-code sensitive data; use environment variables
+# Streamlit Dashboard Session State & Widget Key Standards
 
-## Streamlit Dashboard Development Standards
+**ALWAYS USE `SessionManager` FOR ALL WIDGET AND SESSION STATE MANAGEMENT.**
 
-### Widget Key Management (CRITICAL)
-- **Unique Keys**: All Streamlit widgets MUST use unique keys to prevent "duplicate element" errors
-- **Key Naming Convention**: Use descriptive, namespaced keys: `"{component}_{function}_{widget_type}"""
-- **Examples**: 
-  - ✅ Good: `"patterns_viewer_main_select"`, `"data_dashboard_symbol_input"`
-  - ❌ Bad: `"select"`, `"input"`, `"button"`
+---
 
-### Session State Best Practices
-- **SessionManager Usage**: Prefer `core.session_manager.SessionManager` for widget creation when available
-- **Defensive Cleanup**: Clear conflicting session state keys when fixing duplicate key errors:
+## Key Guidelines
+
+- **All widget keys must be unique and namespaced by page and tab.**
+  - Use `SessionManager(page_name, tab=...)` for widget creation.
+  - Never reuse SessionManager or keys across tabs or pages.
+
+- **Key Format:**  
+  `"{namespace}_{tab}_{widget_type}_{name}"`
+  - _Example:_ `data_analysis_v2_tab1_selectbox_symbol`
+
+- **For tabs:**  
+  - Always instantiate `SessionManager` **inside** each tab block with a unique `tab` argument.
+
+- **Initialize state on page load:**  
+  - Use an `_init_*_state()` function per page.
+  - Use a page-specific flag to clear state only on first load.
+---
+## Anti-patterns to avoid
+
+- ❌ Using generic, repeated, or global widget keys.
+- ❌ Setting keys directly in `st.session_state`.
+- ❌ Clearing all of `st.session_state` except for explicit user resets.
+---
+## Defensive Cleanup
+
+- Clear only conflicting keys, not all state:
   ```python
-  # Clear any conflicting keys from session state to prevent duplicates
   if "old_conflicting_key" in st.session_state:
       del st.session_state["old_conflicting_key"]
   ```
-- **Initialization**: Always initialize session state with default values
-- **Persistence**: Use session state for values that should persist across reruns
+- Use SessionManager’s debug tools for troubleshooting key/state issues.
 
-### Streamlit Tabs & Widget Key Management
-- **Tab Context**: When using Streamlit's `st.tabs`, always ensure widget keys are unique per tab. Streamlit executes the entire script on every interaction, but only renders the widgets inside the active tab. If the same widget key is created in multiple tabs (or both inside and outside tab blocks), Streamlit will raise a duplicate key error—even if only one is visible.
-- **SessionManager Tab Support**: Use the `tab` argument in `SessionManager` to namespace widget keys per tab:
-  ```python
-  from core.session_manager import SessionManager
-  tab1, tab2 = st.tabs(["Tab 1", "Tab 2"])
-  with tab1:
-      sm = SessionManager(page_name="patterns_management", tab="tab1")
-      # All widgets in Tab 1 use unique keys
-  with tab2:
-      sm = SessionManager(page_name="patterns_management", tab="tab2")
-      # All widgets in Tab 2 use unique keys
-  ```
-- **Never reuse the same SessionManager instance or widget key across tabs.**
-- **Widget Key Pattern**: All keys should be namespaced by page and tab (if present): `"{page}_{tab}_{component}_{function}_{widget_type}"`.
-- **Common Pitfall**: Creating widgets with the same key in more than one tab, or both inside and outside tab blocks, will cause duplicate key errors.
-
-### Widget Key Patterns by Component
-```python
-# Dashboard pages should namespace their keys
-"data_dashboard_symbol_input"
-"patterns_viewer_main_select" 
-"model_training_algorithm_select"
-
-# Dynamic keys for loops (catalog, grids, etc.)
-f"catalog_view_details_{i}_{j}"
-f"pattern_export_{pattern_name}"
-
-# Download buttons and actions
-"download_json", "download_csv", "save_source"
-```
-
-### Common Anti-Patterns to Avoid
-- ❌ Using the same key across multiple components/tabs
-- ❌ Setting widget keys programmatically in session state (creates conflicts)
-- ❌ Generic keys like "select", "button", "input"
-- ❌ Reusing keys from deprecated/backup files
-
-### Session Manager Integration
-```python
-# Use SessionManager when available for consistent key management
-from core.session_manager import SessionManager
-
-session_manager = SessionManager()
-
-# Preferred approach for widget creation
-selected_value = session_manager.create_selectbox(
-    "Label Text",
-    options=options_list,
-    selectbox_name="unique_component_name"  # Auto-generates safe key
-)
-```
-
-### Debugging Widget Key Issues
-1. **Error Pattern**: `"There are multiple elements with the same key='...'`
-2. **Solution Steps**:
-   - Identify the duplicate key in error message
-   - Find all usages with `grep -r "key_name" dashboard_pages/`
-   - Rename to unique, descriptive key
-   - Add defensive session state cleanup if needed
-   - Test with `python test_streamlit_patterns.py`
-
-Recommendations for Robust Session State Management
-  a. Always Use a Single, Shared st.session_state
-Ensure that all dashboard pages, regardless of how they are loaded, reference the same st.session_state object.
-Avoid creating new session state dicts or passing copies between modules.
-b. Defensive, Intent-Based State Cleanup
-Only clear or reset session state keys in response to explicit user actions (e.g., new file upload, logout).
-Never clear state on page navigation, rerun, or error unless absolutely necessary.
-Use defensive cleanup: before setting a key, delete only conflicting keys, not the entire state.
-c. Consistent, Namespaced Key Patterns
-Use the SessionManager to generate all widget keys, with full namespacing: "{page}_{tab}_{component}_{function}_{widget_type}".
-Never reuse keys across pages, tabs, or components.
-d. Page/Tab-Specific State Isolation
-When using tabs, always instantiate a new SessionManager per tab, with the tab argument set.
-Never share widget keys or session manager instances across tabs.
-e. Avoid Overuse of st.rerun() and st.session_state.clear()
-Use st.rerun() only when necessary (e.g., after a user action that requires a full UI refresh).
-Never call st.session_state.clear() except for explicit user-triggered resets (e.g., logout, new file upload).
-f. Centralize State Initialization
-On each page load, initialize all required session state keys with default values if not present.
-Use a utility function or the SessionManager to handle this consistently.
-g. Document and Audit State Transitions
-Add comments and documentation to clarify when and why state is cleared or set.
-Regularly audit the codebase for accidental state resets or key conflicts.
-Each page (e.g., data_analysis_v2.py, patterns_management.py, etc.):
-
-Should call its own _init_*_state() function at the very top of the script.
-
-That function should check a page-specific flag (e.g., 'data_analysis_v2_first_load_done') and, if missing, clear only that page's keys, then set the flag.
-
-All in-page reruns (due to widget/button interaction) will see the flag and skip clearing state.
+Reference:
+See core/session_manager.py for implementation details.

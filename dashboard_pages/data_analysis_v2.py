@@ -46,65 +46,102 @@ def _init_data_analysis_v2_state():
     """
     Initialize session state for the data analysis v2 page.
     
-    This function follows the copilot-instructions.md pattern for pages that only run from main.py:
-    - Only clears state on first page load (not on widget interactions or page navigation)
-    - Uses page-specific flag to detect first load of this specific page
-    - Clears only relevant keys for this page to avoid conflicts
-    - Sets defaults for all required keys to ensure consistent state
-    
-    Since this page only runs from main.py via PageLoader.exec(), we have a proper 
-    Streamlit context and can rely on st.session_state being available.
+    Uses SessionManager.has_navigated_to_page() to determine if page-specific state
+    (non-namespaced keys like 'uploaded_dataframe') should be cleared.
+    SessionManager handles its own namespaced keys (clears them on navigation).
+    This function ensures all necessary keys (namespaced and non-namespaced) have defaults.
+    State is preserved during in-page reruns unless explicitly cleared by navigation or specific logic.
     """
-    # Use the SessionManager's namespace for consistency with the overall architecture
-    namespace = session_manager.namespace
-    first_load_key = f'{namespace}_first_load_done'
-    
-    # Check if this is the first time loading this specific page in this session
-    if not st.session_state.get(first_load_key, False):        # Remove only keys relevant to this page on first load
-        # This ensures clean state when navigating to this page for the first time
-        keys_to_clear = [
+    is_new_page_navigation = session_manager.has_navigated_to_page()
+
+    if is_new_page_navigation:
+        logger.info(
+            f"Data Analysis V2: Navigation to page detected by SessionManager for namespace '{session_manager.namespace}'. "
+            f"Clearing additional page-specific (non-namespaced) state."
+        )
+        # These are keys not automatically managed by SessionManager's namespace clearing
+        # because they are not prefixed with the namespace.
+        non_namespaced_keys_to_clear = [
             'uploaded_dataframe',
             'uploaded_file_name',
+            'validation_result',
+            'data_analysis_v2_last_file_id'  # Important for new file upload detection
+        ]
+        
+        # One-time cleanup for potentially old non-namespaced keys that are now namespaced.
+        # This helps transition if old versions of these keys exist without SM prefix.
+        legacy_keys_to_check_and_clear = [
             'data_analysis_v2_detected_patterns',
             'data_analysis_v2_summary',
             'data_analysis_v2_gpt_response',
             'data_analysis_v2_pattern_detection_attempted',
-            'data_analysis_v2_new_file_uploaded_this_run',
             'data_analysis_v2_send_to_gpt_requested',
             'data_analysis_v2_summary_for_gpt',
-            'validation_result',
         ]
-        
-        # Clear old state for this page
-        for k in keys_to_clear:
+        non_namespaced_keys_to_clear.extend(legacy_keys_to_check_and_clear)
+
+        for k in non_namespaced_keys_to_clear:
             if k in st.session_state:
                 del st.session_state[k]
-        
-        # Set the flag to prevent clearing on subsequent reruns or widget interactions
-        st.session_state[first_load_key] = True
-        logger.info("Data Analysis V2: Cleared page-specific session state on first page load")    # Set defaults for all required keys if not present
-    # This runs on every page load to ensure consistent state structure
-    defaults = {
-        'data_analysis_v2_detected_patterns': [],
-        'data_analysis_v2_summary': '',
-        'data_analysis_v2_gpt_response': '',
-        'data_analysis_v2_pattern_detection_attempted': False,
-        'data_analysis_v2_new_file_uploaded_this_run': False,
-        'data_analysis_v2_send_to_gpt_requested': False,  # Only set to False if not already True
-        'data_analysis_v2_summary_for_gpt': '',        'validation_result': None,
+                logger.debug(f"Cleared non-namespaced/legacy key: {k}")
+    else:
+        logger.info(
+            f"Data Analysis V2: In-page rerun for namespace '{session_manager.namespace}'. Not clearing non-namespaced state."
+        )
+
+    # Define non-namespaced state and their defaults
+    non_namespaced_defaults = {
+        'validation_result': None,
+        # 'uploaded_dataframe', 'uploaded_file_name', 'data_analysis_v2_last_file_id' are set by file upload logic
+        # or cleared on navigation. No explicit default needed here if their absence is handled.
     }
-    
-    for k, v in defaults.items():
-        # Special handling for the ChatGPT request flag - don't overwrite if it's True
-        if k == 'data_analysis_v2_send_to_gpt_requested':
-            current_value = st.session_state.get(k, None)
-            if k not in st.session_state:
-                logger.info(f"Setting {k} to default value {v} (key not present)")
-                st.session_state[k] = v
-            else:
-                logger.info(f"Preserving existing value for {k}: {current_value}")
-        elif k not in st.session_state:
+    for k, v in non_namespaced_defaults.items():
+        if k not in st.session_state: # Initialize if missing (e.g. first ever run)
             st.session_state[k] = v
+            logger.debug(f"Defaulted non-namespaced key '{k}' to {v}")
+
+    # Define page-specific state (managed by SessionManager) and their defaults
+    # SessionManager already clears these on new page navigation.
+    # This loop ensures they are set to a default if they become unset for any other reason,
+    # or on the very first run for that key after SM has processed the navigation.
+    page_state_definitions = { # key_suffix: default_value
+        'detected_patterns': [],
+        'summary': '',
+        'gpt_response': '',
+        'pattern_detection_attempted': False,
+        'new_file_uploaded_this_run': False, 
+        'send_to_gpt_requested': False,
+        'summary_for_gpt': '',
+    }
+
+    for key_suffix, default_value in page_state_definitions.items():
+        _unique_sentinel = object() # To differentiate between a stored None and a missing key
+        current_sm_value = session_manager.get_page_state(key_suffix, _unique_sentinel)
+
+        # Special handling for 'send_to_gpt_requested'
+        if key_suffix == 'send_to_gpt_requested':
+            if is_new_page_navigation: # SM cleared it, must set to default False
+                session_manager.set_page_state(key_suffix, False)
+                logger.info(f"SM state '{key_suffix}' reset to False on new page entry.")
+            elif current_sm_value is _unique_sentinel: # In-page rerun, but key is missing
+                session_manager.set_page_state(key_suffix, False)
+                logger.info(f"SM state '{key_suffix}' initialized to False (was missing on in-page rerun).")
+            # Else: preserve existing value during in-page rerun. Managed by other logic flows.
+        
+        # Special handling for 'new_file_uploaded_this_run'
+        elif key_suffix == 'new_file_uploaded_this_run':
+            # This is a transient flag, primarily managed by display_uploaded_data().
+            # Ensure it's False if new page or missing.
+            if is_new_page_navigation or current_sm_value is _unique_sentinel:
+                session_manager.set_page_state(key_suffix, False)
+                logger.debug(f"SM state '{key_suffix}' initialized/reset to False.")
+        
+        # For other general SM-managed state keys
+        else:
+            # If new page (SM cleared it) OR key is missing on in-page rerun, set to default.
+            if is_new_page_navigation or current_sm_value is _unique_sentinel:
+                session_manager.set_page_state(key_suffix, default_value)
+                logger.debug(f"SM state '{key_suffix}' set to default '{default_value}' (new page or missing).")
 
 # --- Session state initialization: optimized for page-only execution from main.py ---
 _init_data_analysis_v2_state()
@@ -152,50 +189,57 @@ def normalize_and_validate_ohlc(df: pd.DataFrame) -> Optional[DataFrameValidatio
 def display_uploaded_data():
     """Handle file upload, normalization, and display."""
     # Default to False, set to True only if a new file is successfully processed in this call
-    st.session_state['data_analysis_v2_new_file_uploaded_this_run'] = False
+    # This key is now managed by SessionManager
+    session_manager.set_page_state('new_file_uploaded_this_run', False)
 
     uploaded_file = session_manager.create_file_uploader(
         "Upload Stock Data CSV",
-        file_uploader_name="data_analysis_v2_file_uploader"
+        file_uploader_name="data_analysis_v2_file_uploader" # SM will namespace this key
     )
     
     if uploaded_file is not None:
-        # Check if this is actually a new file or the same file from before
         current_file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+        # 'data_analysis_v2_last_file_id' is a non-namespaced key, managed directly
         previous_file_id = st.session_state.get('data_analysis_v2_last_file_id', '')
         
-        # Only process if this is truly a new file
         if current_file_id != previous_file_id:
             try:
                 df = pd.read_csv(uploaded_file)
-                st.session_state['uploaded_dataframe'] = df # Store raw DataFrame
+                st.session_state['uploaded_dataframe'] = df # Store raw DataFrame (non-namespaced)
                 
-                # New file uploaded, so clear all dependent analysis states from any previous data
-                analysis_keys_to_clear = [
-                    'validation_result',
-                    'data_analysis_v2_detected_patterns',
-                    'data_analysis_v2_summary',
-                    'data_analysis_v2_gpt_response',
-                    'data_analysis_v2_send_to_gpt_requested',
-                    'data_analysis_v2_summary_for_gpt',
-                    'data_analysis_v2_pattern_detection_attempted',
+                # New file uploaded. Clear non-namespaced validation result.
+                st.session_state.pop('validation_result', None)
+                
+                # Clear all SM-managed page-specific analysis states
+                # This is more robust than manually listing keys.
+                # SessionManager's _clear_all_sm_managed_state_for_namespace is too broad as it clears context too.
+                # We need a way to clear specific page state keys registered with SM.
+                # For now, let's list them, assuming they are all under the current SM's namespace.
+                sm_keys_to_clear_on_new_file = [
+                    'detected_patterns',
+                    'summary',
+                    'gpt_response',
+                    'send_to_gpt_requested',
+                    'summary_for_gpt',
+                    'pattern_detection_attempted'
                 ]
-                for key in analysis_keys_to_clear:
-                    st.session_state.pop(key, None)
+                for key_suffix in sm_keys_to_clear_on_new_file:
+                    session_manager.clear_page_state(key_suffix) # Use clear_page_state
+                    logger.debug(f"Cleared SM state '{key_suffix}' due to new file upload.")
 
                 # Signal that a new file was uploaded and processed in THIS run cycle
-                st.session_state['data_analysis_v2_new_file_uploaded_this_run'] = True
+                session_manager.set_page_state('new_file_uploaded_this_run', True)
                 
-                # Store the filename and file ID for tracking
+                # Store the filename and file ID for tracking (non-namespaced)
                 st.session_state['uploaded_file_name'] = uploaded_file.name
                 st.session_state['data_analysis_v2_last_file_id'] = current_file_id
                 st.success("File uploaded successfully. Previous analysis results cleared.")
             except Exception as e:
                 st.error(f"Failed to read uploaded file: {e}")
                 st.session_state.pop('uploaded_dataframe', None) # Clear potentially bad df
-                # data_analysis_v2_new_file_uploaded_this_run remains False
+                # new_file_uploaded_this_run remains False (set at start of function)
     
-    # Display logic
+    # Display logic (uses non-namespaced 'uploaded_dataframe')
     if 'uploaded_dataframe' in st.session_state and st.session_state.get('uploaded_dataframe') is not None:
         df_display = st.session_state['uploaded_dataframe']
         file_name = st.session_state.get('uploaded_file_name', 'Unknown file')
@@ -463,21 +507,21 @@ def display_candlestick_patterns(df: pd.DataFrame):
                             result_dict['index'] = i
                             current_detected_patterns.append(result_dict)
             
-            st.session_state['data_analysis_v2_detected_patterns'] = current_detected_patterns
-            st.session_state['data_analysis_v2_pattern_detection_attempted'] = True
+            session_manager.set_page_state('detected_patterns', current_detected_patterns)
+            session_manager.set_page_state('pattern_detection_attempted', True)
             
             # Generate comprehensive summary: technical indicators + patterns
             tech_summary = get_technical_indicators_summary(df)
             patterns_summary = get_patterns_summary(current_detected_patterns)
-            full_summary = f"{tech_summary}\n\n{patterns_summary}"
-            st.session_state['data_analysis_v2_summary'] = full_summary
+            full_summary = f"{tech_summary}\\n\\n{patterns_summary}"
+            session_manager.set_page_state('summary', full_summary)
             st.success(f"Detected {len(current_detected_patterns)} instances of selected patterns.")
         except Exception as e:
             st.error(f"Pattern detection error: {e}")
-            st.session_state['data_analysis_v2_pattern_detection_attempted'] = True
+            session_manager.set_page_state('pattern_detection_attempted', True)
 
     # Retrieve from session state for display after button press or if already populated
-    detected_patterns_for_display = st.session_state.get('data_analysis_v2_detected_patterns', [])
+    detected_patterns_for_display = session_manager.get_page_state('detected_patterns', [])
     
     # Chart & Table
     if detected_patterns_for_display:
@@ -566,12 +610,12 @@ def display_summary_and_gpt(df: pd.DataFrame):
       # Generate technical indicators summary immediately
     tech_summary = get_technical_indicators_summary(df)
       # Get pattern summary if patterns have been detected
-    detected_patterns = st.session_state.get('data_analysis_v2_detected_patterns', [])
+    detected_patterns = session_manager.get_page_state('detected_patterns', [])
     patterns_summary = get_patterns_summary(detected_patterns)
     
     # Check if we have patterns or if detection was attempted
     has_patterns = len(detected_patterns) > 0
-    pattern_detection_attempted = st.session_state.get('data_analysis_v2_pattern_detection_attempted', False)
+    pattern_detection_attempted = session_manager.get_page_state('pattern_detection_attempted', False)
     
     # Debug information
     logger.info(f"Summary generation - has_patterns: {has_patterns}, detection_attempted: {pattern_detection_attempted}, patterns_count: {len(detected_patterns)}")
@@ -586,24 +630,26 @@ def display_summary_and_gpt(df: pd.DataFrame):
         logger.info("No patterns detected, using default message")
     
     # Store the current summary
-    st.session_state['data_analysis_v2_summary'] = full_summary
-    summary = full_summary
+    session_manager.set_page_state('summary', full_summary)
+    summary = full_summary # Use local variable for clarity in this function
     
     # Clear previous GPT response if summary has changed significantly
-    previous_summary = st.session_state.get('data_analysis_v2_summary_for_gpt', '')
-    if previous_summary and previous_summary != summary:
-        # Only clear if there's a substantial change (not just minor differences)
-        st.session_state['data_analysis_v2_gpt_response'] = ''
+    previous_summary_for_gpt = session_manager.get_page_state('summary_for_gpt', '')
+    if previous_summary_for_gpt and previous_summary_for_gpt != summary:
+        session_manager.set_page_state('gpt_response', '')
+        logger.info("Cleared GPT response due to summary change.")
     
     send_btn = session_manager.create_button(
         "Send Summary to ChatGPT for Review",
-        button_name="data_analysis_v2_send_to_gpt_btn"
+        button_name="data_analysis_v2_send_to_gpt_btn" # SM will namespace this
     )
     if send_btn:
         logger.info("ChatGPT button clicked - setting request flag")
-        logger.info(f"Flag value before setting: {st.session_state.get('data_analysis_v2_send_to_gpt_requested', 'NOT_SET')}")
-        st.session_state['data_analysis_v2_send_to_gpt_requested'] = True
-        logger.info(f"Flag value after setting: {st.session_state.get('data_analysis_v2_send_to_gpt_requested', 'NOT_SET')}")
+        # Flag value logging for send_to_gpt_requested
+        flag_key = 'send_to_gpt_requested'
+        logger.info(f"Flag '{flag_key}' value before setting: {session_manager.get_page_state(flag_key, 'NOT_SET')}")
+        session_manager.set_page_state(flag_key, True)
+        logger.info(f"Flag '{flag_key}' value after setting: {session_manager.get_page_state(flag_key, 'NOT_SET')}")
         st.rerun()  # Force immediate processing of the request
     # Note: ChatGPT processing is now handled in the main run() method 
     # to prevent stuck states when validation fails
@@ -612,24 +658,54 @@ def display_summary_and_gpt(df: pd.DataFrame):
     st.subheader("Current Analysis Summary")
     st.text_area("Summary that will be sent to ChatGPT:", value=summary, height=200, disabled=True)
 
+    # Display ChatGPT response here
+    _render_chatgpt_response_section()
+
 # --- Main Dashboard Run ---
+# (Removed _display_gpt_response method from class and created _render_chatgpt_response_section below)
+
+# Module-level function to render ChatGPT response
+def _render_chatgpt_response_section():
+    """Display ChatGPT response section if available."""
+    # Explicitly log what's retrieved from session state via SessionManager
+    gpt_response_key = 'gpt_response'
+    raw_gpt_response_from_session = session_manager.get_page_state(gpt_response_key)
+    logger.info(f"_render_chatgpt_response_section: Raw response from SM for key '{gpt_response_key}': '{raw_gpt_response_from_session}' (Type: {type(raw_gpt_response_from_session)})")
+
+    gpt_resp = session_manager.get_page_state(gpt_response_key, '') # Default to empty string
+    logger.info(f"_render_chatgpt_response_section: Value of gpt_resp for conditional: '{gpt_resp}' (Type: {type(gpt_resp)})")
+
+    if gpt_resp:
+        logger.info("_render_chatgpt_response_section: Condition 'if gpt_resp' is TRUE. Displaying response.")
+        st.subheader("ChatGPT Review Response")
+        col1, col2 = st.columns([4, 1])
+        with col2:
+            if session_manager.create_button("Clear Response", button_name="data_analysis_v2_clear_gpt_btn"):
+                session_manager.set_page_state(gpt_response_key, '')
+                logger.info(f"Cleared SM state for '{gpt_response_key}' via button.")
+                st.rerun()
+        with col1:
+            st.write(gpt_resp)
+    else:
+        logger.info("_render_chatgpt_response_section: Condition 'if gpt_resp' is FALSE. Not displaying response.")
+
 class DataAnalysisV2Dashboard:
     def run(self):
         # Handle any pending ChatGPT requests FIRST, before any session state initialization
         self._handle_pending_gpt_requests()
         
+        # REMOVED: self._display_gpt_response() call from here
+        
         st.header("Stock Data Upload and Display")
         display_uploaded_data()
-        
-        # Always display ChatGPT response if available (even if validation fails)
-        self._display_gpt_response()
         
         df_from_session = st.session_state.get('uploaded_dataframe')
         if not isinstance(df_from_session, pd.DataFrame):
             return
         df: pd.DataFrame = df_from_session
         validation_result = st.session_state.get('validation_result')
-        new_file_just_uploaded = st.session_state.get('data_analysis_v2_new_file_uploaded_this_run', False)
+        # Use SessionManager to get this state variable
+        new_file_just_uploaded = session_manager.get_page_state('new_file_uploaded_this_run', False)
         if new_file_just_uploaded or not isinstance(validation_result, DataFrameValidationResult):
             normalize_and_validate_ohlc(df)
             df_after_norm_val = st.session_state.get('uploaded_dataframe')
@@ -654,45 +730,28 @@ class DataAnalysisV2Dashboard:
             # Not yet validated
             st.info("Data is available but has not been validated yet. Please ensure the data is processed.")
     
-    def _display_gpt_response(self):
-        """Display ChatGPT response section if available."""
-        # Explicitly log what's retrieved from session state
-        raw_gpt_response_from_session = st.session_state.get('data_analysis_v2_gpt_response')
-        logger.info(f"DataAnalysisV2Dashboard._display_gpt_response: Raw response from session: '{raw_gpt_response_from_session}' (Type: {type(raw_gpt_response_from_session)})")
-
-        gpt_resp = st.session_state.get('data_analysis_v2_gpt_response', '') # Default to empty string
-        logger.info(f"DataAnalysisV2Dashboard._display_gpt_response: Value of gpt_resp for conditional: '{gpt_resp}' (Type: {type(gpt_resp)})")
-
-        if gpt_resp:
-            logger.info("DataAnalysisV2Dashboard._display_gpt_response: Condition 'if gpt_resp' is TRUE. Displaying response.")
-            st.subheader("ChatGPT Review Response")
-            col1, col2 = st.columns([4, 1])
-            with col2:
-                # Ensure using the global session_manager and a unique button_name for the key
-                if session_manager.create_button("Clear Response", button_name="data_analysis_v2_clear_gpt_btn"): # Uses global session_manager
-                    st.session_state['data_analysis_v2_gpt_response'] = ''
-                    st.rerun()
-            with col1:
-                st.write(gpt_resp)
-        else:
-            logger.info("DataAnalysisV2Dashboard._display_gpt_response: Condition 'if gpt_resp' is FALSE. Not displaying response.")
-    
     def _handle_pending_gpt_requests(self):
         """
         Handle any pending ChatGPT requests to prevent stuck states.
         This ensures the flag gets cleared even if validation fails.
+        Uses SessionManager for state access.
         """
-        logger.info(f"Checking for pending ChatGPT requests. Flag status: {st.session_state.get('data_analysis_v2_send_to_gpt_requested', False)}")
+        send_requested_key = 'send_to_gpt_requested'
+        summary_key = 'summary'
+        gpt_response_key = 'gpt_response'
+        summary_for_gpt_key = 'summary_for_gpt'
+
+        logger.info(f"Checking for pending ChatGPT requests. Flag '{send_requested_key}' status: {session_manager.get_page_state(send_requested_key, False)}")
         
-        if st.session_state.get('data_analysis_v2_send_to_gpt_requested', False):
+        if session_manager.get_page_state(send_requested_key, False):
             logger.info("Found pending ChatGPT request - processing now")
             # Clear the flag immediately to prevent infinite loops
-            st.session_state['data_analysis_v2_send_to_gpt_requested'] = False
+            session_manager.set_page_state(send_requested_key, False)
             
-            # Try to get the summary from session state
-            summary = st.session_state.get('data_analysis_v2_summary', '')
+            # Try to get the summary from session state via SessionManager
+            summary_text = session_manager.get_page_state(summary_key, '')
             
-            if not summary:
+            if not summary_text:
                 st.error("No analysis summary available to send to ChatGPT. Please ensure data is uploaded and analyzed first.")
                 return
             
@@ -703,17 +762,16 @@ class DataAnalysisV2Dashboard:
             with st.spinner("Contacting ChatGPT API... This may take up to 30 seconds."):
                 try:
                     logger.info("Calling get_chatgpt_insight function")
-                    api_response = get_chatgpt_insight(summary)
+                    api_response = get_chatgpt_insight(summary_text)
                     
                     logger.info(f"ChatGPT API response received: {len(api_response) if api_response else 0} characters")
                     
+                    response_to_store = ""
                     if api_response and isinstance(api_response, str) and api_response.strip():
                         if api_response.startswith("Error:"):
-                            # Handle API errors
                             response_to_store = api_response
                             st.error(f"❌ {api_response}")
                         else:
-                            # Successful response
                             response_to_store = api_response
                             st.success("✅ ChatGPT response received successfully!")
                     elif api_response == "":
@@ -723,13 +781,13 @@ class DataAnalysisV2Dashboard:
                         response_to_store = "ChatGPT returned an unexpected response."
                         st.warning("⚠️ ChatGPT returned an unexpected response.")
                     
-                    st.session_state['data_analysis_v2_gpt_response'] = response_to_store
-                    st.session_state['data_analysis_v2_summary_for_gpt'] = summary
-                    logger.info("ChatGPT response stored in session state")
+                    session_manager.set_page_state(gpt_response_key, response_to_store)
+                    session_manager.set_page_state(summary_for_gpt_key, summary_text)
+                    logger.info(f"ChatGPT response stored in SM state for keys '{gpt_response_key}' and '{summary_for_gpt_key}'.")
                     
                 except Exception as e:
                     error_msg = f"Error: {e}"
-                    st.session_state['data_analysis_v2_gpt_response'] = error_msg
+                    session_manager.set_page_state(gpt_response_key, error_msg)
                     st.error(f"❌ ChatGPT error: {e}")
                     logger.error(f"ChatGPT API error: {e}")
 

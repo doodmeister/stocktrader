@@ -12,9 +12,6 @@ Key Features:
 - Session state isolation and cleanup
 - Conflict prevention across modular architecture
 - Thread-safe operations
-
-Author: GitHub Copilot
-Created: 2025-05-29
 """
 
 import streamlit as st
@@ -29,6 +26,9 @@ from contextlib import contextmanager
 from utils.logger import get_dashboard_logger
 
 logger = get_dashboard_logger(__name__)
+
+# Key for st.session_state to track the last active SessionManager namespace
+_SM_LAST_ACTIVE_NAMESPACE_KEY = "_sm_last_active_page_namespace"
 
 
 @dataclass
@@ -46,9 +46,12 @@ class PageContext:
 class SessionManager:
     """
     Comprehensive session state management for StockTrader dashboards.
-    Now supports optional tab context for widget key namespacing.
+    Now supports optional tab context for widget key namespacing and
+    detects navigation to a new page to signal state clearing.
     """
     
+    _SM_LAST_ACTIVE_NAMESPACE_KEY = "_sm_last_active_page_namespace" # Class attribute for clarity
+
     def __init__(self, page_name: str = "main", tab: Optional[str] = None):
         """
         Initialize the session manager for a specific dashboard page and optional tab.
@@ -58,15 +61,56 @@ class SessionManager:
             tab: Optional tab context for further key namespacing
         """
         self.page_name = page_name or self._detect_page_name()
-        self.namespace = self._generate_namespace()
+        self.namespace = self._generate_namespace() # e.g., "data_analysis_v2_stable"
         self.session_id = self._get_or_create_session_id()
         self.tab = tab
         
-        # Initialize page context
+        self.is_new_page_entry = False
+        last_active_namespace = st.session_state.get(SessionManager._SM_LAST_ACTIVE_NAMESPACE_KEY)
+
+        if self.namespace != last_active_namespace:
+            logger.info(f"SessionManager: New page entry or navigation detected for namespace '{self.namespace}'. Last active was '{last_active_namespace}'.")
+            self.is_new_page_entry = True
+            self._clear_all_sm_managed_state_for_namespace()
+            st.session_state[SessionManager._SM_LAST_ACTIVE_NAMESPACE_KEY] = self.namespace
+        else:
+            logger.debug(f"SessionManager: In-page rerun for namespace '{self.namespace}'.")
+            self.is_new_page_entry = False
+            
+        # Initialize page context (will be fresh if cleared above)
         self._initialize_page_context()
         
-        logger.debug(f"SessionManager initialized for {self.page_name} (tab={self.tab}) with namespace {self.namespace}")
-    
+        logger.debug(f"SessionManager initialized for {self.page_name} (tab={self.tab}) with namespace {self.namespace}. New entry: {self.is_new_page_entry}")
+
+    def _clear_all_sm_managed_state_for_namespace(self):
+        """
+        Clears all state managed by SessionManager for the current namespace.
+        This includes keys set by set_page_state(), widget keys, and the PageContext itself.
+        """
+        logger.info(f"SessionManager: Clearing all SM-managed state for namespace '{self.namespace}'.")
+        keys_to_delete = []
+        # Collect keys associated with this namespace (page state and widget keys)
+        for key in st.session_state.keys():
+            if isinstance(key, str) and key.startswith(self.namespace + "_"):
+                keys_to_delete.append(key)
+        
+        # Also collect the PageContext key
+        context_key = f"_page_context_{self.namespace}"
+        if context_key in st.session_state:
+            keys_to_delete.append(context_key)
+
+        for key in keys_to_delete:
+            if key in st.session_state: # Double check before deleting
+                del st.session_state[key]
+                logger.debug(f"SessionManager: Deleted SM-managed key '{key}' for namespace '{self.namespace}'.")
+
+    def has_navigated_to_page(self) -> bool:
+        """
+        Returns True if this SessionManager instance's initialization detected
+        a navigation to its page (i.e., it's not an in-page rerun).
+        """
+        return self.is_new_page_entry
+
     def _detect_page_name(self) -> str:
         """Automatically detect the current page name from the call stack."""
         import inspect
