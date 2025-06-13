@@ -420,9 +420,11 @@ class CandlestickPatterns:
                     oldest_key = next(iter(self._cache))
                     del self._cache[oldest_key]
         
+        # Always return a List[PatternResult]
         return filtered_results
     
-    def _detect_patterns_sequential(self, df: pd.DataFrame, patterns: List[Tuple[str, PatternDetector]]) -> List[PatternResult]:
+
+    def _detect_patterns_sequential(self, df: pd.DataFrame, patterns: List[Tuple[str, 'PatternDetector']]) -> List['PatternResult']:
         """Detect patterns sequentially."""
         results = []
         
@@ -445,10 +447,8 @@ class CandlestickPatterns:
         
         return results
     
-    def _detect_patterns_parallel(self, df: pd.DataFrame, patterns: List[Tuple[str, PatternDetector]]) -> List[PatternResult]:
+    def _detect_patterns_parallel(self, df: pd.DataFrame, patterns: List[Tuple[str, 'PatternDetector']]) -> List['PatternResult']:
         """Detect patterns in parallel using ThreadPoolExecutor."""
-        results = []
-        
         def detect_single_pattern(name_pattern_tuple):
             name, pattern = name_pattern_tuple
             try:
@@ -464,10 +464,8 @@ class CandlestickPatterns:
                     description=f"Detection failed: {str(e)}",
                     min_rows_required=pattern.min_rows
                 )
-        
         with ThreadPoolExecutor(max_workers=min(len(patterns), 4)) as executor:
             results = list(executor.map(detect_single_pattern, patterns))
-        
         return results
     
     def _create_cache_key(self, df: pd.DataFrame, pattern_names: Optional[List[str]]) -> str:

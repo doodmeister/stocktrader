@@ -135,13 +135,37 @@ class SessionManager:
         return self.get_unique_key(form_name, "form")
     
     def get_button_key(self, button_name: str) -> str:
-        """Get a unique button key for this page."""
-        return self.get_unique_key(button_name, "button")
-    
+        return self.get_widget_key("button", button_name)
+
     def get_input_key(self, input_name: str) -> str:
-        """Get a unique input key for this page."""
-        return self.get_unique_key(input_name, "input")
-    
+        return self.get_widget_key("input", input_name)
+
+    def get_widget_key(self, widget_type: str, name: str) -> str:
+        """
+        Generic method to generate a stable unique key for any Streamlit widget.
+
+        Args:
+            widget_type: The type of widget (e.g. 'button', 'form', 'input', 'text_area')
+            name: Base name for the key (e.g. 'submit', 'file_upload')
+        Returns:
+            str: Namespaced, stable widget key.
+        """
+        # Ensure widget_type is a string and doesn't contain problematic characters
+        safe_widget_type = "".join(c if c.isalnum() or c == '_' else '' for c in str(widget_type).lower())
+        safe_name = "".join(c if c.isalnum() or c == '_' else '' for c in str(name).lower())
+
+        tab_prefix = self._tab_prefix()
+        unique_key = f"{self.namespace}_{tab_prefix}{safe_widget_type}_{safe_name}"
+        
+        # Track this key for cleanup
+        context_key = f"_page_context_{self.namespace}"
+        context = st.session_state.get(context_key)
+        if context and unique_key not in context.cleanup_keys:
+            context.cleanup_keys.append(unique_key)
+        
+        logger.debug(f"Generated stable widget key: {unique_key}")
+        return unique_key
+
     def set_page_state(self, key: str, value: Any) -> None:
         """
         Set a page-specific session state value.
@@ -558,6 +582,17 @@ class SessionManager:
             "total_session_keys": len(st.session_state),
             "page_specific_keys": len([k for k in st.session_state.keys() if isinstance(k, str) and k.startswith(self.namespace)])
         }
+
+    def reset_on_first_load(self):
+        """
+        Reset all page-specific session state ONLY on the first load of the page (not on rerun).
+        This uses a page-specific flag in session state to track first load.
+        """
+        first_load_key = f"{self.namespace}_first_load_done"
+        if not st.session_state.get(first_load_key, False):
+            self.clear_page_state()
+            st.session_state[first_load_key] = True
+            logger.info(f"SessionManager: Reset page state for {self.page_name} on first load.")
 
 
 class GlobalSessionManager:

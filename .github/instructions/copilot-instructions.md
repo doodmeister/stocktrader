@@ -35,10 +35,8 @@ python -m venv venv
 source venv/Scripts/activate
 pip install -r requirements.txt
 ```
-
-### Main Dashboard Entry Point
+### Running the Dashboard
 streamlit run main.py
-streamlit run dashboard_pages/patterns_management.py --server.port=8501
 
 ### Project structure
 
@@ -259,10 +257,33 @@ selected_value = session_manager.create_selectbox(
    - Add defensive session state cleanup if needed
    - Test with `python test_streamlit_patterns.py`
 
-   ### Session State & Widget Keys
-- Always use `SessionManager.create_*` for widgets.
-- Namespace every key to the page/feature context.
-- Never reuse keys across tabs, components, or dynamic widgets.
-- For dynamic/loop widgets, append index/identifier to key.
-- Always delete conflicting keys from `st.session_state` before reassigning.
-- Search for key usage with `grep -r "key_name" .` before adding/changing any key.
+Recommendations for Robust Session State Management
+  a. Always Use a Single, Shared st.session_state
+Ensure that all dashboard pages, regardless of how they are loaded, reference the same st.session_state object.
+Avoid creating new session state dicts or passing copies between modules.
+b. Defensive, Intent-Based State Cleanup
+Only clear or reset session state keys in response to explicit user actions (e.g., new file upload, logout).
+Never clear state on page navigation, rerun, or error unless absolutely necessary.
+Use defensive cleanup: before setting a key, delete only conflicting keys, not the entire state.
+c. Consistent, Namespaced Key Patterns
+Use the SessionManager to generate all widget keys, with full namespacing: "{page}_{tab}_{component}_{function}_{widget_type}".
+Never reuse keys across pages, tabs, or components.
+d. Page/Tab-Specific State Isolation
+When using tabs, always instantiate a new SessionManager per tab, with the tab argument set.
+Never share widget keys or session manager instances across tabs.
+e. Avoid Overuse of st.rerun() and st.session_state.clear()
+Use st.rerun() only when necessary (e.g., after a user action that requires a full UI refresh).
+Never call st.session_state.clear() except for explicit user-triggered resets (e.g., logout, new file upload).
+f. Centralize State Initialization
+On each page load, initialize all required session state keys with default values if not present.
+Use a utility function or the SessionManager to handle this consistently.
+g. Document and Audit State Transitions
+Add comments and documentation to clarify when and why state is cleared or set.
+Regularly audit the codebase for accidental state resets or key conflicts.
+Each page (e.g., data_analysis_v2.py, patterns_management.py, etc.):
+
+Should call its own _init_*_state() function at the very top of the script.
+
+That function should check a page-specific flag (e.g., 'data_analysis_v2_first_load_done') and, if missing, clear only that page's keys, then set the flag.
+
+All in-page reruns (due to widget/button interaction) will see the flag and skip clearing state.
