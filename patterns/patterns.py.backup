@@ -295,20 +295,29 @@ class CandlestickPatterns:
         self._register_builtin_patterns()
     
     def _register_builtin_patterns(self):
-        """Dynamically register all PatternDetector subclasses in this module."""
-        import inspect
-        import sys
-        current_module = sys.modules[__name__]
-        pattern_classes = [
-            cls for name, cls in inspect.getmembers(current_module, inspect.isclass)
-            if issubclass(cls, PatternDetector) and cls is not PatternDetector
+        """Register all built-in candlestick patterns."""
+        patterns = [
+            HammerPattern(),
+            BullishEngulfingPattern(),
+            MorningStarPattern(),
+            PiercingPatternDetector(),
+            BullishHaramiPattern(),
+            ThreeWhiteSoldiersPattern(),
+            InvertedHammerPattern(),
+            DojiPattern(),
+            MorningDojiStarPattern(),
+            BullishAbandonedBabyPattern(),
+            BullishBeltHoldPattern(),
+            ThreeInsideUpPattern(),
+            RisingWindowPattern(),
+            BearishEngulfingPattern(),
+            EveningStarPattern(),
+            ThreeBlackCrowsPattern(),
+            BearishHaramiPattern(),
         ]
-        for cls in pattern_classes:
-            try:
-                instance = cls()
-                self.register_pattern(instance)
-            except Exception as e:
-                logger.warning(f"Could not instantiate pattern {cls.__name__}: {e}")
+        
+        for pattern in patterns:
+            self.register_pattern(pattern)
     
     def register_pattern(self, pattern: PatternDetector):
         """
@@ -1266,85 +1275,6 @@ class BearishHaramiPattern(PatternDetector):
             description="Two-candle pattern where small bearish candle is contained within previous bullish candle",
             min_rows_required=self.min_rows
         )
-
-
-class UpsideGapTwoCrowsPattern(PatternDetector):
-    """Upside Gap Two Crows pattern detector."""
-
-    @property
-    def name(self) -> str:
-        return "Upside Gap Two Crows"
-
-    @property
-    def min_rows(self) -> int:
-        return 3
-
-    @property
-    def pattern_type(self) -> PatternType:
-        return PatternType.BEARISH_REVERSAL
-
-    @property
-    def strength(self) -> PatternStrength:
-        return PatternStrength.MODERATE
-
-    @validate_dataframe
-    def detect(self, df: pd.DataFrame) -> PatternResult:
-        if len(df) < 3:
-            return PatternResult(
-                name=self.name,
-                detected=False,
-                confidence=0.0,
-                pattern_type=self.pattern_type,
-                strength=self.strength,
-                description="Insufficient data for pattern detection",
-                min_rows_required=self.min_rows
-            )
-
-        first, second, third = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-
-        # Candle 1: Long bullish candle
-        c1_bullish = first.close > first.open
-        c1_body = abs(first.close - first.open)
-
-        # Candle 2: Small bearish candle that gaps up from c1
-        c2_bearish = second.close < second.open
-        c2_body = abs(second.close - second.open)
-        c2_small = c2_body < 0.6 * c1_body
-        c2_gap_up = second.open > first.high
-
-        # Candle 3: Bearish, opens within c2 body and closes within c1 body
-        c3_bearish = third.close < third.open
-        c3_opens_within_c2 = min(second.open, second.close) < third.open < max(second.open, second.close)
-        c3_closes_within_c1 = min(first.open, first.close) < third.close < max(first.open, first.close)
-
-        detected = (
-            c1_bullish and
-            c2_bearish and
-            c2_gap_up and
-            c2_small and
-            c3_bearish and
-            c3_opens_within_c2 and
-            c3_closes_within_c1
-        )
-
-        # Confidence calculation
-        if detected:
-            gap_size = second.open - first.high
-            gap_quality = min(gap_size / c1_body, 1.0)
-            confidence = round(0.6 + 0.4 * gap_quality, 3)
-        else:
-            confidence = 0.0
-
-        return PatternResult(
-            name=self.name,
-            detected=detected,
-            confidence=confidence,
-            pattern_type=self.pattern_type,
-            strength=self.strength,
-            description="Bearish reversal pattern: Bullish candle, then two small bearish candles with an upside gap and closing into first candle's body.",
-            min_rows_required=self.min_rows
-        )
-
 
 # End of Pattern Implementations
 

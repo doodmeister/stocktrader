@@ -104,11 +104,11 @@ def safe_file_write(file_path: Path, content: str, create_backup: bool = True) -
         if create_backup and file_path.exists():
             backup_path = file_path.with_suffix(f"{file_path.suffix}.backup")
             shutil.copy2(file_path, backup_path)
-        
-        # Write to temporary file first
+        # Write to temporary file first with UTF-8 encoding
         with tempfile.NamedTemporaryFile(mode='w', delete=False, 
                                        suffix=file_path.suffix,
-                                       dir=file_path.parent) as tmp_file:
+                                       dir=file_path.parent,
+                                       encoding='utf-8') as tmp_file:
             tmp_file.write(content)
             tmp_path = Path(tmp_file.name)
         
@@ -153,12 +153,11 @@ def save_dataframe_with_metadata(
         # Save DataFrame to temporary file first
         temp_csv_path = file_path.with_suffix('.tmp')
         df.to_csv(temp_csv_path, index=False)
-        
-        # Save metadata to temporary file
+          # Save metadata to temporary file
         metadata_path = file_path.with_suffix('.meta.json')
         temp_meta_path = metadata_path.with_suffix('.tmp')
         
-        with open(temp_meta_path, 'w') as f:
+        with open(temp_meta_path, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, indent=2, default=str)
         
         # Atomic moves
@@ -274,13 +273,21 @@ def load_dataframe_with_validation(file_path: Path, **pandas_kwargs) -> Tuple[Op
         if file_info["size"] == 0:
             return None, "File is empty"
         
-        # Load with default timestamp parsing
-        default_kwargs = {
-            'parse_dates': ['timestamp'] if 'parse_dates' not in pandas_kwargs else pandas_kwargs['parse_dates']
-        }
-        default_kwargs.update(pandas_kwargs)
+        # Create a copy of pandas_kwargs to avoid modifying the original
+        kwargs = pandas_kwargs.copy()
         
-        df = pd.read_csv(file_path, **default_kwargs)
+        # Only set parse_dates default if not already specified
+        if 'parse_dates' not in kwargs:
+            # Try to detect if timestamp column exists by reading a small sample
+            try:
+                sample_df = pd.read_csv(file_path, nrows=1)
+                if 'timestamp' in sample_df.columns:
+                    kwargs['parse_dates'] = ['timestamp']
+            except Exception:
+                # If we can't read a sample, don't set parse_dates
+                pass
+        
+        df = pd.read_csv(file_path, **kwargs)
         
         if df.empty:
             return None, "DataFrame is empty after loading"
@@ -307,7 +314,7 @@ def load_metadata(file_path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
         if not metadata_path.exists():
             return None, "No metadata file found"
         
-        with open(metadata_path, 'r') as f:
+        with open(metadata_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
         
         return metadata, "Metadata loaded successfully"

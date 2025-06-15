@@ -92,8 +92,8 @@ class PatternsManager:
                     
                     source_code = 'Source code not available'
                     try:
-                        # Source code of the detect method
-                        source_code = inspect.getsource(pattern_instance.detect)
+                        # Show the full class source code, not just the detect method
+                        source_code = inspect.getsource(type(pattern_instance))
                     except Exception:
                         pass # Keep 'Source code not available'
 
@@ -185,13 +185,16 @@ class PatternsManager:
             if not current_content:
                 return False, "Could not read current patterns file"
 
-            # Append new pattern (insert before the last line)
-            lines = current_content.strip().split('\n')
-            if lines:
-                # Insert new pattern before the end of the file
-                new_content = '\n'.join(lines[:-1]) + '\n\n' + pattern_code + '\n' + lines[-1]
-            else:
-                new_content = pattern_code
+            # Insert new pattern above the marker
+            marker = '# End of Pattern Implementations'
+            lines = current_content.split('\n')
+            try:
+                marker_idx = next(i for i, line in enumerate(lines) if marker in line)
+            except StopIteration:
+                return False, f"Marker '{marker}' not found in patterns.py"
+
+            # Insert pattern above the marker
+            new_content = '\n'.join(lines[:marker_idx]) + f"\n\n{pattern_code}\n" + '\n'.join(lines[marker_idx:])
 
             # Save with backup
             success, message, backup_path = safe_file_write(
@@ -476,14 +479,30 @@ class PatternsManagementUI:
         with col2:
             if self.session_manager.create_button("💾 Save Pattern", button_name="save_new_pattern"):
                 if pattern_code.strip():
-                    success, message = self.manager.save_new_pattern(pattern_code)
-                    if success:
-                        st.success(f"✅ {message}")
-                        st.balloons()
-                        st.session_state['new_pattern_code'] = ""
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
+                    # Check for potential encoding issues in the pasted code
+                    try:
+                        # Test if the code can be encoded/decoded properly
+                        test_encode = pattern_code.encode('utf-8').decode('utf-8')
+                        
+                        # Try to save the pattern
+                        success, message = self.manager.save_new_pattern(pattern_code)
+                        if success:
+                            st.success(f"✅ {message}")
+                            st.balloons()
+                            st.session_state['new_pattern_code'] = ""
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
+                            
+                    except UnicodeEncodeError as e:
+                        st.error(f"❌ Encoding error in pattern code: {e}")
+                        st.info("💡 Try removing any special characters or symbols from your code")
+                    except UnicodeDecodeError as e:
+                        st.error(f"❌ Decoding error in pattern code: {e}")
+                        st.info("💡 The pasted code contains characters that can't be processed")
+                    except Exception as e:
+                        st.error(f"❌ Unexpected error: {e}")
+                        logger.error(f"Pattern save error: {e}", exc_info=True)
                 else:
                     st.warning("Please enter pattern code before saving.")
 
@@ -651,40 +670,41 @@ def main():
     ui = PatternsManagementUI(page_name="patterns_management")
     st.title("Candlestick Patterns Management")
     
+    # --- Defensive: Always default to viewer on page load unless explicitly set by navigation ---
+    if not ui.session_manager.get_page_state('active_section'):
+        ui.session_manager.set_page_state('active_section', 'viewer')
+
     # Left toolbar navigation using SessionManager buttons
     st.markdown("### Navigation")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         if ui.session_manager.create_button("🔍 Pattern Viewer", button_name="nav_viewer"):
-            st.session_state['active_section'] = "viewer"
-    
+            ui.session_manager.set_page_state('active_section', 'viewer')
+
     with col2:
         if ui.session_manager.create_button("📚 Pattern Catalog", button_name="nav_catalog"):
-            st.session_state['active_section'] = "catalog"
-    
+            ui.session_manager.set_page_state('active_section', 'catalog')
+
     with col3:
         if ui.session_manager.create_button("📥 Download", button_name="nav_download"):
-            st.session_state['active_section'] = "download"
-    
+            ui.session_manager.set_page_state('active_section', 'download')
+
     with col4:
         if ui.session_manager.create_button("➕ Add Pattern", button_name="nav_add"):
-            st.session_state['active_section'] = "add"
-    
-    # Initialize active section if not set
-    if 'active_section' not in st.session_state:
-        st.session_state['active_section'] = "viewer"
-    
+            ui.session_manager.set_page_state('active_section', 'add')
+
     st.markdown("---")
-    
+
     # Render the active section
-    if st.session_state['active_section'] == "viewer":
+    active_section = ui.session_manager.get_page_state('active_section', 'viewer')
+    if active_section == "viewer":
         ui.render_patterns_viewer()
-    elif st.session_state['active_section'] == "catalog":
+    elif active_section == "catalog":
         ui.render_patterns_catalog()
-    elif st.session_state['active_section'] == "download":
+    elif active_section == "download":
         ui.render_download_section()
-    elif st.session_state['active_section'] == "add":
+    elif active_section == "add":
         ui.render_add_pattern_section()
 
 if __name__ == "__main__":
